@@ -16,9 +16,11 @@ import (
 	"time"
 
 	"github.com/NathanBhanji/debrid-client/internal/api"
+	"github.com/NathanBhanji/debrid-client/internal/apiclient"
 	"github.com/NathanBhanji/debrid-client/internal/config"
 	"github.com/NathanBhanji/debrid-client/internal/engine"
 	"github.com/NathanBhanji/debrid-client/internal/events"
+	"github.com/NathanBhanji/debrid-client/internal/mcpserver"
 	"github.com/NathanBhanji/debrid-client/internal/provider"
 	_ "github.com/NathanBhanji/debrid-client/internal/provider/torbox" // register providers
 	"github.com/NathanBhanji/debrid-client/internal/service"
@@ -69,6 +71,21 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*App, error)
 		return nil, err
 	}
 	h := api.New(svc, api.Options{APIKey: key, BasePath: cfg.Server.BasePath, Logger: log})
+
+	// MCP over Streamable HTTP at <base>/mcp, driving the API in-process.
+	cl, err := apiclient.NewClientWithResponses("http://127.0.0.1"+strings.TrimSuffix(cfg.Server.BasePath, "/"),
+		apiclient.WithHTTPClient(&http.Client{Transport: api.InProcessTransport{Handler: h}}),
+		apiclient.WithRequestEditorFn(func(_ context.Context, r *http.Request) error {
+			r.Header.Set("Authorization", "Bearer "+key)
+			return nil
+		}))
+	if err != nil {
+		_ = st.Close()
+		return nil, err
+	}
+	mcpPath := strings.TrimSuffix(cfg.Server.BasePath, "/") + "/mcp"
+	h.Mux.Handle(mcpPath, api.RequireAPIKey(key, mcpserver.NewHTTPHandler(cl)))
+
 	return &App{Cfg: cfg, Log: log, Store: st, Service: svc, Engine: eng, API: h, APIKey: key, Bus: bus, Mux: h.Mux}, nil
 }
 

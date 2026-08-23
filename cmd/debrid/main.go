@@ -39,7 +39,7 @@ func newRootCmd() *cobra.Command {
 	cf := &clientFlags{}
 	root.AddCommand(newVersionCmd(), newConfigCmd(g), newServeCmd(g), newOpenAPICmd())
 	// Client commands get --server/--api-key/--json; serve/config don't (they'd be silently ignored).
-	for _, c := range []*cobra.Command{newStatusCmd(g, cf), newTorrentsCmd(g, cf), newAccountsCmd(g, cf), newDownloadsCmd(g, cf), newSettingsCmd(g, cf)} {
+	for _, c := range []*cobra.Command{newStatusCmd(g, cf), newMCPCmd(g, cf), newTorrentsCmd(g, cf), newAccountsCmd(g, cf), newDownloadsCmd(g, cf), newSettingsCmd(g, cf)} {
 		cf.bind(c)
 		root.AddCommand(c)
 	}
