@@ -563,3 +563,52 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+/* --- bay actions -------------------------------------------- */
+.bayacts {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.eject-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--mut);
+  background: #dbd8d0;
+  border: 1px solid var(--edge);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+.eject-confirm label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+}
+.eject-confirm input {
+  accent-color: var(--org);
+}
+.filelist .fsel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.filelist .fsel input {
+  accent-color: var(--org);
+}
+.frow-retry {
+  background: none;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+.frow-retry:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

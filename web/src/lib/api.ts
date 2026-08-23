@@ -9,6 +9,7 @@ export type Torrent = components['schemas']['Torrent']
 export type Account = components['schemas']['Account']
 export type Settings = components['schemas']['Settings']
 export type Health = components['schemas']['HealthOutBody']
+export type Download = components['schemas']['Download']
 
 const KEY_STORAGE = 'debrid.apiKey'
 
@@ -72,6 +73,25 @@ export const api = {
       ),
     retry: (id: string) =>
       request<Torrent>(`/torrents/${encodeURIComponent(id)}/retry`, {
+        method: 'POST',
+      }),
+    // FormData bodies get their multipart boundary from the browser; request()
+    // only forces Content-Type for string bodies, so this stays correct.
+    addFile: (file: File, category?: string) => {
+      const form = new FormData()
+      form.append('file', file)
+      if (category) form.append('category', category)
+      return request<Torrent>('/torrents/file', { method: 'POST', body: form })
+    },
+    selectFiles: (id: string, fileIds: Array<string>) =>
+      request<Torrent>(`/torrents/${encodeURIComponent(id)}/files`, {
+        method: 'PUT',
+        body: JSON.stringify({ file_ids: fileIds }),
+      }),
+  },
+  downloads: {
+    retry: (id: string) =>
+      request<Download>(`/downloads/${encodeURIComponent(id)}/retry`, {
         method: 'POST',
       }),
   },

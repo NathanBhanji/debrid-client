@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 
 import { ApiError, api, openEvents, setApiKey } from '#/lib/api'
+import { InsertWell } from '#/components/insert'
 import { Rack } from '#/components/rack'
 import type { Status } from '#/lib/api'
 
@@ -147,7 +148,12 @@ function Home() {
           </div>
         </div>
       </div>
-      {authed && <Rack refreshTick={tick} />}
+      {authed && (
+        <>
+          <InsertWell onAdded={() => setTick((n) => n + 1)} />
+          <Rack refreshTick={tick} />
+        </>
+      )}
     </section>
   )
 }
