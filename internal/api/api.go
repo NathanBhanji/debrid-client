@@ -82,6 +82,9 @@ func New(svc *service.Service, opts Options) *Handler {
 	api.UseMiddleware(h.authMiddleware)
 	h.registerRoutes(prefix + "/api/v1")
 	h.registerAuthRoutes(prefix + "/api/v1")
+	if opts.Auth != nil {
+		h.registerOIDCRoutes(prefix + "/api/v1")
+	}
 	return h
 }
 

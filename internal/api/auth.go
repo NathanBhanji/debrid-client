@@ -110,6 +110,7 @@ type authStatusOut struct {
 	Body struct {
 		Configured bool   `json:"configured" doc:"Whether onboarding has completed"`
 		Mode       string `json:"mode" doc:"Configured auth mode: password or oidc; empty until onboarding"`
+		OIDCIssuer string `json:"oidc_issuer,omitempty" doc:"Configured OIDC issuer, shown on the login/setup screens"`
 	}
 }
 
@@ -169,9 +170,14 @@ func (h *Handler) registerAuthRoutes(p string) {
 		if err != nil {
 			return nil, h.mapErr(err)
 		}
+		issuer, err := mgr.OIDCIssuer(ctx)
+		if err != nil {
+			return nil, h.mapErr(err)
+		}
 		out := &authStatusOut{}
 		out.Body.Configured = mode != auth.ModeUnconfigured
 		out.Body.Mode = string(mode)
+		out.Body.OIDCIssuer = issuer
 		return out, nil
 	})
 

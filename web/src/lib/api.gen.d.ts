@@ -112,6 +112,40 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/auth/oidc/callback': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /** OIDC provider callback */
+    get: operations['auth-oidc-callback']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/auth/oidc/start': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /** Redirect to the OIDC provider to sign in */
+    get: operations['auth-oidc-start']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/auth/password': {
     parameters: {
       query?: never
@@ -123,6 +157,23 @@ export interface paths {
     put?: never
     /** Change the local user's password (revokes all sessions) */
     post: operations['auth-change-password']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/auth/setup/oidc': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** First-run setup: configure OIDC and begin the pinning sign-in (requires the API key) */
+    post: operations['auth-setup-oidc']
     delete?: never
     options?: never
     head?: never
@@ -410,6 +461,8 @@ export interface components {
       configured: boolean
       /** @description Configured auth mode: password or oidc; empty until onboarding */
       mode: string
+      /** @description Configured OIDC issuer, shown on the login/setup screens */
+      oidc_issuer?: string
     }
     ChangePasswordInBody: {
       /**
@@ -636,6 +689,29 @@ export interface components {
       torrent_defaults: components['schemas']['TorrentSettings']
       /** Format: int64 */
       unpack_max_depth?: number
+    }
+    SetupOIDCInBody: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://example.com/schemas/SetupOIDCInBody.json
+       */
+      readonly $schema?: string
+      client_id: string
+      /** @description Optional for public clients */
+      client_secret?: string
+      /** @description OIDC issuer URL, e.g. https://id.example.com */
+      issuer: string
+    }
+    SetupOIDCOutBody: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://example.com/schemas/SetupOIDCOutBody.json
+       */
+      readonly $schema?: string
+      /** @description Navigate the browser here to complete setup at the provider */
+      auth_url: string
     }
     SetupPasswordInBody: {
       /**
@@ -1095,6 +1171,68 @@ export interface operations {
       }
     }
   }
+  'auth-oidc-callback': {
+    parameters: {
+      query?: {
+        state?: string
+        code?: string
+        error?: string
+        error_description?: string
+      }
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Found */
+      302: {
+        headers: {
+          Location?: string
+          'Set-Cookie'?: string
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'auth-oidc-start': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Found */
+      302: {
+        headers: {
+          Location?: string
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
   'auth-change-password': {
     parameters: {
       query?: never
@@ -1114,6 +1252,39 @@ export interface operations {
           [name: string]: unknown
         }
         content?: never
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'auth-setup-oidc': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['SetupOIDCInBody']
+      }
+    }
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['SetupOIDCOutBody']
+        }
       }
       /** @description Error */
       default: {

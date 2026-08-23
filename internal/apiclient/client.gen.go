@@ -273,6 +273,9 @@ type AuthStatusOutBody struct {
 
 	// Mode Configured auth mode: password or oidc; empty until onboarding
 	Mode string `json:"mode"`
+
+	// OidcIssuer Configured OIDC issuer, shown on the login/setup screens
+	OidcIssuer *string `json:"oidc_issuer,omitempty"`
 }
 
 // ChangePasswordInBody defines model for ChangePasswordInBody.
@@ -500,6 +503,32 @@ type Settings struct {
 	UnpackMaxDepth  *int64          `json:"unpack_max_depth,omitempty"`
 }
 
+// SetupOIDCInBody defines model for SetupOIDCInBody.
+type SetupOIDCInBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	//
+	// Example: https://example.com/schemas/SetupOIDCInBody.json
+	Schema   *string `json:"$schema,omitempty"`
+	ClientId string  `json:"client_id"`
+
+	// ClientSecret Optional for public clients
+	ClientSecret *string `json:"client_secret,omitempty"`
+
+	// Issuer OIDC issuer URL, e.g. https://id.example.com
+	Issuer string `json:"issuer"`
+}
+
+// SetupOIDCOutBody defines model for SetupOIDCOutBody.
+type SetupOIDCOutBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	//
+	// Example: https://example.com/schemas/SetupOIDCOutBody.json
+	Schema *string `json:"$schema,omitempty"`
+
+	// AuthUrl Navigate the browser here to complete setup at the provider
+	AuthUrl string `json:"auth_url"`
+}
+
 // SetupPasswordInBody defines model for SetupPasswordInBody.
 type SetupPasswordInBody struct {
 	// Schema A URL to the JSON Schema for this object.
@@ -651,6 +680,14 @@ type DeleteAccountParams struct {
 	Force *bool `form:"force,omitempty" json:"force,omitempty"`
 }
 
+// AuthOidcCallbackParams defines parameters for AuthOidcCallback.
+type AuthOidcCallbackParams struct {
+	State            *string `form:"state,omitempty" json:"state,omitempty"`
+	Code             *string `form:"code,omitempty" json:"code,omitempty"`
+	Error            *string `form:"error,omitempty" json:"error,omitempty"`
+	ErrorDescription *string `form:"error_description,omitempty" json:"error_description,omitempty"`
+}
+
 // ListTorrentsParams defines parameters for ListTorrents.
 type ListTorrentsParams struct {
 	Status *ListTorrentsParamsStatus `form:"status,omitempty" json:"status,omitempty"`
@@ -690,6 +727,9 @@ type AuthLoginJSONRequestBody = LoginInBody
 
 // AuthChangePasswordJSONRequestBody defines body for AuthChangePassword for application/json ContentType.
 type AuthChangePasswordJSONRequestBody = ChangePasswordInBody
+
+// AuthSetupOidcJSONRequestBody defines body for AuthSetupOidc for application/json ContentType.
+type AuthSetupOidcJSONRequestBody = SetupOIDCInBody
 
 // AuthSetupPasswordJSONRequestBody defines body for AuthSetupPassword for application/json ContentType.
 type AuthSetupPasswordJSONRequestBody = SetupPasswordInBody
@@ -859,6 +899,16 @@ type ClientInterface interface {
 	// Corresponds with GET /api/v1/auth/me (the `AuthMe` operationId).
 	AuthMe(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// AuthOidcCallback OIDC provider callback
+	//
+	// Corresponds with GET /api/v1/auth/oidc/callback (the `AuthOidcCallback` operationId).
+	AuthOidcCallback(ctx context.Context, params *AuthOidcCallbackParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AuthOidcStart Redirect to the OIDC provider to sign in
+	//
+	// Corresponds with GET /api/v1/auth/oidc/start (the `AuthOidcStart` operationId).
+	AuthOidcStart(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// AuthChangePasswordWithBody Change the local user's password (revokes all sessions)
 	//
 	// Takes any type of body and a specified content type.
@@ -872,6 +922,20 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /api/v1/auth/password (the `AuthChangePassword` operationId).
 	AuthChangePassword(ctx context.Context, body AuthChangePasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AuthSetupOidcWithBody First-run setup: configure OIDC and begin the pinning sign-in (requires the API key)
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/auth/setup/oidc (the `AuthSetupOidc` operationId).
+	AuthSetupOidcWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AuthSetupOidc First-run setup: configure OIDC and begin the pinning sign-in (requires the API key)
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/auth/setup/oidc (the `AuthSetupOidc` operationId).
+	AuthSetupOidc(ctx context.Context, body AuthSetupOidcJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// AuthSetupPasswordWithBody First-run setup: create the local user (requires the API key)
 	//
@@ -1199,6 +1263,36 @@ func (c *Client) AuthMe(ctx context.Context, reqEditors ...RequestEditorFn) (*ht
 	return c.Client.Do(req)
 }
 
+// AuthOidcCallback OIDC provider callback
+//
+// Corresponds with GET /api/v1/auth/oidc/callback (the `AuthOidcCallback` operationId).
+func (c *Client) AuthOidcCallback(ctx context.Context, params *AuthOidcCallbackParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAuthOidcCallbackRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AuthOidcStart Redirect to the OIDC provider to sign in
+//
+// Corresponds with GET /api/v1/auth/oidc/start (the `AuthOidcStart` operationId).
+func (c *Client) AuthOidcStart(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAuthOidcStartRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // AuthChangePasswordWithBody Change the local user's password (revokes all sessions)
 //
 // Takes any type of body and a specified content type.
@@ -1223,6 +1317,40 @@ func (c *Client) AuthChangePasswordWithBody(ctx context.Context, contentType str
 // Corresponds with POST /api/v1/auth/password (the `AuthChangePassword` operationId).
 func (c *Client) AuthChangePassword(ctx context.Context, body AuthChangePasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewAuthChangePasswordRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AuthSetupOidcWithBody First-run setup: configure OIDC and begin the pinning sign-in (requires the API key)
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/auth/setup/oidc (the `AuthSetupOidc` operationId).
+func (c *Client) AuthSetupOidcWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAuthSetupOidcRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AuthSetupOidc First-run setup: configure OIDC and begin the pinning sign-in (requires the API key)
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/auth/setup/oidc (the `AuthSetupOidc` operationId).
+func (c *Client) AuthSetupOidc(ctx context.Context, body AuthSetupOidcJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAuthSetupOidcRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1909,6 +2037,123 @@ func NewAuthMeRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewAuthOidcCallbackRequest constructs an http.Request for the AuthOidcCallback method
+func NewAuthOidcCallbackRequest(server string, params *AuthOidcCallbackParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/auth/oidc/callback")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.State != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", false, "state", *params.State, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Code != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", false, "code", *params.Code, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Error != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", false, "error", *params.Error, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.ErrorDescription != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", false, "error_description", *params.ErrorDescription, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewAuthOidcStartRequest constructs an http.Request for the AuthOidcStart method
+func NewAuthOidcStartRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/auth/oidc/start")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewAuthChangePasswordRequest calls the generic AuthChangePassword builder with application/json body
 func NewAuthChangePasswordRequest(server string, body AuthChangePasswordJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -1930,6 +2175,46 @@ func NewAuthChangePasswordRequestWithBody(server string, contentType string, bod
 	}
 
 	operationPath := fmt.Sprintf("/api/v1/auth/password")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewAuthSetupOidcRequest calls the generic AuthSetupOidc builder with application/json body
+func NewAuthSetupOidcRequest(server string, body AuthSetupOidcJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewAuthSetupOidcRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewAuthSetupOidcRequestWithBody constructs an http.Request for the AuthSetupOidc method, with any body, and a specified content type
+func NewAuthSetupOidcRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/auth/setup/oidc")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -2712,6 +2997,20 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /api/v1/auth/me (the `AuthMe` operationId).
 	AuthMeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*AuthMeResponse, error)
 
+	// AuthOidcCallbackWithResponse OIDC provider callback
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/auth/oidc/callback (the `AuthOidcCallback` operationId).
+	AuthOidcCallbackWithResponse(ctx context.Context, params *AuthOidcCallbackParams, reqEditors ...RequestEditorFn) (*AuthOidcCallbackResponse, error)
+
+	// AuthOidcStartWithResponse Redirect to the OIDC provider to sign in
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/auth/oidc/start (the `AuthOidcStart` operationId).
+	AuthOidcStartWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*AuthOidcStartResponse, error)
+
 	// AuthChangePasswordWithBodyWithResponse Change the local user's password (revokes all sessions)
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
@@ -2725,6 +3024,20 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /api/v1/auth/password (the `AuthChangePassword` operationId).
 	AuthChangePasswordWithResponse(ctx context.Context, body AuthChangePasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*AuthChangePasswordResponse, error)
+
+	// AuthSetupOidcWithBodyWithResponse First-run setup: configure OIDC and begin the pinning sign-in (requires the API key)
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/auth/setup/oidc (the `AuthSetupOidc` operationId).
+	AuthSetupOidcWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AuthSetupOidcResponse, error)
+
+	// AuthSetupOidcWithResponse First-run setup: configure OIDC and begin the pinning sign-in (requires the API key)
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/auth/setup/oidc (the `AuthSetupOidc` operationId).
+	AuthSetupOidcWithResponse(ctx context.Context, body AuthSetupOidcJSONRequestBody, reqEditors ...RequestEditorFn) (*AuthSetupOidcResponse, error)
 
 	// AuthSetupPasswordWithBodyWithResponse First-run setup: create the local user (requires the API key)
 	//
@@ -3308,6 +3621,103 @@ func (r AuthMeResponse) ContentType() string {
 	return ""
 }
 
+// AuthOidcCallbackResponse302Headers the declared response headers of an HTTP 302 response for AuthOidcCallback
+type AuthOidcCallbackResponse302Headers struct {
+	Location  *string
+	SetCookie *string
+}
+
+type AuthOidcCallbackResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers302 the parsed response headers for an HTTP 302 response
+	Headers302 *AuthOidcCallbackResponse302Headers
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r AuthOidcCallbackResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r AuthOidcCallbackResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AuthOidcCallbackResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AuthOidcCallbackResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AuthOidcCallbackResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// AuthOidcStartResponse302Headers the declared response headers of an HTTP 302 response for AuthOidcStart
+type AuthOidcStartResponse302Headers struct {
+	Location *string
+}
+
+type AuthOidcStartResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers302 the parsed response headers for an HTTP 302 response
+	Headers302 *AuthOidcStartResponse302Headers
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r AuthOidcStartResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r AuthOidcStartResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AuthOidcStartResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AuthOidcStartResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AuthOidcStartResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type AuthChangePasswordResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -3343,6 +3753,54 @@ func (r AuthChangePasswordResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r AuthChangePasswordResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type AuthSetupOidcResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SetupOIDCOutBody
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r AuthSetupOidcResponse) GetJSON200() *SetupOIDCOutBody {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r AuthSetupOidcResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r AuthSetupOidcResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AuthSetupOidcResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AuthSetupOidcResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AuthSetupOidcResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -4270,6 +4728,32 @@ func (c *ClientWithResponses) AuthMeWithResponse(ctx context.Context, reqEditors
 	return ParseAuthMeResponse(rsp)
 }
 
+// AuthOidcCallbackWithResponse OIDC provider callback
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/auth/oidc/callback (the `AuthOidcCallback` operationId).
+func (c *ClientWithResponses) AuthOidcCallbackWithResponse(ctx context.Context, params *AuthOidcCallbackParams, reqEditors ...RequestEditorFn) (*AuthOidcCallbackResponse, error) {
+	rsp, err := c.AuthOidcCallback(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAuthOidcCallbackResponse(rsp)
+}
+
+// AuthOidcStartWithResponse Redirect to the OIDC provider to sign in
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/auth/oidc/start (the `AuthOidcStart` operationId).
+func (c *ClientWithResponses) AuthOidcStartWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*AuthOidcStartResponse, error) {
+	rsp, err := c.AuthOidcStart(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAuthOidcStartResponse(rsp)
+}
+
 // AuthChangePasswordWithBodyWithResponse Change the local user's password (revokes all sessions)
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
@@ -4294,6 +4778,32 @@ func (c *ClientWithResponses) AuthChangePasswordWithResponse(ctx context.Context
 		return nil, err
 	}
 	return ParseAuthChangePasswordResponse(rsp)
+}
+
+// AuthSetupOidcWithBodyWithResponse First-run setup: configure OIDC and begin the pinning sign-in (requires the API key)
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/auth/setup/oidc (the `AuthSetupOidc` operationId).
+func (c *ClientWithResponses) AuthSetupOidcWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AuthSetupOidcResponse, error) {
+	rsp, err := c.AuthSetupOidcWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAuthSetupOidcResponse(rsp)
+}
+
+// AuthSetupOidcWithResponse First-run setup: configure OIDC and begin the pinning sign-in (requires the API key)
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/auth/setup/oidc (the `AuthSetupOidc` operationId).
+func (c *ClientWithResponses) AuthSetupOidcWithResponse(ctx context.Context, body AuthSetupOidcJSONRequestBody, reqEditors ...RequestEditorFn) (*AuthSetupOidcResponse, error) {
+	rsp, err := c.AuthSetupOidc(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAuthSetupOidcResponse(rsp)
 }
 
 // AuthSetupPasswordWithBodyWithResponse First-run setup: create the local user (requires the API key)
@@ -4886,6 +5396,97 @@ func ParseAuthMeResponse(rsp *http.Response) (*AuthMeResponse, error) {
 	return response, nil
 }
 
+// ParseAuthOidcCallbackResponse parses an HTTP response from a AuthOidcCallbackWithResponse call
+func ParseAuthOidcCallbackResponse(rsp *http.Response) (*AuthOidcCallbackResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AuthOidcCallbackResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 302:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 302:
+		var headers AuthOidcCallbackResponse302Headers
+		if values := rsp.Header.Values("Location"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Location", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.Location = &value
+		}
+		if values := rsp.Header.Values("Set-Cookie"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Set-Cookie", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.SetCookie = &value
+		}
+		response.Headers302 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseAuthOidcStartResponse parses an HTTP response from a AuthOidcStartWithResponse call
+func ParseAuthOidcStartResponse(rsp *http.Response) (*AuthOidcStartResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AuthOidcStartResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 302:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 302:
+		var headers AuthOidcStartResponse302Headers
+		if values := rsp.Header.Values("Location"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Location", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.Location = &value
+		}
+		response.Headers302 = &headers
+	}
+
+	return response, nil
+}
+
 // ParseAuthChangePasswordResponse parses an HTTP response from a AuthChangePasswordWithResponse call
 func ParseAuthChangePasswordResponse(rsp *http.Response) (*AuthChangePasswordResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -4902,6 +5503,39 @@ func ParseAuthChangePasswordResponse(rsp *http.Response) (*AuthChangePasswordRes
 	switch {
 	case rsp.StatusCode == 204:
 		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseAuthSetupOidcResponse parses an HTTP response from a AuthSetupOidcWithResponse call
+func ParseAuthSetupOidcResponse(rsp *http.Response) (*AuthSetupOidcResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AuthSetupOidcResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SetupOIDCOutBody
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest ErrorModel

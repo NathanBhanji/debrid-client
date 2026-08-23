@@ -113,6 +113,9 @@ components:
         mode:
           description: "Configured auth mode: password or oidc; empty until onboarding"
           type: string
+        oidc_issuer:
+          description: Configured OIDC issuer, shown on the login/setup screens
+          type: string
       required:
         - configured
         - mode
@@ -506,6 +509,42 @@ components:
           type: integer
       required:
         - torrent_defaults
+      type: object
+    SetupOIDCInBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/SetupOIDCInBody.json
+          format: uri
+          readOnly: true
+          type: string
+        client_id:
+          type: string
+        client_secret:
+          description: Optional for public clients
+          type: string
+        issuer:
+          description: OIDC issuer URL, e.g. https://id.example.com
+          type: string
+      required:
+        - issuer
+        - client_id
+      type: object
+    SetupOIDCOutBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/SetupOIDCOutBody.json
+          format: uri
+          readOnly: true
+          type: string
+        auth_url:
+          description: Navigate the browser here to complete setup at the provider
+          type: string
+      required:
+        - auth_url
       type: object
     SetupPasswordInBody:
       additionalProperties: false
@@ -1005,6 +1044,68 @@ paths:
       summary: Current authentication identity
       tags:
         - auth
+  /api/v1/auth/oidc/callback:
+    get:
+      operationId: auth-oidc-callback
+      parameters:
+        - explode: false
+          in: query
+          name: state
+          schema:
+            type: string
+        - explode: false
+          in: query
+          name: code
+          schema:
+            type: string
+        - explode: false
+          in: query
+          name: error
+          schema:
+            type: string
+        - explode: false
+          in: query
+          name: error_description
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Found
+          headers:
+            Location:
+              schema:
+                type: string
+            Set-Cookie:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: OIDC provider callback
+      tags:
+        - auth
+  /api/v1/auth/oidc/start:
+    get:
+      operationId: auth-oidc-start
+      responses:
+        "302":
+          description: Found
+          headers:
+            Location:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Redirect to the OIDC provider to sign in
+      tags:
+        - auth
   /api/v1/auth/password:
     post:
       operationId: auth-change-password
@@ -1024,6 +1125,31 @@ paths:
                 $ref: "#/components/schemas/ErrorModel"
           description: Error
       summary: Change the local user's password (revokes all sessions)
+      tags:
+        - auth
+  /api/v1/auth/setup/oidc:
+    post:
+      operationId: auth-setup-oidc
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetupOIDCInBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SetupOIDCOutBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: "First-run setup: configure OIDC and begin the pinning sign-in (requires the API key)"
       tags:
         - auth
   /api/v1/auth/setup/password:
