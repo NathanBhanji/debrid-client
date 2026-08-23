@@ -1,12 +1,13 @@
 MODULE   := github.com/NathanBhanji/debrid-client
-VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+VERSION  ?= $(shell git describe --tags --dirty 2>/dev/null || echo dev)
 COMMIT   ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "")
 DATE     ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS  := -s -w \
   -X $(MODULE)/internal/buildinfo.Version=$(VERSION) \
   -X $(MODULE)/internal/buildinfo.Commit=$(COMMIT) \
   -X $(MODULE)/internal/buildinfo.Date=$(DATE)
-GOLANGCI := go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1
+GOLANGCI_VERSION := $(shell cat .golangci-version)
+GOLANGCI := go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)
 
 .PHONY: build test lint vet tidy run clean
 
