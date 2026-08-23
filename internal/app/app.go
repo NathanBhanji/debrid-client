@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/NathanBhanji/debrid-client/internal/api"
@@ -67,7 +68,7 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*App, error)
 		_ = st.Close()
 		return nil, err
 	}
-	h := api.New(svc, api.Options{APIKey: key, BasePath: cfg.Server.BasePath})
+	h := api.New(svc, api.Options{APIKey: key, BasePath: cfg.Server.BasePath, Logger: log})
 	return &App{Cfg: cfg, Log: log, Store: st, Service: svc, Engine: eng, API: h, APIKey: key, Bus: bus, Mux: h.Mux}, nil
 }
 
@@ -96,39 +97,59 @@ func resolveAPIKey(ctx context.Context, cfg config.Config, svc *service.Service,
 	return key, nil
 }
 
-// Run starts the engine and HTTP server and blocks until ctx is cancelled,
-// then shuts down gracefully.
-func (a *App) Run(ctx context.Context) error {
+// Run starts the engine and HTTP server and blocks until ctx is cancelled
+// (or the server fails), then shuts down gracefully: request contexts are
+// cancelled so long-lived SSE handlers exit, HTTP drains, then the engine
+// stops and the store closes.
+func (a *App) Run(ctx context.Context) (err error) {
+	defer func() {
+		if cerr := a.Store.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 	ln, err := net.Listen("tcp", a.Cfg.Server.Listen)
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", a.Cfg.Server.Listen, err)
 	}
-	srv := &http.Server{Handler: a.Mux, ReadHeaderTimeout: 10 * time.Second}
-	errCh := make(chan error, 2)
+	reqCtx, cancelReqs := context.WithCancel(context.Background())
+	defer cancelReqs()
+	srv := &http.Server{
+		Handler:           a.Mux,
+		ReadHeaderTimeout: 10 * time.Second,
+		BaseContext:       func(net.Listener) context.Context { return reqCtx },
+	}
+	srv.RegisterOnShutdown(cancelReqs) // unblock SSE streams so Shutdown can drain
+
 	engCtx, engCancel := context.WithCancel(ctx)
-	go func() { errCh <- a.Engine.Run(engCtx) }()
+	defer engCancel()
+	engDone := make(chan error, 1)
+	go func() { engDone <- a.Engine.Run(engCtx) }()
+	srvErr := make(chan error, 1)
 	go func() {
-		a.Log.Info("API listening", "addr", ln.Addr().String(), "base_path", a.Cfg.Server.BasePath)
-		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errCh <- err
+		a.Log.Info("API listening", "addr", ln.Addr().String(), "base_path", a.Cfg.Server.BasePath, "mcp", strings.TrimSuffix(a.Cfg.Server.BasePath, "/")+"/mcp")
+		if serr := srv.Serve(ln); serr != nil && !errors.Is(serr, http.ErrServerClosed) {
+			srvErr <- serr
 		}
+		close(srvErr)
 	}()
+
+	var runErr error
 	select {
 	case <-ctx.Done():
-	case err := <-errCh:
-		if err != nil {
-			engCancel()
-			_ = srv.Close()
-			return err
-		}
+	case serr := <-srvErr:
+		runErr = serr
 	}
 	a.Log.Info("shutting down")
 	shCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	_ = srv.Shutdown(shCtx)
+	if serr := srv.Shutdown(shCtx); serr != nil {
+		_ = srv.Close()
+	}
 	engCancel()
-	<-errCh // engine returns
-	return a.Store.Close()
+	if eerr := <-engDone; eerr != nil && runErr == nil && !errors.Is(eerr, context.Canceled) {
+		runErr = eerr
+	}
+	return runErr
 }
 
 // Close releases resources without running.

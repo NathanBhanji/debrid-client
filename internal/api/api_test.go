@@ -117,12 +117,32 @@ func TestAuth(t *testing.T) {
 	if r, _ := http.DefaultClient.Do(req); r.StatusCode != 401 {
 		t.Fatal("wrong key should be 401")
 	}
-	if resp, _ := c.do("GET", "/api/v1/torrents?api_key="+key, nil, false); resp.StatusCode != 200 {
-		t.Fatalf("query api_key should work: %d", resp.StatusCode)
+	if resp, _ := c.do("GET", "/api/v1/torrents?api_key="+key, nil, false); resp.StatusCode != 401 {
+		t.Fatalf("query api_key must only work for the events stream: %d", resp.StatusCode)
 	}
 	if resp, _ := c.do("GET", "/api/v1/torrents", nil, true); resp.StatusCode != 200 {
 		t.Fatalf("bearer should work: %d", resp.StatusCode)
 	}
+	// Path-shape exemptions must not exist: ids/names that look like public
+	// routes are still protected.
+	c.mustJSON("POST", "/api/v1/accounts", map[string]any{"kind": "torbox", "name": "docs", "credentials": map[string]string{"api_key": "k"}}, 201, nil)
+	for _, p := range []string{"/api/v1/accounts/docs", "/api/v1/torrents/health", "/api/v1/accounts/health", "/api/v1/torrents/foo%2Fhealth", "/api/v1/accounts/openapi"} {
+		if resp, _ := c.do("GET", p, nil, false); resp.StatusCode != 401 {
+			t.Fatalf("%s should be 401 without key, got %d", p, resp.StatusCode)
+		}
+		if resp, _ := c.do("DELETE", p, nil, false); resp.StatusCode != 401 {
+			t.Fatalf("DELETE %s should be 401 without key, got %d", p, resp.StatusCode)
+		}
+	}
+	// Query key works for SSE.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	ereq, _ := http.NewRequestWithContext(ctx, "GET", c.srv.URL+"/api/v1/events?api_key="+key, nil)
+	eresp, err := http.DefaultClient.Do(ereq)
+	if err != nil || eresp.StatusCode != 200 {
+		t.Fatalf("events with query key: %v %v", err, eresp)
+	}
+	_ = eresp.Body.Close()
 }
 
 func TestAccountsAndTorrentsFlow(t *testing.T) {
@@ -301,11 +321,21 @@ func TestEventsSSE(t *testing.T) {
 	for {
 		n, err := resp.Body.Read(buf)
 		got.Write(buf[:n])
-		if strings.Contains(got.String(), "torrent.added") && strings.Contains(got.String(), `"t1"`) {
-			return
+		if strings.Contains(got.String(), "event: torrent.added\n") && strings.Contains(got.String(), `"t1"`) {
+			break
 		}
 		if err != nil {
 			t.Fatalf("stream ended without event: %v\n%s", err, got.String())
+		}
+	}
+	// A second, differently-typed event must carry its own name (huma picks
+	// the SSE event name by Go type).
+	c.svc.Events().Publish(events.Event{Type: events.AccountChanged, AccountID: "a1"})
+	for !strings.Contains(got.String(), "event: account.changed\n") {
+		n, err := resp.Body.Read(buf)
+		got.Write(buf[:n])
+		if err != nil {
+			t.Fatalf("no account.changed event: %v\n%s", err, got.String())
 		}
 	}
 }
@@ -337,7 +367,56 @@ func TestBasePath(t *testing.T) {
 	if err != nil || resp.StatusCode != 200 {
 		t.Fatalf("base path health: %v %v", err, resp)
 	}
+	b, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(b), srv.URL+"/debrid/schemas/") || strings.Contains(string(b), "/debrid/debrid/") {
+		t.Fatalf("$schema must carry the prefix exactly once: %s", b)
+	}
 	if resp, _ := http.Get(srv.URL + "/api/v1/health"); resp.StatusCode == 200 {
 		t.Fatal("unprefixed path should not be served")
 	}
+	specResp, _ := http.Get(srv.URL + "/debrid/openapi.json")
+	spec, _ := io.ReadAll(specResp.Body)
+	var doc map[string]any
+	_ = json.Unmarshal(spec, &doc)
+	if _, hasServers := doc["servers"]; hasServers {
+		t.Fatal("spec must not declare servers (paths already include the prefix)")
+	}
+	if _, ok := doc["paths"].(map[string]any)["/debrid/api/v1/health"]; !ok {
+		t.Fatal("spec paths should be prefixed")
+	}
+}
+
+func TestUploadTooLargeIs413(t *testing.T) {
+	c := setup(t)
+	c.mustJSON("POST", "/api/v1/accounts", map[string]any{"kind": "torbox", "credentials": map[string]string{"api_key": "k"}}, 201, nil)
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	fw, _ := mw.CreateFormFile("file", "big.torrent")
+	_, _ = fw.Write(bytes.Repeat([]byte("x"), 17<<20))
+	_ = mw.Close()
+	req, _ := http.NewRequest("POST", c.srv.URL+"/api/v1/torrents/file", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+key)
+	resp, err := http.DefaultClient.Do(req)
+	if err == nil && resp.StatusCode != 413 {
+		t.Fatalf("expected 413, got %d", resp.StatusCode)
+	}
+	// err != nil is acceptable: the server may close the connection once the cap is hit.
+}
+
+func TestInternalErrorsAreOpaque(t *testing.T) {
+	c := setup(t)
+	// Break the DB underneath the service: close the store via a fresh handler wired to a closed store.
+	dir := t.TempDir()
+	st, _ := store.Open(context.Background(), filepath.Join(dir, "db"))
+	_ = st.Close()
+	svc := service.New(st, service.NewProviders(st, nil, provider.Options{}), nil, events.New(), service.Config{}, nil)
+	srv := httptest.NewServer(New(svc, Options{}))
+	defer srv.Close()
+	resp, _ := http.Get(srv.URL + "/api/v1/torrents")
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 500 || strings.Contains(strings.ToLower(string(b)), "sql") || strings.Contains(string(b), "closed") {
+		t.Fatalf("500 must not leak internals: %d %s", resp.StatusCode, b)
+	}
+	_ = c
 }

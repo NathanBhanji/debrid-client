@@ -56,7 +56,7 @@ type deleteAccountIn struct {
 type userOut struct{ Body apimodel.User }
 
 type listTorrentsIn struct {
-	Status   string `query:"status" enum:",queued,adding,processing,waiting_selection,downloading,uploading,finished,completed,error"`
+	Status   string `query:"status" enum:"queued,adding,processing,waiting_selection,downloading,uploading,finished,completed,error"`
 	Account  string `query:"account" doc:"Account id or name"`
 	Category string `query:"category"`
 }
@@ -70,7 +70,7 @@ type addTorrentIn struct {
 		Magnet   string                    `json:"magnet" doc:"Magnet URI"`
 		Account  string                    `json:"account,omitempty" doc:"Account id or name; default account when empty"`
 		Category string                    `json:"category,omitempty"`
-		Settings *apimodel.TorrentSettings `json:"settings,omitempty" doc:"Overrides the configured defaults"`
+		Settings *apimodel.TorrentSettings `json:"settings,omitempty" doc:"Full per-torrent settings replacing the configured defaults (not merged)"`
 	}
 }
 type addTorrentFileIn struct {
@@ -89,7 +89,7 @@ type updateTorrentIn struct {
 	ID   string `path:"id"`
 	Body struct {
 		Category *string                   `json:"category,omitempty"`
-		Settings *apimodel.TorrentSettings `json:"settings,omitempty"`
+		Settings *apimodel.TorrentSettings `json:"settings,omitempty" doc:"Full replacement of the torrent's settings (manual file selection is preserved; use the files endpoint for that)"`
 	}
 }
 type selectFilesIn struct {
@@ -110,7 +110,7 @@ type settingsIn struct{ Body apimodel.Settings }
 func (h *Handler) registerRoutes(p string) {
 	api := h.Huma
 
-	huma.Register(api, huma.Operation{OperationID: "health", Method: http.MethodGet, Path: p + "/health", Summary: "Health check", Tags: []string{"system"}, Security: []map[string][]string{}},
+	huma.Register(api, huma.Operation{OperationID: "health", Method: http.MethodGet, Path: p + "/health", Summary: "Health check", Tags: []string{"system"}, Security: []map[string][]string{}, Metadata: map[string]any{metaPublic: true}},
 		func(context.Context, *struct{}) (*healthOut, error) {
 			out := &healthOut{}
 			out.Body.OK = true
@@ -121,7 +121,7 @@ func (h *Handler) registerRoutes(p string) {
 		func(ctx context.Context, _ *struct{}) (*statusOut, error) {
 			st, err := h.svc.Status(ctx)
 			if err != nil {
-				return nil, mapErr(err)
+				return nil, h.mapErr(err)
 			}
 			return &statusOut{Body: apimodel.FromStatus(st)}, nil
 		})
@@ -131,7 +131,7 @@ func (h *Handler) registerRoutes(p string) {
 		func(ctx context.Context, _ *struct{}) (*listAccountsOut, error) {
 			accs, err := h.svc.ListAccounts(ctx)
 			if err != nil {
-				return nil, mapErr(err)
+				return nil, h.mapErr(err)
 			}
 			out := &listAccountsOut{Body: make([]apimodel.Account, 0, len(accs))}
 			for _, a := range accs {
@@ -143,7 +143,7 @@ func (h *Handler) registerRoutes(p string) {
 		func(ctx context.Context, in *addAccountIn) (*accountOut, error) {
 			a, err := h.svc.AddAccount(ctx, service.AddAccountInput{Kind: domain.ProviderKind(in.Body.Kind), Name: in.Body.Name, Credentials: in.Body.Credentials.ToDomain(), SetDefault: in.Body.SetDefault})
 			if err != nil {
-				return nil, mapErr(err)
+				return nil, h.mapErr(err)
 			}
 			return &accountOut{Body: apimodel.FromAccount(a)}, nil
 		})
@@ -151,7 +151,7 @@ func (h *Handler) registerRoutes(p string) {
 		func(ctx context.Context, in *accountIDIn) (*accountOut, error) {
 			a, err := h.svc.GetAccount(ctx, in.ID)
 			if err != nil {
-				return nil, mapErr(err)
+				return nil, h.mapErr(err)
 			}
 			return &accountOut{Body: apimodel.FromAccount(a)}, nil
 		})
@@ -164,19 +164,19 @@ func (h *Handler) registerRoutes(p string) {
 			}
 			a, err := h.svc.UpdateAccount(ctx, in.ID, upd)
 			if err != nil {
-				return nil, mapErr(err)
+				return nil, h.mapErr(err)
 			}
 			return &accountOut{Body: apimodel.FromAccount(a)}, nil
 		})
 	huma.Register(api, huma.Operation{OperationID: "delete-account", Method: http.MethodDelete, Path: p + "/accounts/{id}", Summary: "Delete an account", Tags: []string{"accounts"}, DefaultStatus: http.StatusNoContent},
 		func(ctx context.Context, in *deleteAccountIn) (*struct{}, error) {
-			return nil, mapErr(h.svc.DeleteAccount(ctx, in.ID, in.Force))
+			return nil, h.mapErr(h.svc.DeleteAccount(ctx, in.ID, in.Force))
 		})
 	huma.Register(api, huma.Operation{OperationID: "test-account", Method: http.MethodPost, Path: p + "/accounts/{id}/test", Summary: "Verify an account against its provider", Tags: []string{"accounts"}},
 		func(ctx context.Context, in *accountIDIn) (*userOut, error) {
 			u, err := h.svc.TestAccount(ctx, in.ID)
 			if err != nil {
-				return nil, mapErr(err)
+				return nil, h.mapErr(err)
 			}
 			return &userOut{Body: apimodel.FromUser(u)}, nil
 		})
@@ -186,7 +186,7 @@ func (h *Handler) registerRoutes(p string) {
 		func(ctx context.Context, in *listTorrentsIn) (*listTorrentsOut, error) {
 			ts, err := h.svc.ListTorrents(ctx, service.ListFilter{Status: domain.TorrentStatus(in.Status), Account: in.Account, Category: in.Category})
 			if err != nil {
-				return nil, mapErr(err)
+				return nil, h.mapErr(err)
 			}
 			out := &listTorrentsOut{Body: make([]apimodel.Torrent, 0, len(ts))}
 			for _, t := range ts {
@@ -206,20 +206,23 @@ func (h *Handler) registerRoutes(p string) {
 			}
 			t, err := h.svc.AddTorrent(ctx, req)
 			if err != nil {
-				return nil, mapErr(err)
+				return nil, h.mapErr(err)
 			}
 			return &torrentOut{Body: apimodel.FromTorrent(t)}, nil
 		})
 	huma.Register(api, huma.Operation{OperationID: "add-torrent-file", Method: http.MethodPost, Path: p + "/torrents/file", Summary: "Add a torrent from a .torrent file (multipart)", Tags: []string{"torrents"}, DefaultStatus: http.StatusCreated},
 		func(ctx context.Context, in *addTorrentFileIn) (*torrentOut, error) {
 			data := in.RawBody.Data()
-			b, err := io.ReadAll(io.LimitReader(data.File, 16<<20))
+			b, err := io.ReadAll(io.LimitReader(data.File, h.opts.MaxUploadBytes+1))
 			if err != nil {
 				return nil, huma.Error422UnprocessableEntity("read file: " + err.Error())
 			}
+			if int64(len(b)) > h.opts.MaxUploadBytes {
+				return nil, huma.Error413RequestEntityTooLarge("torrent file too large")
+			}
 			t, err := h.svc.AddTorrent(ctx, service.AddTorrentInput{TorrentFile: b, Account: data.Account, Category: data.Category})
 			if err != nil {
-				return nil, mapErr(err)
+				return nil, h.mapErr(err)
 			}
 			return &torrentOut{Body: apimodel.FromTorrent(t)}, nil
 		})
@@ -227,7 +230,7 @@ func (h *Handler) registerRoutes(p string) {
 		func(ctx context.Context, in *torrentIDIn) (*torrentOut, error) {
 			t, err := h.svc.GetTorrent(ctx, in.ID)
 			if err != nil {
-				return nil, mapErr(err)
+				return nil, h.mapErr(err)
 			}
 			return &torrentOut{Body: apimodel.FromTorrent(t)}, nil
 		})
@@ -243,19 +246,19 @@ func (h *Handler) registerRoutes(p string) {
 			}
 			t, err := h.svc.UpdateTorrent(ctx, in.ID, upd)
 			if err != nil {
-				return nil, mapErr(err)
+				return nil, h.mapErr(err)
 			}
 			return &torrentOut{Body: apimodel.FromTorrent(t)}, nil
 		})
 	huma.Register(api, huma.Operation{OperationID: "delete-torrent", Method: http.MethodDelete, Path: p + "/torrents/{id}", Summary: "Delete a torrent", Tags: []string{"torrents"}, DefaultStatus: http.StatusNoContent},
 		func(ctx context.Context, in *deleteTorrentIn) (*struct{}, error) {
-			return nil, mapErr(h.svc.DeleteTorrent(ctx, in.ID, service.DeleteOptions{DeleteFiles: in.Files, DeleteFromProvider: in.Provider}))
+			return nil, h.mapErr(h.svc.DeleteTorrent(ctx, in.ID, service.DeleteOptions{DeleteFiles: in.Files, DeleteFromProvider: in.Provider}))
 		})
 	huma.Register(api, huma.Operation{OperationID: "retry-torrent", Method: http.MethodPost, Path: p + "/torrents/{id}/retry", Summary: "Retry an errored or completed torrent from scratch", Tags: []string{"torrents"}},
 		func(ctx context.Context, in *torrentIDIn) (*torrentOut, error) {
 			t, err := h.svc.RetryTorrent(ctx, in.ID)
 			if err != nil {
-				return nil, mapErr(err)
+				return nil, h.mapErr(err)
 			}
 			return &torrentOut{Body: apimodel.FromTorrent(t)}, nil
 		})
@@ -263,7 +266,7 @@ func (h *Handler) registerRoutes(p string) {
 		func(ctx context.Context, in *selectFilesIn) (*torrentOut, error) {
 			t, err := h.svc.SelectFiles(ctx, in.ID, in.Body.FileIDs)
 			if err != nil {
-				return nil, mapErr(err)
+				return nil, h.mapErr(err)
 			}
 			return &torrentOut{Body: apimodel.FromTorrent(t)}, nil
 		})
@@ -271,7 +274,7 @@ func (h *Handler) registerRoutes(p string) {
 		func(ctx context.Context, in *downloadIDIn) (*downloadOut, error) {
 			d, err := h.svc.RetryDownload(ctx, in.ID)
 			if err != nil {
-				return nil, mapErr(err)
+				return nil, h.mapErr(err)
 			}
 			return &downloadOut{Body: apimodel.FromDownload(d)}, nil
 		})
@@ -281,7 +284,7 @@ func (h *Handler) registerRoutes(p string) {
 		func(ctx context.Context, _ *struct{}) (*settingsOut, error) {
 			s, err := h.svc.GetSettings(ctx)
 			if err != nil {
-				return nil, mapErr(err)
+				return nil, h.mapErr(err)
 			}
 			return &settingsOut{Body: apimodel.FromSettings(s)}, nil
 		})
@@ -293,16 +296,22 @@ func (h *Handler) registerRoutes(p string) {
 			}
 			got, err := h.svc.UpdateSettings(ctx, s)
 			if err != nil {
-				return nil, mapErr(err)
+				return nil, h.mapErr(err)
 			}
 			return &settingsOut{Body: apimodel.FromSettings(got)}, nil
 		})
 
 	// Events (SSE)
-	sse.Register(api, huma.Operation{OperationID: "events", Method: http.MethodGet, Path: p + "/events", Summary: "Stream change events (Server-Sent Events)", Tags: []string{"system"}},
+	// huma/sse picks the SSE event name by the Go type of the payload, so each
+	// event name gets its own (identical) type.
+	sse.Register(api, huma.Operation{OperationID: "events", Method: http.MethodGet, Path: p + "/events", Summary: "Stream change events (Server-Sent Events)",
+		Description: "Event names: torrent.added, torrent.updated, torrent.deleted, download.updated, account.changed, settings.changed, heartbeat (every 15s). " +
+			"Payloads are small notifications; re-fetch the resource. Slow consumers may miss events — re-sync on reconnect. " +
+			"Authenticate with the Bearer header or ?api_key= (EventSource cannot set headers).",
+		Tags: []string{"system"}, Metadata: map[string]any{metaQueryKey: true}},
 		map[string]any{
-			string(events.TorrentAdded): events.Event{}, string(events.TorrentUpdated): events.Event{}, string(events.TorrentDeleted): events.Event{},
-			string(events.DownloadUpdated): events.Event{}, string(events.AccountChanged): events.Event{}, string(events.SettingsChanged): events.Event{},
+			string(events.TorrentAdded): evTorrentAdded{}, string(events.TorrentUpdated): evTorrentUpdated{}, string(events.TorrentDeleted): evTorrentDeleted{},
+			string(events.DownloadUpdated): evDownloadUpdated{}, string(events.AccountChanged): evAccountChanged{}, string(events.SettingsChanged): evSettingsChanged{},
 			"heartbeat": heartbeat{},
 		},
 		func(ctx context.Context, _ *struct{}, send sse.Sender) {
@@ -314,14 +323,14 @@ func (h *Handler) registerRoutes(p string) {
 				case <-ctx.Done():
 					return
 				case <-tick.C:
-					if err := send.Data(heartbeat{At: time.Now()}); err != nil {
+					if err := send.Data(heartbeat{At: time.Now().UTC()}); err != nil {
 						return
 					}
 				case e, ok := <-ch:
 					if !ok {
 						return
 					}
-					if err := send(sse.Message{Data: e}); err != nil {
+					if err := send.Data(typedEvent(e)); err != nil {
 						return
 					}
 				}
@@ -331,4 +340,32 @@ func (h *Handler) registerRoutes(p string) {
 
 type heartbeat struct {
 	At time.Time `json:"at"`
+}
+
+type (
+	evTorrentAdded    events.Event
+	evTorrentUpdated  events.Event
+	evTorrentDeleted  events.Event
+	evDownloadUpdated events.Event
+	evAccountChanged  events.Event
+	evSettingsChanged events.Event
+)
+
+// typedEvent wraps an event in the type registered for its name.
+func typedEvent(e events.Event) any {
+	switch e.Type {
+	case events.TorrentAdded:
+		return evTorrentAdded(e)
+	case events.TorrentUpdated:
+		return evTorrentUpdated(e)
+	case events.TorrentDeleted:
+		return evTorrentDeleted(e)
+	case events.DownloadUpdated:
+		return evDownloadUpdated(e)
+	case events.AccountChanged:
+		return evAccountChanged(e)
+	case events.SettingsChanged:
+		return evSettingsChanged(e)
+	}
+	return evTorrentUpdated(e)
 }

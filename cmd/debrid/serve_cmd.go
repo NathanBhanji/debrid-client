@@ -27,7 +27,7 @@ func newServeCmd(g *globalFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return a.Run(ctx)
+			return a.Run(ctx) // Run closes the store on every exit path
 		},
 	}
 	config.BindFlags(cmd.Flags())

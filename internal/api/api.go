@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -23,7 +24,17 @@ type Options struct {
 	APIKey string
 	// BasePath is an optional URL prefix (e.g. "/debrid"); routes become <base>/api/v1/...
 	BasePath string
+	// Logger receives internal errors (never sent to clients). Nil = slog.Default().
+	Logger *slog.Logger
+	// MaxUploadBytes caps .torrent uploads (default 16 MiB).
+	MaxUploadBytes int64
 }
+
+// operation metadata keys
+const (
+	metaPublic   = "public"    // no API key required
+	metaQueryKey = "query_key" // ?api_key= accepted (SSE / browsers)
+)
 
 // Handler is the HTTP handler plus the huma API (for spec export).
 type Handler struct {
@@ -43,11 +54,16 @@ func New(svc *service.Service, opts Options) *Handler {
 	}
 	cfg.Security = []map[string][]string{{"bearer": {}}}
 	prefix := strings.TrimSuffix(opts.BasePath, "/")
+	// Paths are registered with the prefix already, so no `servers` entry
+	// (it would double the prefix in generated clients and $schema links).
 	cfg.OpenAPIPath = prefix + "/openapi"
 	cfg.DocsPath = prefix + "/docs"
 	cfg.SchemasPath = prefix + "/schemas"
-	if prefix != "" {
-		cfg.Servers = []*huma.Server{{URL: prefix}}
+	if opts.Logger == nil {
+		opts.Logger = slog.Default()
+	}
+	if opts.MaxUploadBytes <= 0 {
+		opts.MaxUploadBytes = 16 << 20
 	}
 	api := humago.New(mux, cfg)
 	h := &Handler{Mux: mux, Huma: api, svc: svc, opts: opts}
@@ -56,19 +72,30 @@ func New(svc *service.Service, opts Options) *Handler {
 	return h
 }
 
-// ServeHTTP implements http.Handler.
-func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) { h.Mux.ServeHTTP(w, r) }
+// ServeHTTP implements http.Handler. Request bodies are capped (uploads are
+// the only large bodies; everything else is tiny JSON).
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	limit := h.opts.MaxUploadBytes + 64<<10
+	if r.ContentLength > limit {
+		http.Error(w, `{"title":"Request Entity Too Large","status":413,"detail":"request body too large"}`, http.StatusRequestEntityTooLarge)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
+	h.Mux.ServeHTTP(w, r)
+}
 
+// authMiddleware enforces the API key on every operation except those marked
+// public in their metadata — matched by operation identity, never by path
+// shape (a torrent or account whose id/name is "health" must not be public).
 func (h *Handler) authMiddleware(ctx huma.Context, next func(huma.Context)) {
-	if h.opts.APIKey == "" || strings.HasSuffix(ctx.URL().Path, "/health") || isDocsPath(ctx.URL().Path) {
+	op := ctx.Operation()
+	if h.opts.APIKey == "" || (op != nil && op.Metadata[metaPublic] == true) {
 		next(ctx)
 		return
 	}
-	auth := ctx.Header("Authorization")
-	token, ok := strings.CutPrefix(auth, "Bearer ")
-	if !ok {
-		// Also accept ?api_key= for SSE/browser convenience.
-		token = ctx.Query("api_key")
+	token, ok := strings.CutPrefix(ctx.Header("Authorization"), "Bearer ")
+	if !ok && op != nil && op.Metadata[metaQueryKey] == true {
+		token = ctx.Query("api_key") // EventSource can't set headers
 	}
 	if subtle.ConstantTimeCompare([]byte(token), []byte(h.opts.APIKey)) != 1 {
 		ctx.SetHeader("WWW-Authenticate", `Bearer realm="debrid"`)
@@ -78,13 +105,9 @@ func (h *Handler) authMiddleware(ctx huma.Context, next func(huma.Context)) {
 	next(ctx)
 }
 
-func isDocsPath(p string) bool {
-	return strings.HasSuffix(p, "/openapi") || strings.HasSuffix(p, "/openapi.json") || strings.HasSuffix(p, "/openapi.yaml") ||
-		strings.HasSuffix(p, "/docs") || strings.Contains(p, "/schemas/")
-}
-
-// mapErr converts service errors to HTTP problems.
-func mapErr(err error) error {
+// mapErr converts service errors to HTTP problems. Unknown errors are logged
+// and returned as an opaque 500 so internals never reach clients.
+func (h *Handler) mapErr(err error) error {
 	switch {
 	case err == nil:
 		return nil
@@ -97,5 +120,10 @@ func mapErr(err error) error {
 	case errors.Is(err, context.Canceled):
 		return huma.NewError(499, "request cancelled")
 	}
-	return huma.Error500InternalServerError("internal error", err)
+	var mbe *http.MaxBytesError
+	if errors.As(err, &mbe) {
+		return huma.Error413RequestEntityTooLarge("request body too large")
+	}
+	h.opts.Logger.Error("api: internal error", "err", err)
+	return huma.Error500InternalServerError("internal error")
 }
