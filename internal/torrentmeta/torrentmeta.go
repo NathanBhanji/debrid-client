@@ -32,7 +32,7 @@ func ParseMagnet(uri string) (Meta, error) {
 	}
 	m, err := metainfo.ParseMagnetV2Uri(uri)
 	if err != nil {
-		return Meta{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+		return Meta{}, fmt.Errorf("%w: %w", ErrInvalid, err)
 	}
 	if !m.InfoHash.Ok {
 		return Meta{}, fmt.Errorf("%w: magnet has no v1 info hash (btih)", ErrInvalid)
@@ -44,11 +44,11 @@ func ParseMagnet(uri string) (Meta, error) {
 func ParseTorrent(data []byte) (Meta, error) {
 	mi, err := metainfo.Load(bytes.NewReader(data))
 	if err != nil {
-		return Meta{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+		return Meta{}, fmt.Errorf("%w: %w", ErrInvalid, err)
 	}
 	info, err := mi.UnmarshalInfo()
 	if err != nil {
-		return Meta{}, fmt.Errorf("%w: %v", ErrInvalid, err)
+		return Meta{}, fmt.Errorf("%w: %w", ErrInvalid, err)
 	}
 	if !info.HasV1() {
 		return Meta{}, fmt.Errorf("%w: v2-only torrents are not supported by debrid providers", ErrInvalid)
