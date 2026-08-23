@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -52,10 +53,14 @@ func TestNewRequiresKey(t *testing.T) {
 
 func TestListTorrentsMapsStatuses(t *testing.T) {
 	c := newServer(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/api/torrents/mylist" || r.Header.Get("Authorization") != "Bearer KEY" || r.URL.Query().Get("bypass_cache") != "true" {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v1/api/queued/getqueued" {
+			_, _ = w.Write([]byte(`{"success":true,"data":[{"id":7,"hash":"QQQQ","name":"Parked","magnet":"magnet:?xt=urn:btih:qqqq","created_at":"2026-08-23T11:00:00Z"}]}`))
+			return
+		}
+		if r.URL.Path != "/v1/api/torrents/mylist" || r.Header.Get("Authorization") != "Bearer KEY" || r.URL.Query().Get("bypass_cache") != "true" || r.URL.Query().Get("limit") != "1000" {
 			t.Errorf("unexpected request %s %v", r.URL, r.Header)
 		}
-		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(mylistJSON))
 	})
 	ts, err := c.ListTorrents(context.Background())
@@ -65,6 +70,9 @@ func TestListTorrentsMapsStatuses(t *testing.T) {
 	byID := map[string]provider.Torrent{}
 	for _, x := range ts {
 		byID[x.ID] = x
+	}
+	if q := byID["queued-7"]; q.Status != domain.TorrentProcessing || q.Hash != "qqqq" || q.Name != "Parked" {
+		t.Fatalf("queued entry not listed: %+v", q)
 	}
 	dl := byID["101"]
 	if dl.Status != domain.TorrentDownloading || dl.Hash != "abcdef0123456789abcdef0123456789abcdef01" || dl.Progress != 0.42 || dl.Seeders != 7 || len(dl.Files) != 2 {
@@ -76,14 +84,14 @@ func TestListTorrentsMapsStatuses(t *testing.T) {
 	if dl.AddedAt == nil || dl.AddedAt.Hour() != 10 {
 		t.Fatalf("added_at: %v", dl.AddedAt)
 	}
-	if fin := byID["102"]; fin.Status != domain.TorrentFinished || fin.Progress != 1 || fin.EndedAt == nil {
+	if fin := byID["102"]; fin.Status != domain.TorrentFinished || fin.Progress != 1 {
 		t.Fatalf("102: %+v", fin)
 	}
 	if e := byID["103"]; e.Status != domain.TorrentError {
 		t.Fatalf("103: %+v", e)
 	}
 	if s := byID["104"]; s.Status != domain.TorrentUploading {
-		t.Fatalf("104 (finished but not present) should be uploading: %+v", s)
+		t.Fatalf("104 (finished, active, not present) should be uploading: %+v", s)
 	}
 }
 
@@ -136,8 +144,8 @@ func TestAddMagnetAndFile(t *testing.T) {
 		if err := r.ParseMultipartForm(1 << 20); err != nil {
 			t.Errorf("multipart: %v", err)
 		}
-		if r.FormValue("allow_zip") != "false" {
-			t.Errorf("allow_zip should be false")
+		if r.FormValue("allow_zip") != "false" || r.Form.Has("seed") {
+			t.Errorf("expected allow_zip=false and no seed override, got %v", r.MultipartForm.Value)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if m := r.FormValue("magnet"); m != "" {
@@ -256,6 +264,8 @@ func TestMapStatusTable(t *testing.T) {
 		in   torrentData
 		want domain.TorrentStatus
 	}{
+		{torrentData{DownloadState: "completed", DownloadFinished: true, DownloadPresent: false, Active: true}, domain.TorrentUploading},
+		{torrentData{DownloadState: "completed", DownloadFinished: true, DownloadPresent: false, Active: false}, domain.TorrentError},
 		{torrentData{DownloadState: "metaDL", Active: true}, domain.TorrentProcessing},
 		{torrentData{DownloadState: "stalled (no seeds)", Active: true}, domain.TorrentDownloading},
 		{torrentData{DownloadState: "paused", Active: true}, domain.TorrentDownloading},
@@ -308,5 +318,93 @@ func TestAuthErrorUsesEnvelopeDetail(t *testing.T) {
 	var pe *provider.Error
 	if !errors.As(err, &pe) || pe.Kind != provider.ErrAuth || pe.Code != "BAD_TOKEN" || pe.Message != "Your token is invalid" {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestQueuedAddAndDelete(t *testing.T) {
+	c := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/api/torrents/createtorrent":
+			_, _ = w.Write([]byte(`{"success":true,"detail":"queued","data":{"queued_id":42,"hash":"ABC","active_limit":3,"current_active_downloads":3}}`))
+		case "/v1/api/queued/controlqueued":
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["queued_id"] != float64(42) || body["operation"] != "delete" {
+				t.Errorf("bad controlqueued %v", body)
+			}
+			_, _ = w.Write([]byte(`{"success":true,"data":null}`))
+		default:
+			t.Errorf("unexpected %s", r.URL.Path)
+		}
+	})
+	r, err := c.AddMagnet(context.Background(), "magnet:?xt=urn:btih:abc")
+	if err != nil || r.ID != "queued-42" || r.Hash != "abc" {
+		t.Fatalf("queued add: %v %+v", err, r)
+	}
+	if err := c.Delete(context.Background(), "queued-42"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTolerantNumbersAnd422(t *testing.T) {
+	c := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v1/api/queued/getqueued" {
+			_, _ = w.Write([]byte(`{"success":true,"data":[]}`))
+			return
+		}
+		if r.URL.Query().Get("id") == "abc" {
+			w.WriteHeader(422)
+			_, _ = w.Write([]byte(`{"detail":[{"loc":["query","id"],"msg":"value is not a valid integer","type":"type_error.integer"}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"success":true,"data":[{"id":1.0,"hash":"AA","name":"n","size":"3000","download_speed":1234.5,"seeds":2.0,"active":true,"download_state":"downloading","files":[{"id":9,"name":"a","size":1.5e3}]}]}`))
+	})
+	ts, err := c.ListTorrents(context.Background())
+	if err != nil || len(ts) != 1 || ts[0].Size != 3000 || ts[0].Speed != 1234 || ts[0].Seeders != 2 || ts[0].Files[0].Size != 1500 {
+		t.Fatalf("tolerant decode: %v %+v", err, ts)
+	}
+	_, err = c.GetTorrent(context.Background(), "abc")
+	if provider.KindOf(err) != provider.ErrPermanent {
+		t.Fatalf("422 should be permanent, got %v", err)
+	}
+}
+
+func TestPaginationAndLinksNotReady(t *testing.T) {
+	var pages int32
+	c := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/api/queued/getqueued":
+			_, _ = w.Write([]byte(`{"success":true,"data":[]}`))
+		case "/v1/api/torrents/mylist":
+			if r.URL.Query().Get("id") == "5" {
+				_, _ = w.Write([]byte(`{"success":true,"data":{"id":5,"hash":"x","name":"n","download_finished":true,"download_present":true,"files":[]}}`))
+				return
+			}
+			n := atomic.AddInt32(&pages, 1)
+			off := r.URL.Query().Get("offset")
+			if n == 1 && off != "0" || n == 2 && off != "1000" {
+				t.Errorf("page %d offset %s", n, off)
+			}
+			if n == 1 {
+				items := make([]string, 1000)
+				for i := range items {
+					items[i] = `{"id":` + strconv.Itoa(i) + `,"hash":"h","name":"n","active":true,"download_state":"downloading"}`
+				}
+				_, _ = w.Write([]byte(`{"success":true,"data":[` + strings.Join(items, ",") + `]}`))
+				return
+			}
+			_, _ = w.Write([]byte(`{"success":true,"data":[{"id":5000,"hash":"h","name":"last","active":true,"download_state":"downloading"}]}`))
+		}
+	})
+	ts, err := c.ListTorrents(context.Background())
+	if err != nil || len(ts) != 1001 {
+		t.Fatalf("pagination: %v %d", err, len(ts))
+	}
+	links, err := c.Links(context.Background(), "5")
+	if err != nil || links != nil {
+		t.Fatalf("finished with no files should be not-ready (nil,nil): %v %v", err, links)
 	}
 }

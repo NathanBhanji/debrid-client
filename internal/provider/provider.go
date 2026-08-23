@@ -23,7 +23,8 @@ type Caps struct {
 	// CacheCheck is true when CheckCached is supported (TorBox, Premiumize).
 	CacheCheck bool
 	// DirectLinks is true when Links() already returns directly downloadable
-	// URLs and Unrestrict is the identity (Premiumize, Debrid-Link, TorBox).
+	// URLs and Unrestrict is the identity (Premiumize, Debrid-Link). TorBox
+	// resolves lazily via requestdl, so it is false there.
 	DirectLinks bool
 	// MaxConnections hints how many parallel connections per file the CDN tolerates (0 = unknown).
 	MaxConnections int

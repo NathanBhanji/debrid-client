@@ -84,43 +84,82 @@ type envelope struct {
 }
 
 type userData struct {
-	ID               int64  `json:"id"`
+	ID               num    `json:"id"`
 	Email            string `json:"email"`
-	Plan             int    `json:"plan"`
+	Plan             num    `json:"plan"`
 	IsSubscribed     bool   `json:"is_subscribed"`
 	PremiumExpiresAt string `json:"premium_expires_at"`
 }
 
+// num tolerates integers, floats and numeric strings (TorBox's OpenAPI types
+// several counters loosely; the official SDKs use float64 everywhere).
+type num int64
+
+func (n *num) UnmarshalJSON(b []byte) error {
+	t := strings.Trim(string(b), `"`)
+	if t == "" || t == "null" {
+		*n = 0
+		return nil
+	}
+	if i, err := strconv.ParseInt(t, 10, 64); err == nil {
+		*n = num(i)
+		return nil
+	}
+	f, err := strconv.ParseFloat(t, 64)
+	if err != nil {
+		return fmt.Errorf("torbox: bad number %q", t)
+	}
+	*n = num(f)
+	return nil
+}
+
 type torrentData struct {
-	ID               int64      `json:"id"`
+	ID               num        `json:"id"`
 	Hash             string     `json:"hash"`
 	Name             string     `json:"name"`
-	Size             int64      `json:"size"`
+	Size             num        `json:"size"`
 	Active           bool       `json:"active"`
 	Cached           bool       `json:"cached"`
 	DownloadState    string     `json:"download_state"`
 	DownloadFinished bool       `json:"download_finished"`
 	DownloadPresent  bool       `json:"download_present"`
 	Progress         float64    `json:"progress"`
-	DownloadSpeed    int64      `json:"download_speed"`
-	Seeds            int        `json:"seeds"`
+	DownloadSpeed    num        `json:"download_speed"`
+	Seeds            num        `json:"seeds"`
 	CreatedAt        string     `json:"created_at"`
 	UpdatedAt        string     `json:"updated_at"`
+	CachedAt         string     `json:"cached_at"`
+	ExpiresAt        string     `json:"expires_at"`
 	Files            []fileData `json:"files"`
 }
 
 type fileData struct {
-	ID        int64  `json:"id"`
+	ID        num    `json:"id"`
 	Name      string `json:"name"`
 	ShortName string `json:"short_name"`
-	Size      int64  `json:"size"`
+	Size      num    `json:"size"`
 	Zipped    bool   `json:"zipped"`
 }
 
 type createData struct {
-	TorrentID int64  `json:"torrent_id"`
-	Hash      string `json:"hash"`
+	TorrentID             num    `json:"torrent_id"`
+	Hash                  string `json:"hash"`
+	QueuedID              num    `json:"queued_id"`
+	ActiveLimit           num    `json:"active_limit"`
+	CurrentActiveDownload num    `json:"current_active_downloads"`
 }
+
+type queuedData struct {
+	ID      num    `json:"id"`
+	Hash    string `json:"hash"`
+	Name    string `json:"name"`
+	Magnet  string `json:"magnet"`
+	Created string `json:"created_at"`
+}
+
+// queuedPrefix marks provider ids that refer to TorBox's pre-download queue
+// (the torrent has no mylist entry yet).
+const queuedPrefix = "queued-"
 
 // --- helpers -----------------------------------------------------------------
 
@@ -147,6 +186,11 @@ func (c *Client) call(ctx context.Context, req httpx.Request, out any) error {
 	}
 	var env envelope
 	if err := resp.JSON(&env); err != nil {
+		// FastAPI validation errors (422) and other non-envelope 4xx bodies are
+		// not worth retrying.
+		if resp.StatusCode >= 400 && resp.StatusCode < 500 {
+			return &provider.Error{Kind: provider.ErrPermanent, HTTPStatus: resp.StatusCode, Message: "torbox: " + strings.TrimSpace(string(resp.Body))}
+		}
 		return err
 	}
 	if !env.Success {
@@ -164,8 +208,8 @@ func (c *Client) call(ctx context.Context, req httpx.Request, out any) error {
 func mapError(code, detail string, status int) *provider.Error {
 	kind := provider.ErrTransient
 	switch code {
-	case "NO_AUTH", "BAD_TOKEN", "AUTH_ERROR", "OAUTH_VERIFICATION_ERROR":
-		kind = provider.ErrAuth
+	case "NO_AUTH", "BAD_TOKEN":
+		kind = provider.ErrAuth // AUTH_ERROR / OAUTH_VERIFICATION_ERROR are server-side ("try again later")
 	case "ITEM_NOT_FOUND", "NOT_OWNER":
 		kind = provider.ErrNotFound
 	case "ACTIVE_LIMIT", "MONTHLY_LIMIT", "COOLDOWN_LIMIT", "DOWNLOAD_TOO_LARGE", "PLAN_RESTRICTED_FEATURE":
@@ -204,6 +248,8 @@ func mapStatus(t torrentData) (domain.TorrentStatus, string) {
 	switch {
 	case t.DownloadFinished && t.DownloadPresent, t.Cached && t.DownloadPresent:
 		return domain.TorrentFinished, ""
+	case t.DownloadFinished && !t.DownloadPresent && !t.Active:
+		return domain.TorrentError, "files are no longer present at provider (expired?)"
 	case t.DownloadFinished && !t.DownloadPresent:
 		return domain.TorrentUploading, "finished, waiting for files to become available"
 	}
@@ -228,21 +274,21 @@ func mapStatus(t torrentData) (domain.TorrentStatus, string) {
 func mapTorrent(t torrentData) provider.Torrent {
 	status, msg := mapStatus(t)
 	out := provider.Torrent{
-		ID:        strconv.FormatInt(t.ID, 10),
+		ID:        strconv.FormatInt(int64(t.ID), 10),
 		Hash:      strings.ToLower(t.Hash),
 		Name:      t.Name,
-		Size:      t.Size,
+		Size:      int64(t.Size),
 		Status:    status,
 		RawStatus: t.DownloadState,
 		Message:   msg,
 		Progress:  t.Progress,
-		Speed:     t.DownloadSpeed,
-		Seeders:   t.Seeds,
+		Speed:     int64(t.DownloadSpeed),
+		Seeders:   int(t.Seeds),
 		AddedAt:   parseTime(t.CreatedAt),
 	}
 	if status == domain.TorrentFinished {
 		out.Progress = 1
-		out.EndedAt = parseTime(t.UpdatedAt)
+		out.EndedAt = parseTime(t.CachedAt)
 	}
 	for _, f := range t.Files {
 		p := strings.TrimPrefix(f.Name, "/")
@@ -250,14 +296,25 @@ func mapTorrent(t torrentData) provider.Torrent {
 			p = f.ShortName
 		}
 		out.Files = append(out.Files, domain.File{
-			ID:       strconv.FormatInt(f.ID, 10),
+			ID:       strconv.FormatInt(int64(f.ID), 10),
 			Path:     p,
-			Size:     f.Size,
+			Size:     int64(f.Size),
 			Selected: true, // TorBox always fetches everything
-			Link:     linkRef(t.ID, f.ID),
+			Link:     linkRef(int64(t.ID), int64(f.ID)),
 		})
 	}
 	return out
+}
+
+// mapQueued presents a queue entry as a processing torrent so the engine can
+// track (and dedupe by hash against) an add that TorBox parked for lack of
+// active slots.
+func mapQueued(q queuedData) provider.Torrent {
+	return provider.Torrent{
+		ID: queuedPrefix + strconv.FormatInt(int64(q.ID), 10), Hash: strings.ToLower(q.Hash), Name: q.Name,
+		Status: domain.TorrentProcessing, RawStatus: "queued", Message: "queued at TorBox (no free active slot)",
+		AddedAt: parseTime(q.Created),
+	}
 }
 
 // linkRef encodes a (torrent, file) pair as an opaque link resolved by Unrestrict.
@@ -286,34 +343,64 @@ func (c *Client) User(ctx context.Context) (provider.User, error) {
 		return provider.User{}, err
 	}
 	plans := map[int]string{0: "free", 1: "essential", 2: "pro", 3: "standard"}
+	exp := parseTime(u.PremiumExpiresAt)
+	premium := u.Plan > 0 && (exp == nil || exp.After(time.Now()))
 	return provider.User{
 		Username:  u.Email,
 		Email:     u.Email,
-		Premium:   u.Plan > 0,
-		Plan:      plans[u.Plan],
-		ExpiresAt: parseTime(u.PremiumExpiresAt),
+		Premium:   premium,
+		Plan:      plans[int(u.Plan)],
+		ExpiresAt: exp,
 	}, nil
 }
 
-// ListTorrents implements provider.Provider.
+// ListTorrents implements provider.Provider: all of mylist (paged, limit
+// 1000) plus TorBox's pre-download queue.
 func (c *Client) ListTorrents(ctx context.Context) ([]provider.Torrent, error) {
-	var list []torrentData
-	err := c.call(ctx, httpx.Request{Path: "torrents/mylist", Query: url.Values{"bypass_cache": {"true"}}}, &list)
-	if err != nil {
-		if provider.KindOf(err) == provider.ErrNotFound { // empty list quirk
-			return []provider.Torrent{}, nil
+	const limit = 1000
+	out := []provider.Torrent{}
+	for offset := 0; ; offset += limit {
+		var list []torrentData
+		q := url.Values{"bypass_cache": {"true"}, "offset": {strconv.Itoa(offset)}, "limit": {strconv.Itoa(limit)}}
+		err := c.call(ctx, httpx.Request{Path: "torrents/mylist", Query: q}, &list)
+		if err != nil {
+			if provider.KindOf(err) == provider.ErrNotFound { // empty list quirk
+				break
+			}
+			return nil, err
 		}
+		for _, t := range list {
+			out = append(out, mapTorrent(t))
+		}
+		if len(list) < limit {
+			break
+		}
+	}
+	var queued []queuedData
+	err := c.call(ctx, httpx.Request{Path: "queued/getqueued", Query: url.Values{"type": {"torrent"}, "bypass_cache": {"true"}}}, &queued)
+	if err != nil && provider.KindOf(err) != provider.ErrNotFound {
 		return nil, err
 	}
-	out := make([]provider.Torrent, 0, len(list))
-	for _, t := range list {
-		out = append(out, mapTorrent(t))
+	for _, q := range queued {
+		out = append(out, mapQueued(q))
 	}
 	return out, nil
 }
 
 // GetTorrent implements provider.Provider.
 func (c *Client) GetTorrent(ctx context.Context, id string) (provider.Torrent, error) {
+	if strings.HasPrefix(id, queuedPrefix) {
+		list, err := c.ListTorrents(ctx)
+		if err != nil {
+			return provider.Torrent{}, err
+		}
+		for _, t := range list {
+			if t.ID == id {
+				return t, nil
+			}
+		}
+		return provider.Torrent{}, &provider.Error{Kind: provider.ErrNotFound, Message: "queued torrent " + id}
+	}
 	var t torrentData
 	q := url.Values{"bypass_cache": {"true"}, "id": {id}}
 	if err := c.call(ctx, httpx.Request{Path: "torrents/mylist", Query: q}, &t); err != nil {
@@ -336,8 +423,8 @@ func (c *Client) AddTorrentFile(ctx context.Context, data []byte) (provider.AddR
 }
 
 func (c *Client) create(ctx context.Context, fields map[string]string, files []httpx.MultipartFile) (provider.AddResult, error) {
+	// No "seed": sending it would override the user's TorBox seeding preference.
 	mp := &httpx.Multipart{Fields: map[string]string{
-		"seed":      "1",     // account default
 		"allow_zip": "false", // we always want individual files
 	}, Files: files}
 	for k, v := range fields {
@@ -349,10 +436,15 @@ func (c *Client) create(ctx context.Context, fields map[string]string, files []h
 	if err != nil {
 		return provider.AddResult{}, err
 	}
+	if cd.TorrentID == 0 && cd.QueuedID != 0 {
+		// Out of active slots: TorBox parked the add in its queue. Report it as
+		// a queued pseudo-torrent (it shows up in ListTorrents via getqueued).
+		return provider.AddResult{ID: queuedPrefix + strconv.FormatInt(int64(cd.QueuedID), 10), Hash: strings.ToLower(cd.Hash)}, nil
+	}
 	if cd.TorrentID == 0 {
 		return provider.AddResult{}, &provider.Error{Kind: provider.ErrTransient, Message: "torbox: createtorrent returned no id"}
 	}
-	return provider.AddResult{ID: strconv.FormatInt(cd.TorrentID, 10), Hash: strings.ToLower(cd.Hash)}, nil
+	return provider.AddResult{ID: strconv.FormatInt(int64(cd.TorrentID), 10), Hash: strings.ToLower(cd.Hash)}, nil
 }
 
 // SelectFiles implements provider.Provider (no-op: TorBox fetches all files).
@@ -364,8 +456,8 @@ func (c *Client) Links(ctx context.Context, id string) ([]provider.Link, error) 
 	if err != nil {
 		return nil, err
 	}
-	if t.Status != domain.TorrentFinished {
-		return nil, nil
+	if t.Status != domain.TorrentFinished || len(t.Files) == 0 {
+		return nil, nil // not ready (finished torrents briefly list no files)
 	}
 	out := make([]provider.Link, 0, len(t.Files))
 	for _, f := range t.Files {
@@ -381,7 +473,7 @@ func (c *Client) Unrestrict(ctx context.Context, link string) (provider.Direct, 
 		return provider.Direct{}, err
 	}
 	var raw string
-	q := url.Values{"token": {c.apiKey}, "torrent_id": {tid}, "file_id": {fid}, "redirect": {"false"}}
+	q := url.Values{"token": {c.apiKey}, "torrent_id": {tid}, "file_id": {fid}, "redirect": {"false"}, "append_name": {"true"}}
 	if err := c.call(ctx, httpx.Request{Path: "torrents/requestdl", Query: q, NoAuth: true}, &raw); err != nil {
 		return provider.Direct{}, err
 	}
@@ -397,6 +489,17 @@ func (c *Client) Unrestrict(ctx context.Context, link string) (provider.Direct, 
 
 // Delete implements provider.Provider.
 func (c *Client) Delete(ctx context.Context, id string) error {
+	if qid, ok := strings.CutPrefix(id, queuedPrefix); ok {
+		n, err := strconv.ParseInt(qid, 10, 64)
+		if err != nil {
+			return provider.Errorf(provider.ErrPermanent, "", "torbox: bad queued id %q", id)
+		}
+		err = c.call(ctx, httpx.Request{Method: http.MethodPost, Path: "queued/controlqueued", JSON: map[string]any{"queued_id": n, "operation": "delete"}}, nil)
+		if err != nil && provider.KindOf(err) == provider.ErrNotFound {
+			return nil
+		}
+		return err
+	}
 	tid, err := strconv.ParseInt(id, 10, 64)
 	if err != nil {
 		return provider.Errorf(provider.ErrPermanent, "", "torbox: bad torrent id %q", id)
