@@ -110,9 +110,12 @@ function SettingsPage() {
     setSettings({ ...settings, torrent_defaults: { ...d, ...patch } })
 
   const save = () => {
+    // Empty retry counts are ambiguous ('' coerces to 0 = retries off), so
+    // reject them; an empty min size genuinely means no minimum.
     const nums = {
-      download_retries: Number(retries),
-      torrent_retries: Number(torrentRetries),
+      download_retries: retries.trim() === '' ? NaN : Number(retries),
+      torrent_retries:
+        torrentRetries.trim() === '' ? NaN : Number(torrentRetries),
       min_file_size: Number(minSize),
     }
     for (const [k, v] of Object.entries(nums)) {

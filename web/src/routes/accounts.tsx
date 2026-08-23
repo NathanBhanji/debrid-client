@@ -218,6 +218,9 @@ function AddAccountCard({ onChanged }: { onChanged: () => void }) {
             type="password"
             value={key}
             onChange={(e) => setKey(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing) add()
+            }}
             placeholder="paste the provider API key"
             disabled={busy}
           />
@@ -260,17 +263,39 @@ function AccountsPage() {
       })
   }, [tick])
 
-  // Follow account.changed events (e.g. changes made via CLI/MCP).
+  // Follow account.changed events (e.g. changes made via CLI/MCP). Fatal
+  // stream closes (rotated key, restart) refresh once and retry with backoff.
+  const loaded = accounts !== null
   useEffect(() => {
-    if (accounts === null) return
-    return openEvents((type) => {
-      if (type === 'account.changed') setTick((n) => n + 1)
-    })
-  }, [accounts === null])
+    if (!loaded) return
+    let disposed = false
+    let close: (() => void) | undefined
+    let retryTimer: ReturnType<typeof setTimeout>
+    const connect = () => {
+      close = openEvents(
+        (type) => {
+          if (type === 'account.changed') setTick((n) => n + 1)
+        },
+        () => {
+          close?.()
+          setTick((n) => n + 1)
+          if (!disposed) retryTimer = setTimeout(connect, 5000)
+        },
+      )
+    }
+    connect()
+    return () => {
+      disposed = true
+      clearTimeout(retryTimer)
+      close?.()
+    }
+  }, [loaded])
 
   const refresh = () => setTick((n) => n + 1)
 
-  if (error) {
+  // Full-page error only before the first successful load; afterwards a
+  // transient refetch failure shows a banner over the still-loaded cards.
+  if (error && accounts === null) {
     return (
       <div className="lcd rack-empty">
         <div className="big" style={{ color: 'var(--lcd-red)', fontSize: 14 }}>
@@ -283,6 +308,11 @@ function AccountsPage() {
 
   return (
     <div className="cardrow">
+      {error && (
+        <div className="form-err" style={{ gridColumn: '1 / -1' }} role="alert">
+          refresh failed — {error}
+        </div>
+      )}
       {accounts.map((a) => (
         <AccountCard key={a.id} a={a} onChanged={refresh} />
       ))}

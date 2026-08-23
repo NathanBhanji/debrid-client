@@ -625,7 +625,7 @@ body {
   }
 }
 .acard {
-  background: linear-gradient(#f2f1ec, #e6e4de);
+  background: linear-gradient(var(--face-hi), var(--face-lo));
   border: 1px solid var(--edge);
   border-radius: var(--r-mod);
   padding: 18px;
@@ -742,7 +742,7 @@ body {
   margin-top: 8px;
 }
 .form-ok {
-  color: #27a04a;
+  color: var(--led-ok-b);
   font-size: 12px;
   margin-top: 8px;
 }
