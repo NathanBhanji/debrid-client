@@ -3,6 +3,7 @@ package torbox
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -294,5 +295,18 @@ func TestLive(t *testing.T) {
 	}
 	for _, x := range ts {
 		t.Logf("torrent %s %s %s %.2f files=%d", x.ID, x.Name, x.Status, x.Progress, len(x.Files))
+	}
+}
+
+func TestAuthErrorUsesEnvelopeDetail(t *testing.T) {
+	c := newServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(403)
+		_, _ = w.Write([]byte(`{"success":false,"error":"BAD_TOKEN","detail":"Your token is invalid","data":null}`))
+	})
+	_, err := c.User(context.Background())
+	var pe *provider.Error
+	if !errors.As(err, &pe) || pe.Kind != provider.ErrAuth || pe.Code != "BAD_TOKEN" || pe.Message != "Your token is invalid" {
+		t.Fatalf("got %v", err)
 	}
 }

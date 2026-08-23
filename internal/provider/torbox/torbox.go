@@ -13,6 +13,7 @@ package torbox
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -128,6 +129,20 @@ func (c *Client) call(ctx context.Context, req httpx.Request, out any) error {
 	req.ExpectJSON = true
 	resp, err := c.http.Do(ctx, req)
 	if err != nil {
+		// httpx already classified 401/403/404/429/5xx; if the body was a TorBox
+		// envelope, surface its code/detail instead of the raw JSON.
+		var pe *provider.Error
+		if errors.As(err, &pe) && len(pe.Body) > 0 {
+			var env envelope
+			if json.Unmarshal(pe.Body, &env) == nil && env.Error != "" {
+				mapped := mapError(env.Error, env.Detail, pe.HTTPStatus)
+				if pe.Kind == provider.ErrAuth || pe.Kind == provider.ErrNotFound || pe.Kind == provider.ErrRateLimited {
+					mapped.Kind = pe.Kind // trust the HTTP status for these
+				}
+				mapped.RetryAfter = pe.RetryAfter
+				return mapped
+			}
+		}
 		return err
 	}
 	var env envelope
