@@ -53,7 +53,14 @@
   margin: 0;
 }
 
+/* The textured background lives on body; make body span at least the full
+   viewport so it never ends in a visible band below short content. */
+html {
+  height: 100%;
+}
+
 body {
+  min-height: 100%;
   background: var(--shell);
   color: var(--ink);
   font-family: var(--mono);
@@ -61,6 +68,8 @@ body {
   background-image:
     radial-gradient(circle at 30% 10%, #efede8, transparent 60%),
     repeating-linear-gradient(45deg, #00000006 0 2px, transparent 2px 8px);
+  /* The highlight must not tile — its repeat edge reads as a band. */
+  background-repeat: no-repeat, repeat;
 }
 
 /* --- chassis ------------------------------------------------ */
