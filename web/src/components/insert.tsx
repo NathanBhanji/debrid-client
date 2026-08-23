@@ -37,7 +37,7 @@ export function InsertWell({ onAdded }: { onAdded: () => void }) {
 
   return (
     <div style={{ marginBottom: 18 }}>
-      <div style={{ display: 'flex', gap: 10 }}>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
         <div
           className={`well${drag ? ' drag' : ''}`}
           style={{ flex: 1 }}

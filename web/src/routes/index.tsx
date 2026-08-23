@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { createFileRoute } from '@tanstack/react-router'
+import { Link, createFileRoute } from '@tanstack/react-router'
 
 import { ApiError, api, openEvents, setApiKey } from '#/lib/api'
 import { InsertWell } from '#/components/insert'
@@ -148,12 +148,24 @@ function Home() {
           </div>
         </div>
       </div>
-      {authed && (
+      {authed && status.accounts === 0 ? (
+        <div className="lcd rack-empty">
+          <div className="lbl">First run</div>
+          <div className="big" style={{ fontSize: 15 }}>
+            NO PROVIDER ACCOUNT CONNECTED
+          </div>
+          <div style={{ marginTop: 16 }}>
+            <Link to="/accounts" className="key org first-run-key">
+              CONNECT A PROVIDER
+            </Link>
+          </div>
+        </div>
+      ) : authed ? (
         <>
           <InsertWell onAdded={() => setTick((n) => n + 1)} />
           <Rack refreshTick={tick} />
         </>
-      )}
+      ) : null}
     </section>
   )
 }

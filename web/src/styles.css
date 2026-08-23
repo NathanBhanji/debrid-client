@@ -746,3 +746,46 @@ body {
   font-size: 12px;
   margin-top: 8px;
 }
+
+/* --- first-run + small screens ------------------------------ */
+.first-run-key {
+  display: inline-block;
+  text-decoration: none;
+}
+@media (max-width: 600px) {
+  .device {
+    margin: 10px 8px 40px;
+    padding: 16px 14px 20px;
+    border-radius: 16px;
+  }
+  .device-top {
+    gap: 10px;
+  }
+  .model-label,
+  .screw {
+    display: none;
+  }
+  .tabs {
+    gap: 4px;
+  }
+  .tab {
+    padding: 8px 12px;
+    font-size: 11px;
+  }
+  .lcd-row {
+    grid-template-columns: 1fr 1fr;
+  }
+  .lcd-row .wide {
+    grid-column: 1 / -1;
+  }
+  .modhead {
+    padding: 11px 12px;
+    gap: 10px;
+  }
+  .bay {
+    padding: 12px;
+  }
+  .strip .grill {
+    display: none;
+  }
+}

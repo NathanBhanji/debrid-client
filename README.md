@@ -30,6 +30,12 @@ The CLI talks to the running server. On the same machine it finds the server add
 
 Files land in `<download_dir>/[<category>/]<torrent name>/…`. Archives are extracted in place by default.
 
+## Web UI
+
+`debrid serve` also serves a web UI at the server address (http://127.0.0.1:8080 by default). Sign in with the API key, then add magnets or drop `.torrent` files, watch progress live, and manage accounts and settings. Release binaries and Docker images ship with the UI embedded; when building from source, run `make web` before `make build` to include it (plain `go build` works without it and serves the API only).
+
+The UI uses root-absolute URLs, so it requires an empty `server.base_path` (the default) — put it behind its own (sub)domain rather than a path prefix if proxying.
+
 ## Configuration
 
 Config file (`$XDG_CONFIG_HOME/debrid/config.yaml` or `--config`), environment (`DEBRID_SECTION__KEY`), and flags — later wins. `debrid config show` prints the effective config.
