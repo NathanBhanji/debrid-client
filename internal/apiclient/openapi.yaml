@@ -94,7 +94,7 @@ components:
           type: string
         settings:
           $ref: "#/components/schemas/TorrentSettings"
-          description: Overrides the configured defaults
+          description: Full per-torrent settings replacing the configured defaults (not merged)
       required:
         - magnet
       type: object
@@ -225,7 +225,97 @@ components:
           format: uri
           type: string
       type: object
-    Event:
+    EvAccountChanged:
+      additionalProperties: false
+      properties:
+        account_id:
+          type: string
+        at:
+          format: date-time
+          type: string
+        download_id:
+          type: string
+        torrent_id:
+          type: string
+        type:
+          type: string
+      required:
+        - type
+        - at
+      type: object
+    EvDownloadUpdated:
+      additionalProperties: false
+      properties:
+        account_id:
+          type: string
+        at:
+          format: date-time
+          type: string
+        download_id:
+          type: string
+        torrent_id:
+          type: string
+        type:
+          type: string
+      required:
+        - type
+        - at
+      type: object
+    EvSettingsChanged:
+      additionalProperties: false
+      properties:
+        account_id:
+          type: string
+        at:
+          format: date-time
+          type: string
+        download_id:
+          type: string
+        torrent_id:
+          type: string
+        type:
+          type: string
+      required:
+        - type
+        - at
+      type: object
+    EvTorrentAdded:
+      additionalProperties: false
+      properties:
+        account_id:
+          type: string
+        at:
+          format: date-time
+          type: string
+        download_id:
+          type: string
+        torrent_id:
+          type: string
+        type:
+          type: string
+      required:
+        - type
+        - at
+      type: object
+    EvTorrentDeleted:
+      additionalProperties: false
+      properties:
+        account_id:
+          type: string
+        at:
+          format: date-time
+          type: string
+        download_id:
+          type: string
+        torrent_id:
+          type: string
+        type:
+          type: string
+      required:
+        - type
+        - at
+      type: object
+    EvTorrentUpdated:
       additionalProperties: false
       properties:
         account_id:
@@ -544,6 +634,7 @@ components:
           type: string
         settings:
           $ref: "#/components/schemas/TorrentSettings"
+          description: Full replacement of the torrent's settings (manual file selection is preserved; use the files endpoint for that)
       type: object
     User:
       additionalProperties: false
@@ -763,6 +854,7 @@ paths:
         - torrents
   /api/v1/events:
     get:
+      description: "Event names: torrent.added, torrent.updated, torrent.deleted, download.updated, account.changed, settings.changed, heartbeat (every 15s). Payloads are small notifications; re-fetch the resource. Slow consumers may miss events — re-sync on reconnect. Authenticate with the Bearer header or ?api_key= (EventSource cannot set headers)."
       operationId: events
       responses:
         "200":
@@ -774,7 +866,7 @@ paths:
                   oneOf:
                     - properties:
                         data:
-                          $ref: "#/components/schemas/Event"
+                          $ref: "#/components/schemas/EvAccountChanged"
                         event:
                           const: account.changed
                           description: The event name.
@@ -792,7 +884,7 @@ paths:
                       type: object
                     - properties:
                         data:
-                          $ref: "#/components/schemas/Event"
+                          $ref: "#/components/schemas/EvDownloadUpdated"
                         event:
                           const: download.updated
                           description: The event name.
@@ -828,7 +920,7 @@ paths:
                       type: object
                     - properties:
                         data:
-                          $ref: "#/components/schemas/Event"
+                          $ref: "#/components/schemas/EvSettingsChanged"
                         event:
                           const: settings.changed
                           description: The event name.
@@ -846,7 +938,7 @@ paths:
                       type: object
                     - properties:
                         data:
-                          $ref: "#/components/schemas/Event"
+                          $ref: "#/components/schemas/EvTorrentAdded"
                         event:
                           const: torrent.added
                           description: The event name.
@@ -864,7 +956,7 @@ paths:
                       type: object
                     - properties:
                         data:
-                          $ref: "#/components/schemas/Event"
+                          $ref: "#/components/schemas/EvTorrentDeleted"
                         event:
                           const: torrent.deleted
                           description: The event name.
@@ -882,7 +974,7 @@ paths:
                       type: object
                     - properties:
                         data:
-                          $ref: "#/components/schemas/Event"
+                          $ref: "#/components/schemas/EvTorrentUpdated"
                         event:
                           const: torrent.updated
                           description: The event name.
@@ -1001,7 +1093,6 @@ paths:
           name: status
           schema:
             enum:
-              - ""
               - queued
               - adding
               - processing

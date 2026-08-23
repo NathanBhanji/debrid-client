@@ -167,7 +167,6 @@ const (
 	ListTorrentsParamsStatusAdding           ListTorrentsParamsStatus = "adding"
 	ListTorrentsParamsStatusCompleted        ListTorrentsParamsStatus = "completed"
 	ListTorrentsParamsStatusDownloading      ListTorrentsParamsStatus = "downloading"
-	ListTorrentsParamsStatusEmpty            ListTorrentsParamsStatus = ""
 	ListTorrentsParamsStatusError            ListTorrentsParamsStatus = "error"
 	ListTorrentsParamsStatusFinished         ListTorrentsParamsStatus = "finished"
 	ListTorrentsParamsStatusProcessing       ListTorrentsParamsStatus = "processing"
@@ -184,8 +183,6 @@ func (e ListTorrentsParamsStatus) Valid() bool {
 	case ListTorrentsParamsStatusCompleted:
 		return true
 	case ListTorrentsParamsStatusDownloading:
-		return true
-	case ListTorrentsParamsStatusEmpty:
 		return true
 	case ListTorrentsParamsStatusError:
 		return true
@@ -348,8 +345,53 @@ type ErrorModel struct {
 	Type *string `json:"type,omitempty"`
 }
 
-// Event defines model for Event.
-type Event struct {
+// EvAccountChanged defines model for EvAccountChanged.
+type EvAccountChanged struct {
+	AccountId  *string   `json:"account_id,omitempty"`
+	At         time.Time `json:"at"`
+	DownloadId *string   `json:"download_id,omitempty"`
+	TorrentId  *string   `json:"torrent_id,omitempty"`
+	Type       string    `json:"type"`
+}
+
+// EvDownloadUpdated defines model for EvDownloadUpdated.
+type EvDownloadUpdated struct {
+	AccountId  *string   `json:"account_id,omitempty"`
+	At         time.Time `json:"at"`
+	DownloadId *string   `json:"download_id,omitempty"`
+	TorrentId  *string   `json:"torrent_id,omitempty"`
+	Type       string    `json:"type"`
+}
+
+// EvSettingsChanged defines model for EvSettingsChanged.
+type EvSettingsChanged struct {
+	AccountId  *string   `json:"account_id,omitempty"`
+	At         time.Time `json:"at"`
+	DownloadId *string   `json:"download_id,omitempty"`
+	TorrentId  *string   `json:"torrent_id,omitempty"`
+	Type       string    `json:"type"`
+}
+
+// EvTorrentAdded defines model for EvTorrentAdded.
+type EvTorrentAdded struct {
+	AccountId  *string   `json:"account_id,omitempty"`
+	At         time.Time `json:"at"`
+	DownloadId *string   `json:"download_id,omitempty"`
+	TorrentId  *string   `json:"torrent_id,omitempty"`
+	Type       string    `json:"type"`
+}
+
+// EvTorrentDeleted defines model for EvTorrentDeleted.
+type EvTorrentDeleted struct {
+	AccountId  *string   `json:"account_id,omitempty"`
+	At         time.Time `json:"at"`
+	DownloadId *string   `json:"download_id,omitempty"`
+	TorrentId  *string   `json:"torrent_id,omitempty"`
+	Type       string    `json:"type"`
+}
+
+// EvTorrentUpdated defines model for EvTorrentUpdated.
+type EvTorrentUpdated struct {
 	AccountId  *string   `json:"account_id,omitempty"`
 	At         time.Time `json:"at"`
 	DownloadId *string   `json:"download_id,omitempty"`
@@ -723,6 +765,8 @@ type ClientInterface interface {
 
 	// Events Stream change events (Server-Sent Events)
 	//
+	// Event names: torrent.added, torrent.updated, torrent.deleted, download.updated, account.changed, settings.changed, heartbeat (every 15s). Payloads are small notifications; re-fetch the resource. Slow consumers may miss events — re-sync on reconnect. Authenticate with the Bearer header or ?api_key= (EventSource cannot set headers).
+	//
 	// Corresponds with GET /api/v1/events (the `Events` operationId).
 	Events(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -973,6 +1017,8 @@ func (c *Client) RetryDownload(ctx context.Context, id string, reqEditors ...Req
 }
 
 // Events Stream change events (Server-Sent Events)
+//
+// Event names: torrent.added, torrent.updated, torrent.deleted, download.updated, account.changed, settings.changed, heartbeat (every 15s). Payloads are small notifications; re-fetch the resource. Slow consumers may miss events — re-sync on reconnect. Authenticate with the Bearer header or ?api_key= (EventSource cannot set headers).
 //
 // Corresponds with GET /api/v1/events (the `Events` operationId).
 func (c *Client) Events(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -2165,6 +2211,8 @@ type ClientWithResponsesInterface interface {
 
 	// EventsWithResponse Stream change events (Server-Sent Events)
 	//
+	// Event names: torrent.added, torrent.updated, torrent.deleted, download.updated, account.changed, settings.changed, heartbeat (every 15s). Payloads are small notifications; re-fetch the resource. Slow consumers may miss events — re-sync on reconnect. Authenticate with the Bearer header or ?api_key= (EventSource cannot set headers).
+	//
 	// Returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with GET /api/v1/events (the `Events` operationId).
@@ -3344,6 +3392,8 @@ func (c *ClientWithResponses) RetryDownloadWithResponse(ctx context.Context, id 
 }
 
 // EventsWithResponse Stream change events (Server-Sent Events)
+//
+// Event names: torrent.added, torrent.updated, torrent.deleted, download.updated, account.changed, settings.changed, heartbeat (every 15s). Payloads are small notifications; re-fetch the resource. Slow consumers may miss events — re-sync on reconnect. Authenticate with the Bearer header or ?api_key= (EventSource cannot set headers).
 //
 // Returns a wrapper object for the known response body format(s).
 //
