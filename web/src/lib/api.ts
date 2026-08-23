@@ -84,8 +84,8 @@ export const api = {
 }
 
 // Server-sent events stream (EventSource can't set headers → query key).
-// TODO(next PR): reconnect on error and watch the heartbeat event (15s) for
-// liveness when the torrent rack starts consuming this.
+// EventSource reconnects on its own; payloads are notifications, so callers
+// re-fetch the resource rather than reading event data.
 export function openEvents(
   onEvent: (type: string, data: unknown) => void,
 ): () => void {
@@ -99,6 +99,7 @@ export function openEvents(
     'download.updated',
     'account.changed',
     'settings.changed',
+    'heartbeat',
   ]
   for (const t of types) {
     es.addEventListener(t, (ev) => onEvent(t, JSON.parse(ev.data as string)))

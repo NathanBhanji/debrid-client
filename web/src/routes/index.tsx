@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 
-import { ApiError, api, getApiKey, setApiKey } from '#/lib/api'
+import { ApiError, api, openEvents, setApiKey } from '#/lib/api'
+import { Rack } from '#/components/rack'
 import type { Status } from '#/lib/api'
 
 export const Route = createFileRoute('/')({ component: Home })
@@ -32,6 +33,22 @@ function Home() {
       })
   }
   useEffect(load, [])
+
+  // One SSE connection per page; every notification bumps the tick, which
+  // re-fetches the status LCDs here and the torrent list in <Rack>.
+  const [tick, setTick] = useState(0)
+  const authed = status !== null
+  useEffect(() => {
+    if (!authed) return
+    return openEvents((type) => {
+      if (type !== 'heartbeat') setTick((n) => n + 1)
+    })
+  }, [authed])
+  useEffect(() => {
+    if (tick === 0) return
+    const timer = setTimeout(load, 300)
+    return () => clearTimeout(timer)
+  }, [tick])
 
   if (needsKey) {
     return (
@@ -100,11 +117,7 @@ function Home() {
           </div>
         </div>
       </div>
-      <p style={{ color: 'var(--mut)', fontSize: 12 }}>
-        Torrent rack lands in the next PR — this scaffold proves the embedded
-        SPA, design tokens, typed API client and auth flow.
-        {getApiKey() ? '' : ' No API key set yet.'}
-      </p>
+      {authed && <Rack refreshTick={tick} />}
     </section>
   )
 }
