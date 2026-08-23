@@ -10,6 +10,26 @@ export type Account = components['schemas']['Account']
 export type Settings = components['schemas']['Settings']
 export type Health = components['schemas']['HealthOutBody']
 export type Download = components['schemas']['Download']
+export type User = components['schemas']['User']
+export type AddAccount = components['schemas']['AddAccountInBody']
+export type UpdateAccount = components['schemas']['UpdateAccountInBody']
+export type ProviderKind = Account['kind']
+
+export const PROVIDER_KINDS: Array<ProviderKind> = [
+  'torbox',
+  'realdebrid',
+  'alldebrid',
+  'premiumize',
+  'debridlink',
+]
+
+export const PROVIDER_LABELS: Record<ProviderKind, string> = {
+  torbox: 'TorBox',
+  realdebrid: 'Real-Debrid',
+  alldebrid: 'AllDebrid',
+  premiumize: 'Premiumize',
+  debridlink: 'Debrid-Link',
+}
 
 const KEY_STORAGE = 'debrid.apiKey'
 
@@ -97,9 +117,33 @@ export const api = {
   },
   accounts: {
     list: () => request<Array<Account>>('/accounts'),
+    add: (body: AddAccount) =>
+      request<Account>('/accounts', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    update: (id: string, body: UpdateAccount) =>
+      request<Account>(`/accounts/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }),
+    remove: (id: string, opts?: { force?: boolean }) =>
+      request<void>(
+        `/accounts/${encodeURIComponent(id)}?force=${opts?.force ?? false}`,
+        { method: 'DELETE' },
+      ),
+    test: (id: string) =>
+      request<User>(`/accounts/${encodeURIComponent(id)}/test`, {
+        method: 'POST',
+      }),
   },
   settings: {
     get: () => request<Settings>('/settings'),
+    update: (body: Settings) =>
+      request<Settings>('/settings', {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      }),
   },
 }
 
