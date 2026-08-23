@@ -171,9 +171,18 @@ func TestAddTorrentValidationAndDuplicates(t *testing.T) {
 	if _, err := f.svc.AddTorrent(ctx, AddTorrentInput{Magnet: magnetA}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("duplicate active torrent should conflict: %v", err)
 	}
-	// Lookup by hash and by id.
+	// Lookup by hash, by id, and by unique prefix of either.
 	if got, err := f.svc.GetTorrent(ctx, tor.Hash); err != nil || got.Torrent.ID != tor.ID {
 		t.Fatalf("get by hash: %v", err)
+	}
+	if got, err := f.svc.GetTorrent(ctx, tor.Hash[:8]); err != nil || got.Torrent.ID != tor.ID {
+		t.Fatalf("get by hash prefix: %v", err)
+	}
+	if got, err := f.svc.GetTorrent(ctx, tor.ID[:12]); err != nil || got.Torrent.ID != tor.ID {
+		t.Fatalf("get by id prefix: %v", err)
+	}
+	if _, err := f.svc.GetTorrent(ctx, tor.Hash[:3]); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("too-short prefix must not match: %v", err)
 	}
 	list, _ := f.svc.ListTorrents(ctx, ListFilter{Category: "tv"})
 	if len(list) != 1 || len(list[0].Downloads) != 0 {

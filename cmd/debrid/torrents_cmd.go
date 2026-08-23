@@ -6,6 +6,7 @@ import (
 	"io"
 	"mime/multipart"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -41,10 +42,7 @@ func newTorrentsCmd(g *globalFlags, cf *clientFlags) *cobra.Command {
 					if err != nil {
 						return err
 					}
-					if err := cf.respond(cmd.OutOrStdout(), resp.StatusCode(), resp.Body, 201, func(w io.Writer) error {
-						_, err := fmt.Fprintf(w, "added %s  %s  (%s)\n", resp.JSON201.Id, resp.JSON201.Name, resp.JSON201.Status)
-						return err
-					}); err != nil {
+					if err := respondJSON(cf, cmd.OutOrStdout(), resp.StatusCode(), resp.Body, 201, resp.JSON201, renderAdded); err != nil {
 						return err
 					}
 					continue
@@ -55,7 +53,7 @@ func newTorrentsCmd(g *globalFlags, cf *clientFlags) *cobra.Command {
 				}
 				var buf bytes.Buffer
 				mw := multipart.NewWriter(&buf)
-				fw, err := mw.CreateFormFile("file", a)
+				fw, err := mw.CreateFormFile("file", filepath.Base(a))
 				if err != nil {
 					return err
 				}
@@ -71,10 +69,7 @@ func newTorrentsCmd(g *globalFlags, cf *clientFlags) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if err := cf.respond(cmd.OutOrStdout(), resp.StatusCode(), resp.Body, 201, func(w io.Writer) error {
-					_, err := fmt.Fprintf(w, "added %s  %s  (%s)\n", resp.JSON201.Id, resp.JSON201.Name, resp.JSON201.Status)
-					return err
-				}); err != nil {
+				if err := respondJSON(cf, cmd.OutOrStdout(), resp.StatusCode(), resp.Body, 201, resp.JSON201, renderAdded); err != nil {
 					return err
 				}
 			}
@@ -110,12 +105,10 @@ func newTorrentsCmd(g *globalFlags, cf *clientFlags) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if lsWatch && !cf.json {
+				if lsWatch && !cf.json && isTerminal(cmd.OutOrStdout()) {
 					_, _ = fmt.Fprint(cmd.OutOrStdout(), "\033[H\033[2J")
 				}
-				if err := cf.respond(cmd.OutOrStdout(), resp.StatusCode(), resp.Body, 200, func(w io.Writer) error {
-					return renderTorrents(w, *resp.JSON200)
-				}); err != nil {
+				if err := respondJSON(cf, cmd.OutOrStdout(), resp.StatusCode(), resp.Body, 200, resp.JSON200, renderTorrents); err != nil {
 					return err
 				}
 				if !lsWatch {
@@ -147,9 +140,7 @@ func newTorrentsCmd(g *globalFlags, cf *clientFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return cf.respond(cmd.OutOrStdout(), resp.StatusCode(), resp.Body, 200, func(w io.Writer) error {
-				return renderTorrentDetail(w, *resp.JSON200)
-			})
+			return respondJSON(cf, cmd.OutOrStdout(), resp.StatusCode(), resp.Body, 200, resp.JSON200, renderTorrentDetail)
 		},
 	}
 
@@ -195,8 +186,8 @@ func newTorrentsCmd(g *globalFlags, cf *clientFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return cf.respond(cmd.OutOrStdout(), resp.StatusCode(), resp.Body, 200, func(w io.Writer) error {
-				_, err := fmt.Fprintf(w, "retrying %s (%s)\n", resp.JSON200.Id, resp.JSON200.Status)
+			return respondJSON(cf, cmd.OutOrStdout(), resp.StatusCode(), resp.Body, 200, resp.JSON200, func(w io.Writer, t apiclient.Torrent) error {
+				_, err := fmt.Fprintf(w, "retrying %s  %s (%s)\n", shortHash(t.Hash), t.Name, t.Status)
 				return err
 			})
 		},
@@ -215,9 +206,7 @@ func newTorrentsCmd(g *globalFlags, cf *clientFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return cf.respond(cmd.OutOrStdout(), resp.StatusCode(), resp.Body, 200, func(w io.Writer) error {
-				return renderTorrentDetail(w, *resp.JSON200)
-			})
+			return respondJSON(cf, cmd.OutOrStdout(), resp.StatusCode(), resp.Body, 200, resp.JSON200, renderTorrentDetail)
 		},
 	}
 
@@ -239,9 +228,7 @@ func newTorrentsCmd(g *globalFlags, cf *clientFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return cf.respond(cmd.OutOrStdout(), resp.StatusCode(), resp.Body, 200, func(w io.Writer) error {
-				return renderTorrentDetail(w, *resp.JSON200)
-			})
+			return respondJSON(cf, cmd.OutOrStdout(), resp.StatusCode(), resp.Body, 200, resp.JSON200, renderTorrentDetail)
 		},
 	}
 	set.Flags().StringVarP(&setCategory, "category", "c", "", "new category")
@@ -250,18 +237,25 @@ func newTorrentsCmd(g *globalFlags, cf *clientFlags) *cobra.Command {
 	return cmd
 }
 
+func renderAdded(w io.Writer, t apiclient.Torrent) error {
+	_, err := fmt.Fprintf(w, "added %s  %s  (%s)\n", shortHash(t.Hash), t.Name, t.Status)
+	return err
+}
+
+// renderTorrents lists torrents keyed by a short hash prefix, which the server
+// accepts anywhere an id is expected (unique prefixes ≥ 6 chars).
 func renderTorrents(w io.Writer, ts []apiclient.Torrent) error {
 	rows := make([][]string, 0, len(ts))
 	for _, t := range ts {
-		rows = append(rows, []string{shortID(t.Id), string(t.Status), pct(t.ProviderProgress), pct(t.LocalProgress), humanBytes(t.Size), deref(t.Category), t.Name, firstLine(deref(t.Error), deref(t.StatusReason))})
+		rows = append(rows, []string{shortHash(t.Hash), string(t.Status), pct(t.ProviderProgress), pct(t.LocalProgress), humanBytes(t.Size), deref(t.Category), t.Name, firstLine(deref(t.Error), deref(t.StatusReason))})
 	}
-	return table(w, []string{"ID", "STATUS", "PROV", "LOCAL", "SIZE", "CATEGORY", "NAME", "DETAIL"}, rows)
+	return table(w, []string{"HASH", "STATUS", "PROV", "LOCAL", "SIZE", "CATEGORY", "NAME", "DETAIL"}, rows)
 }
 
 func renderTorrentDetail(w io.Writer, t apiclient.Torrent) error {
-	_, _ = fmt.Fprintf(w, "%s  %s\n", t.Name, t.Id)
-	_, _ = fmt.Fprintf(w, "  hash:      %s\n  status:    %s  %s\n  provider:  %.0f%%  local: %.0f%%  size: %s\n",
-		t.Hash, t.Status, deref(t.StatusReason), t.ProviderProgress*100, t.LocalProgress*100, humanBytes(t.Size))
+	_, _ = fmt.Fprintf(w, "%s\n", t.Name)
+	_, _ = fmt.Fprintf(w, "  id:        %s\n  hash:      %s\n  status:    %s  %s\n  provider:  %.0f%%  local: %.0f%%  size: %s\n",
+		t.Id, t.Hash, t.Status, deref(t.StatusReason), t.ProviderProgress*100, t.LocalProgress*100, humanBytes(t.Size))
 	if c := deref(t.Category); c != "" {
 		_, _ = fmt.Fprintf(w, "  category:  %s\n", c)
 	}
@@ -286,18 +280,29 @@ func renderTorrentDetail(w io.Writer, t apiclient.Torrent) error {
 		_, _ = fmt.Fprintln(w, "  downloads:")
 		rows := make([][]string, 0, len(t.Downloads))
 		for _, d := range t.Downloads {
-			rows = append(rows, []string{"    " + shortID(d.Id), string(d.State), pct(d.Progress), humanBytes(d.Size), d.Path, deref(d.Error)})
+			rows = append(rows, []string{"    " + d.Id, string(d.State), pct(d.Progress), humanBytes(d.Size), d.Path, deref(d.Error)})
 		}
 		return table(w, []string{"    ID", "STATE", "PROG", "SIZE", "PATH", "ERROR"}, rows)
 	}
 	return nil
 }
 
-func shortID(id string) string {
-	if len(id) > 8 {
-		return id[:8]
+// shortHash is the first 10 characters of an info hash — random enough to be
+// unique in practice and accepted by the server as a prefix lookup.
+func shortHash(h string) string {
+	if len(h) > 10 {
+		return h[:10]
 	}
-	return id
+	return h
+}
+
+func isTerminal(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	fi, err := f.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
 }
 
 func firstLine(ss ...string) string {

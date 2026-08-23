@@ -24,8 +24,7 @@ func newStatusCmd(g *globalFlags, cf *clientFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return cf.respond(cmd.OutOrStdout(), resp.StatusCode(), resp.Body, 200, func(w io.Writer) error {
-				s := resp.JSON200
+			return respondJSON(cf, cmd.OutOrStdout(), resp.StatusCode(), resp.Body, 200, resp.JSON200, func(w io.Writer, s apiclient.Status) error {
 				_, _ = fmt.Fprintf(w, "version:      %s\naccounts:     %d\ndownload dir: %s\ndisk free:    %s of %s\n",
 					s.Version, s.Accounts, s.DownloadDir, humanBytes(s.DiskFreeBytes), humanBytes(s.DiskTotalBytes))
 				if len(s.Torrents) > 0 {
@@ -46,7 +45,8 @@ func newStatusCmd(g *globalFlags, cf *clientFlags) *cobra.Command {
 }
 
 func newSettingsCmd(g *globalFlags, cf *clientFlags) *cobra.Command {
-	cmd := &cobra.Command{Use: "settings", Short: "View or replace runtime settings"}
+	cmd := &cobra.Command{Use: "settings", Short: "View or update runtime settings"}
+	var replace bool
 	get := &cobra.Command{
 		Use: "get", Short: "Print settings as JSON",
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -63,9 +63,11 @@ func newSettingsCmd(g *globalFlags, cf *clientFlags) *cobra.Command {
 	}
 	set := &cobra.Command{
 		Use:   "set [file.json|-]",
-		Short: "Replace settings from a JSON file (or stdin)",
-		Long:  "Reads a full settings document (as printed by `settings get`) and stores it.",
-		Args:  cobra.MaximumNArgs(1),
+		Short: "Update settings from a JSON document (file or stdin), merged over the current settings",
+		Long: `Reads a settings document (any subset of what 'settings get' prints) and
+applies it on top of the current settings, so omitted keys keep their values.
+Pass --replace to treat the document as the complete settings instead.`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			r := cmd.InOrStdin()
 			if len(args) == 1 && args[0] != "-" {
@@ -76,13 +78,27 @@ func newSettingsCmd(g *globalFlags, cf *clientFlags) *cobra.Command {
 				defer func() { _ = f.Close() }()
 				r = f
 			}
-			var body apiclient.UpdateSettingsJSONRequestBody
-			if err := json.NewDecoder(r).Decode(&body); err != nil {
-				return fmt.Errorf("parse settings: %w", err)
+			raw, err := io.ReadAll(r)
+			if err != nil {
+				return err
 			}
 			cl, err := cf.resolve(cmd, g)
 			if err != nil {
 				return err
+			}
+			var body apiclient.UpdateSettingsJSONRequestBody
+			if !replace {
+				cur, err := cl.GetSettingsWithResponse(cmd.Context())
+				if err != nil {
+					return err
+				}
+				if cur.StatusCode() != 200 || cur.JSON200 == nil {
+					return apiError(cur.StatusCode(), cur.Body)
+				}
+				body = *cur.JSON200 // start from current, overlay the document
+			}
+			if err := json.Unmarshal(raw, &body); err != nil {
+				return fmt.Errorf("parse settings: %w", err)
 			}
 			resp, err := cl.UpdateSettingsWithResponse(cmd.Context(), body)
 			if err != nil {
@@ -91,6 +107,7 @@ func newSettingsCmd(g *globalFlags, cf *clientFlags) *cobra.Command {
 			return cf.respond(cmd.OutOrStdout(), resp.StatusCode(), resp.Body, 200, nil)
 		},
 	}
+	set.Flags().BoolVar(&replace, "replace", false, "treat the document as the complete settings (omitted keys reset to zero values)")
 	cmd.AddCommand(get, set)
 	return cmd
 }
@@ -108,8 +125,8 @@ func newDownloadsCmd(g *globalFlags, cf *clientFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return cf.respond(cmd.OutOrStdout(), resp.StatusCode(), resp.Body, 200, func(w io.Writer) error {
-				_, err := fmt.Fprintf(w, "retrying %s (%s)\n", resp.JSON200.Id, resp.JSON200.State)
+			return respondJSON(cf, cmd.OutOrStdout(), resp.StatusCode(), resp.Body, 200, resp.JSON200, func(w io.Writer, d apiclient.Download) error {
+				_, err := fmt.Fprintf(w, "retrying %s (%s)\n", d.Id, d.State)
 				return err
 			})
 		},

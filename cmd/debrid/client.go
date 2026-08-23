@@ -7,10 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"text/tabwriter"
 	"time"
 
@@ -38,13 +40,16 @@ func (c *clientFlags) bind(cmd *cobra.Command) {
 // env, config and — for a local server — the database.
 func (c *clientFlags) resolve(cmd *cobra.Command, g *globalFlags) (*apiclient.ClientWithResponses, error) {
 	cfg, cfgErr := config.Load(config.Options{File: g.configFile, FileExplicit: g.configFile != ""})
+	if cfgErr != nil && g.configFile != "" {
+		return nil, cfgErr // an explicitly requested config file must load
+	}
 
 	server := c.server
 	if server == "" {
 		server = os.Getenv("DEBRID_SERVER")
 	}
 	if server == "" && cfgErr == nil {
-		server = "http://" + strings.Replace(cfg.Server.Listen, "0.0.0.0", "127.0.0.1", 1) + cfg.Server.BasePath
+		server = "http://" + localListen(cfg.Server.Listen) + cfg.Server.BasePath
 	}
 	if server == "" {
 		server = "http://127.0.0.1:8080"
@@ -57,34 +62,65 @@ func (c *clientFlags) resolve(cmd *cobra.Command, g *globalFlags) (*apiclient.Cl
 	if key == "" && cfgErr == nil {
 		key = cfg.Server.APIKey
 	}
+	var dbErr error
 	if key == "" && cfgErr == nil {
-		key = keyFromDB(cmd.Context(), cfg)
+		key, dbErr = keyFromDB(cmd.Context(), cfg)
 	}
 	if key == "" {
-		return nil, errors.New("no API key: pass --api-key, set DEBRID_API_KEY, or run on the machine hosting the server")
+		msg := "no API key: pass --api-key, set DEBRID_API_KEY, or run on the machine hosting the server"
+		switch {
+		case cfgErr != nil:
+			msg += fmt.Sprintf(" (config: %v)", cfgErr)
+		case dbErr != nil:
+			msg += fmt.Sprintf(" (local database: %v)", dbErr)
+		}
+		return nil, errors.New(msg)
 	}
 	return apiclient.NewClientWithResponses(server, apiclient.WithRequestEditorFn(func(_ context.Context, req *http.Request) error {
 		req.Header.Set("Authorization", "Bearer "+key)
 		return nil
-	}), apiclient.WithHTTPClient(&http.Client{Timeout: 2 * time.Minute}))
+	}), apiclient.WithHTTPClient(&http.Client{Timeout: 2 * time.Minute, Transport: &hintTransport{}}))
+}
+
+// localListen turns a server listen address into something a local client can dial.
+func localListen(listen string) string {
+	host, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		return listen
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" || host == "[::]" {
+		host = "127.0.0.1"
+	}
+	return net.JoinHostPort(host, port)
+}
+
+// hintTransport adds a "is the server running?" hint to connection errors.
+type hintTransport struct{}
+
+func (hintTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	resp, err := http.DefaultTransport.RoundTrip(r)
+	if err != nil {
+		var ne net.Error
+		if errors.As(err, &ne) || errors.Is(err, syscall.ECONNREFUSED) {
+			return nil, fmt.Errorf("%w (is the server running? see --server)", err)
+		}
+	}
+	return resp, err
 }
 
 // keyFromDB reads the generated API key from the local database, if present.
-func keyFromDB(ctx context.Context, cfg config.Config) string {
+// The database is opened read-only with a short busy timeout so the CLI can
+// never migrate, lock or otherwise disturb a running server's data.
+func keyFromDB(ctx context.Context, cfg config.Config) (string, error) {
 	path := filepath.Join(cfg.DataDir, "debrid.db")
 	if _, err := os.Stat(path); err != nil {
-		return ""
+		return "", nil // no local server data; not an error
 	}
-	st, err := store.Open(ctx, path)
+	key, err := store.ReadSettingReadOnly(ctx, path, "server.api_key")
 	if err != nil {
-		return ""
+		return "", err
 	}
-	defer func() { _ = st.Close() }()
-	v, err := st.GetSetting(ctx, "server.api_key")
-	if err != nil {
-		return ""
-	}
-	return v
+	return key, nil
 }
 
 // apiError extracts a readable message from a non-2xx response body.
@@ -96,7 +132,11 @@ func apiError(status int, body []byte) error {
 			msg = *em.Title
 		}
 		if em.Detail != nil {
-			msg += ": " + *em.Detail
+			if strings.HasPrefix(strings.ToLower(*em.Detail), strings.ToLower(msg)) { // "Not Found: not found: …" → once
+				msg = *em.Detail
+			} else {
+				msg += ": " + *em.Detail
+			}
 		}
 		if em.Errors != nil {
 			for _, e := range *em.Errors {
@@ -117,23 +157,45 @@ func apiError(status int, body []byte) error {
 }
 
 // respond checks the status and prints either JSON or the result of render.
+// Use respondJSON for responses with a decoded body; this variant is for
+// bodiless responses (204) and raw passthrough.
 func (c *clientFlags) respond(w io.Writer, status int, body []byte, want int, render func(w io.Writer) error) error {
 	if status != want {
 		return apiError(status, body)
 	}
 	if c.json || render == nil {
-		if len(body) == 0 {
-			return nil
-		}
-		var buf bytes.Buffer
-		if err := json.Indent(&buf, body, "", "  "); err != nil {
-			_, err = w.Write(body)
-			return err
-		}
-		_, err := fmt.Fprintln(w, buf.String())
-		return err
+		return writeJSON(w, body)
 	}
 	return render(w)
+}
+
+// respondJSON is respond for responses the generated client decoded into v.
+// A 2xx without a decoded body (wrong host serving HTML, proxy error page)
+// is reported instead of dereferenced.
+func respondJSON[T any](c *clientFlags, w io.Writer, status int, body []byte, want int, v *T, render func(w io.Writer, v T) error) error {
+	if status != want {
+		return apiError(status, body)
+	}
+	if v == nil {
+		return fmt.Errorf("unexpected response from server (status %d, not JSON): %s — is --server pointing at debrid-client?", status, firstLine(strings.TrimSpace(string(body))))
+	}
+	if c.json || render == nil {
+		return writeJSON(w, body)
+	}
+	return render(w, *v)
+}
+
+func writeJSON(w io.Writer, body []byte) error {
+	if len(body) == 0 {
+		return nil
+	}
+	var buf bytes.Buffer
+	if err := json.Indent(&buf, body, "", "  "); err != nil {
+		_, err = w.Write(body)
+		return err
+	}
+	_, err := fmt.Fprintln(w, buf.String())
+	return err
 }
 
 func table(w io.Writer, header []string, rows [][]string) error {

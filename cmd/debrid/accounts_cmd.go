@@ -37,9 +37,7 @@ func newAccountsCmd(g *globalFlags, cf *clientFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return cf.respond(cmd.OutOrStdout(), resp.StatusCode(), resp.Body, 201, func(w io.Writer) error {
-				return renderAccounts(w, []apiclient.Account{*resp.JSON201})
-			})
+			return respondJSON(cf, cmd.OutOrStdout(), resp.StatusCode(), resp.Body, 201, resp.JSON201, renderAccount)
 		},
 	}
 	add.Flags().StringVar(&kind, "kind", "", "provider kind: torbox|realdebrid|alldebrid|premiumize|debridlink")
@@ -58,9 +56,7 @@ func newAccountsCmd(g *globalFlags, cf *clientFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return cf.respond(cmd.OutOrStdout(), resp.StatusCode(), resp.Body, 200, func(w io.Writer) error {
-				return renderAccounts(w, *resp.JSON200)
-			})
+			return respondJSON(cf, cmd.OutOrStdout(), resp.StatusCode(), resp.Body, 200, resp.JSON200, renderAccounts)
 		},
 	}
 
@@ -75,8 +71,7 @@ func newAccountsCmd(g *globalFlags, cf *clientFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return cf.respond(cmd.OutOrStdout(), resp.StatusCode(), resp.Body, 200, func(w io.Writer) error {
-				u := resp.JSON200
+			return respondJSON(cf, cmd.OutOrStdout(), resp.StatusCode(), resp.Body, 200, resp.JSON200, func(w io.Writer, u apiclient.User) error {
 				_, err := fmt.Fprintf(w, "ok: %s premium=%v plan=%s\n", deref(u.Username), u.Premium, deref(u.Plan))
 				return err
 			})
@@ -108,6 +103,9 @@ func newAccountsCmd(g *globalFlags, cf *clientFlags) *cobra.Command {
 	set := &cobra.Command{
 		Use: "set <id|name>", Short: "Update an account", Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if enable && disable {
+				return fmt.Errorf("--enable and --disable are mutually exclusive")
+			}
 			cl, err := cf.resolve(cmd, g)
 			if err != nil {
 				return err
@@ -132,9 +130,7 @@ func newAccountsCmd(g *globalFlags, cf *clientFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return cf.respond(cmd.OutOrStdout(), resp.StatusCode(), resp.Body, 200, func(w io.Writer) error {
-				return renderAccounts(w, []apiclient.Account{*resp.JSON200})
-			})
+			return respondJSON(cf, cmd.OutOrStdout(), resp.StatusCode(), resp.Body, 200, resp.JSON200, renderAccount)
 		},
 	}
 	set.Flags().StringVar(&newName, "name", "", "rename")
@@ -145,6 +141,10 @@ func newAccountsCmd(g *globalFlags, cf *clientFlags) *cobra.Command {
 
 	cmd.AddCommand(add, ls, test, rm, set)
 	return cmd
+}
+
+func renderAccount(w io.Writer, a apiclient.Account) error {
+	return renderAccounts(w, []apiclient.Account{a})
 }
 
 func renderAccounts(w io.Writer, accs []apiclient.Account) error {
