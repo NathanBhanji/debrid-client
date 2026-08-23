@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -97,7 +98,7 @@ func TestRateLimited429HonoursRetryAfter(t *testing.T) {
 		_, _ = w.Write([]byte(`ok`))
 	}))
 	defer srv.Close()
-	c := newClient(t, srv, nil)
+	c := newClient(t, srv, func(c *Config) { c.MaxBackoff = 5 * time.Second }) // Retry-After within the cap → honoured
 	if _, err := c.Do(context.Background(), Request{Path: "x"}); err != nil {
 		t.Fatal(err)
 	}
@@ -231,5 +232,87 @@ func TestPerMinuteAndRetryAfterParse(t *testing.T) {
 	}
 	if parseRetryAfter("2") != 2*time.Second || parseRetryAfter("") != 0 || parseRetryAfter("garbage") != 0 {
 		t.Fatal("parseRetryAfter")
+	}
+}
+
+func TestTransportErrorsRedactQuery(t *testing.T) {
+	c, err := New(Config{BaseURL: "http://127.0.0.1:1/api/", MaxAttempts: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = c.Do(context.Background(), Request{Path: "x", Query: url.Values{"token": {"SECRET123"}}})
+	if err == nil || strings.Contains(err.Error(), "SECRET123") {
+		t.Fatalf("query string leaked: %v", err)
+	}
+	var pe *provider.Error
+	if !errors.As(err, &pe) || pe.Kind != provider.ErrTransient {
+		t.Fatalf("expected transient, got %v", err)
+	}
+	if pe.Err != nil && strings.Contains(pe.Err.Error(), "SECRET123") {
+		t.Fatalf("wrapped cause leaked: %v", pe.Err)
+	}
+}
+
+func TestHugeRetryAfterIsSurfacedNotSlept(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "3600")
+		w.WriteHeader(429)
+	}))
+	defer srv.Close()
+	c := newClient(t, srv, func(c *Config) { c.MaxBackoff = 50 * time.Millisecond })
+	start := time.Now()
+	_, err := c.Do(context.Background(), Request{Path: "x"})
+	if time.Since(start) > time.Second {
+		t.Fatal("should not sleep for the server's Retry-After when it exceeds MaxBackoff")
+	}
+	if provider.KindOf(err) != provider.ErrRateLimited || provider.RetryAfter(err) != time.Hour {
+		t.Fatalf("expected rate-limited with RetryAfter hint, got %v", err)
+	}
+}
+
+func TestCtxCancelDuringBackoffKeepsClassification(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "1")
+		w.WriteHeader(429)
+	}))
+	defer srv.Close()
+	c := newClient(t, srv, func(c *Config) { c.MaxBackoff = 2 * time.Second })
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	_, err := c.Do(ctx, Request{Path: "x"})
+	if provider.KindOf(err) != provider.ErrRateLimited || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected rate-limited error wrapping ctx cause, got %v", err)
+	}
+}
+
+func TestBackoffNeverOverflows(t *testing.T) {
+	c, _ := New(Config{BaseURL: "http://x/", BaseBackoff: 500 * time.Millisecond, MaxBackoff: 5 * time.Second})
+	for attempt := 1; attempt < 80; attempt++ {
+		if d := c.backoff(attempt, 0); d <= 0 || d > 5*time.Second {
+			t.Fatalf("attempt %d: backoff %s out of range", attempt, d)
+		}
+	}
+}
+
+func TestClassifiedErrorsCarryBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(403)
+		_, _ = w.Write([]byte(`{"error":"infringing_file","error_code":35}`))
+	}))
+	defer srv.Close()
+	c := newClient(t, srv, nil)
+	_, err := c.Do(context.Background(), Request{Path: "x"})
+	var pe *provider.Error
+	if !errors.As(err, &pe) || !strings.Contains(string(pe.Body), "infringing_file") {
+		t.Fatalf("body not attached: %v", err)
+	}
+}
+
+func TestExpectJSONAllowsEmpty204(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(204) }))
+	defer srv.Close()
+	c := newClient(t, srv, nil)
+	if _, err := c.Do(context.Background(), Request{Path: "x", ExpectJSON: true}); err != nil {
+		t.Fatalf("204 with ExpectJSON should pass: %v", err)
 	}
 }

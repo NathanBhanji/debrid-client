@@ -53,8 +53,8 @@ func TestErrorModel(t *testing.T) {
 	if provider.IsRetryable(provider.Errorf(provider.ErrPermanent, "", "x")) || provider.IsRetryable(provider.Errorf(provider.ErrAuth, "", "x")) {
 		t.Fatal("permanent/auth must not be retryable")
 	}
-	if provider.Wrap(provider.ErrTransient, nil) != nil {
-		t.Fatal("Wrap(nil) must be nil")
+	if err := provider.Wrap(provider.ErrTransient, nil); err != nil {
+		t.Fatal("Wrap(nil) must be a nil error")
 	}
 }
 
@@ -90,11 +90,40 @@ func TestFakeLifecycle(t *testing.T) {
 	if _, err := f.GetTorrent(ctx, res.ID); provider.KindOf(err) != provider.ErrNotFound {
 		t.Fatalf("expected not found, got %v", err)
 	}
-	f.Err = provider.Errorf(provider.ErrAuth, "", "bad key")
+	f.SetErr(provider.Errorf(provider.ErrAuth, "", "bad key"))
 	if _, err := f.ListTorrents(ctx); provider.KindOf(err) != provider.ErrAuth {
 		t.Fatal("Err should be returned")
 	}
 	if f.Calls("ListTorrents") != 2 {
 		t.Fatalf("calls = %d", f.Calls("ListTorrents"))
+	}
+}
+
+func TestFakeIsRaceFreeUnderConcurrentSelect(t *testing.T) {
+	ctx := context.Background()
+	f := providertest.New(domain.ProviderTorBox)
+	res, _ := f.AddMagnet(ctx, "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567")
+	f.SetFiles(res.ID, []domain.File{{ID: "1", Path: "a"}, {ID: "2", Path: "b"}})
+	done := make(chan struct{})
+	go func() {
+		for range 50 {
+			_ = f.SelectFiles(ctx, res.ID, []string{"1"})
+			_ = f.SelectFiles(ctx, res.ID, nil)
+		}
+		close(done)
+	}()
+	for range 50 {
+		ts, _ := f.ListTorrents(ctx)
+		for _, tt := range ts {
+			for _, fl := range tt.Files {
+				_ = fl.Selected
+			}
+		}
+		f.SetErr(nil)
+	}
+	<-done
+	f.SetHooks(providertest.Hooks{OnAdd: func(string) error { return f.Err() }})
+	if _, err := f.AddMagnet(ctx, "magnet:?xt=urn:btih:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"); err != nil {
+		t.Fatalf("hook calling back into the fake must not deadlock: %v", err)
 	}
 }

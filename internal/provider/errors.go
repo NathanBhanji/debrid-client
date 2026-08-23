@@ -32,6 +32,7 @@ type Error struct {
 	Message    string        // human-readable detail
 	HTTPStatus int           // 0 if not applicable
 	RetryAfter time.Duration // hint for ErrRateLimited/ErrLimit (0 = unknown)
+	Body       []byte        // raw response body for errors classified by HTTP status (may be nil)
 	Err        error         // wrapped cause
 }
 
@@ -74,8 +75,9 @@ func Errorf(kind ErrorKind, code, format string, args ...any) *Error {
 	return &Error{Kind: kind, Code: code, Message: fmt.Sprintf(format, args...)}
 }
 
-// Wrap classifies an underlying error.
-func Wrap(kind ErrorKind, err error) *Error {
+// Wrap classifies an underlying error. Returns a nil error for a nil input
+// (as an `error`, so callers never see a typed-nil pointer).
+func Wrap(kind ErrorKind, err error) error {
 	if err == nil {
 		return nil
 	}

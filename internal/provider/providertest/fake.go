@@ -26,14 +26,44 @@ type Fake struct {
 	nextID   int
 	calls    map[string]int
 
-	// Hooks let tests inject failures. Return a non-nil error to fail the call.
+	// Hooks let tests inject failures. Set via SetHooks; they are invoked
+	// without holding the Fake's lock, so they may call other Fake methods.
+	onAdd        func(magnetOrHash string) error
+	onList       func() error
+	onUnrestrict func(link string) (provider.Direct, error)
+	// err, when set, is returned by every call (simulates auth/rate-limit outages). Set via SetErr.
+	err error
+	// userInfo is returned by User. Set via SetUser.
+	userInfo provider.User
+}
+
+// Hooks are optional failure-injection callbacks.
+type Hooks struct {
 	OnAdd        func(magnetOrHash string) error
 	OnList       func() error
 	OnUnrestrict func(link string) (provider.Direct, error)
-	// Err, when set, is returned by every call (simulates auth/rate-limit outages).
-	Err error
-	// UserInfo is returned by User.
-	UserInfo provider.User
+}
+
+// SetHooks installs failure-injection hooks (nil fields clear them).
+func (f *Fake) SetHooks(h Hooks) {
+	f.mu.Lock()
+	f.onAdd, f.onList, f.onUnrestrict = h.OnAdd, h.OnList, h.OnUnrestrict
+	f.mu.Unlock()
+}
+
+// SetErr makes every call fail with err (nil restores normal behaviour).
+func (f *Fake) SetErr(err error) { f.mu.Lock(); f.err = err; f.mu.Unlock() }
+
+// Err returns the currently injected error (nil when none).
+func (f *Fake) Err() error { f.mu.Lock(); defer f.mu.Unlock(); return f.err }
+
+// SetUser sets what User returns.
+func (f *Fake) SetUser(u provider.User) { f.mu.Lock(); f.userInfo = u; f.mu.Unlock() }
+
+func (f *Fake) hooks() (add func(string) error, list func() error, unr func(string) (provider.Direct, error), err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.onAdd, f.onList, f.onUnrestrict, f.err
 }
 
 // New returns a Fake of the given kind with direct links and no file selection,
@@ -45,7 +75,7 @@ func New(kind domain.ProviderKind) *Fake {
 		torrents: map[string]*provider.Torrent{},
 		links:    map[string][]provider.Link{},
 		calls:    map[string]int{},
-		UserInfo: provider.User{Username: "fake", Premium: true},
+		userInfo: provider.User{Username: "fake", Premium: true},
 	}
 }
 
@@ -68,30 +98,40 @@ func (f *Fake) User(context.Context) (provider.User, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.count("User")
-	if f.Err != nil {
-		return provider.User{}, f.Err
+	if f.err != nil {
+		return provider.User{}, f.err
 	}
-	return f.UserInfo, nil
+	return f.userInfo, nil
 }
 
 // ListTorrents implements Provider.
 func (f *Fake) ListTorrents(context.Context) ([]provider.Torrent, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.count("ListTorrents")
-	if f.Err != nil {
-		return nil, f.Err
+	_, onList, _, ferr := f.hooks()
+	if ferr != nil {
+		f.mu.Lock()
+		f.count("ListTorrents")
+		f.mu.Unlock()
+		return nil, ferr
 	}
-	if f.OnList != nil {
-		if err := f.OnList(); err != nil {
+	if onList != nil {
+		if err := onList(); err != nil {
 			return nil, err
 		}
 	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.count("ListTorrents")
 	out := make([]provider.Torrent, 0, len(f.torrents))
 	for _, t := range f.torrents {
-		out = append(out, *t)
+		out = append(out, cloneTorrent(*t))
 	}
 	return out, nil
+}
+
+// cloneTorrent deep-copies the slices so callers can't race with SelectFiles.
+func cloneTorrent(t provider.Torrent) provider.Torrent {
+	t.Files = append([]domain.File(nil), t.Files...)
+	return t
 }
 
 // GetTorrent implements Provider.
@@ -99,14 +139,14 @@ func (f *Fake) GetTorrent(_ context.Context, id string) (provider.Torrent, error
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.count("GetTorrent")
-	if f.Err != nil {
-		return provider.Torrent{}, f.Err
+	if f.err != nil {
+		return provider.Torrent{}, f.err
 	}
 	t, ok := f.torrents[id]
 	if !ok {
 		return provider.Torrent{}, &provider.Error{Kind: provider.ErrNotFound, Message: id}
 	}
-	return *t, nil
+	return cloneTorrent(*t), nil
 }
 
 // AddMagnet implements Provider. The hash is parsed from the magnet (xt=urn:btih:)
@@ -123,17 +163,20 @@ func (f *Fake) AddTorrentFile(_ context.Context, data []byte) (provider.AddResul
 }
 
 func (f *Fake) add(src, hash string) (provider.AddResult, error) {
+	onAdd, _, _, ferr := f.hooks()
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.count("Add")
-	if f.Err != nil {
-		return provider.AddResult{}, f.Err
+	f.mu.Unlock()
+	if ferr != nil {
+		return provider.AddResult{}, ferr
 	}
-	if f.OnAdd != nil {
-		if err := f.OnAdd(src); err != nil {
+	if onAdd != nil {
+		if err := onAdd(src); err != nil {
 			return provider.AddResult{}, err
 		}
 	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	for id, t := range f.torrents {
 		if t.Hash == hash {
 			return provider.AddResult{ID: id, Hash: hash}, nil // providers dedupe by hash
@@ -154,8 +197,8 @@ func (f *Fake) SelectFiles(_ context.Context, id string, fileIDs []string) error
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.count("SelectFiles")
-	if f.Err != nil {
-		return f.Err
+	if f.err != nil {
+		return f.err
 	}
 	t, ok := f.torrents[id]
 	if !ok {
@@ -180,8 +223,8 @@ func (f *Fake) Links(_ context.Context, id string) ([]provider.Link, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.count("Links")
-	if f.Err != nil {
-		return nil, f.Err
+	if f.err != nil {
+		return nil, f.err
 	}
 	t, ok := f.torrents[id]
 	if !ok {
@@ -195,16 +238,18 @@ func (f *Fake) Links(_ context.Context, id string) ([]provider.Link, error) {
 
 // Unrestrict implements Provider.
 func (f *Fake) Unrestrict(_ context.Context, link string) (provider.Direct, error) {
+	_, _, onUnr, ferr := f.hooks()
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.count("Unrestrict")
-	if f.Err != nil {
-		return provider.Direct{}, f.Err
+	conns := f.caps.MaxConnections
+	f.mu.Unlock()
+	if ferr != nil {
+		return provider.Direct{}, ferr
 	}
-	if f.OnUnrestrict != nil {
-		return f.OnUnrestrict(link)
+	if onUnr != nil {
+		return onUnr(link)
 	}
-	return provider.Direct{URL: link, MaxConnections: f.caps.MaxConnections}, nil
+	return provider.Direct{URL: link, MaxConnections: conns}, nil
 }
 
 // Delete implements Provider.
@@ -212,8 +257,8 @@ func (f *Fake) Delete(_ context.Context, id string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.count("Delete")
-	if f.Err != nil {
-		return f.Err
+	if f.err != nil {
+		return f.err
 	}
 	if _, ok := f.torrents[id]; !ok {
 		return &provider.Error{Kind: provider.ErrNotFound, Message: id}

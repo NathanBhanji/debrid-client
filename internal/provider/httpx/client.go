@@ -15,7 +15,6 @@ import (
 	"math/rand/v2"
 	"mime"
 	"mime/multipart"
-	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -165,27 +164,43 @@ func (c *Client) Do(ctx context.Context, r Request) (*Response, error) {
 		if r.NoRetry || !provider.IsRetryable(err) || attempt == c.cfg.MaxAttempts {
 			break
 		}
+		if ra := provider.RetryAfter(err); ra > c.cfg.MaxBackoff {
+			// The server asked us to wait longer than we're willing to block a
+			// caller; surface the error (with RetryAfter) so the engine reschedules.
+			break
+		}
 		wait := c.backoff(attempt, provider.RetryAfter(err))
 		c.log.Debug("httpx: retrying", "method", r.Method, "path", r.Path, "attempt", attempt, "wait", wait, "err", err)
 		select {
 		case <-ctx.Done():
-			return nil, provider.Wrap(provider.ErrTransient, ctx.Err())
+			// Keep the classified error (kind/RetryAfter) and attach the ctx cause.
+			var pe *provider.Error
+			if errors.As(lastErr, &pe) {
+				cp := *pe
+				cp.Err = errors.Join(pe.Err, ctx.Err())
+				return nil, &cp
+			}
+			return nil, provider.Wrap(provider.ErrTransient, errors.Join(lastErr, ctx.Err()))
 		case <-time.After(wait):
 		}
 	}
 	return nil, lastErr
 }
 
+// backoff returns the wait before the next attempt: the server's Retry-After
+// when given, else exponential (base·2^(attempt-1)) capped at MaxBackoff with
+// full jitter.
 func (c *Client) backoff(attempt int, retryAfter time.Duration) time.Duration {
 	if retryAfter > 0 {
-		return retryAfter
+		return min(retryAfter, c.cfg.MaxBackoff)
 	}
-	d := c.cfg.BaseBackoff << (attempt - 1)
-	if d > c.cfg.MaxBackoff {
-		d = c.cfg.MaxBackoff
+	d := c.cfg.MaxBackoff
+	if shift := attempt - 1; shift < 30 {
+		if v := c.cfg.BaseBackoff << uint(shift); v < d { //nolint:gosec // shift < 30 guarded
+			d = v
+		}
 	}
-	// Full jitter.
-	return time.Duration(rand.Int64N(int64(d)) + int64(d)/2) //nolint:gosec // jitter, not crypto
+	return time.Duration(rand.Int64N(int64(d)) + 1) //nolint:gosec // jitter, not crypto
 }
 
 func (c *Client) once(ctx context.Context, r Request) (*Response, error) {
@@ -211,19 +226,22 @@ func (c *Client) once(ctx context.Context, r Request) (*Response, error) {
 	c.log.Debug("httpx: response", "method", r.Method, "path", r.Path, "status", resp.StatusCode, "dur", time.Since(start))
 	out := &Response{StatusCode: resp.StatusCode, Header: resp.Header, Body: body}
 
+	// Pre-classify the statuses the retry loop cares about. The full body is
+	// attached (Error.Body) so providers can refine the classification from
+	// their own error envelope (e.g. Real-Debrid uses 403 for non-auth errors).
 	switch {
 	case resp.StatusCode == http.StatusTooManyRequests:
-		return nil, &provider.Error{Kind: provider.ErrRateLimited, HTTPStatus: 429,
+		return nil, &provider.Error{Kind: provider.ErrRateLimited, HTTPStatus: 429, Body: body,
 			RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After")), Message: snippet(body)}
 	case resp.StatusCode == http.StatusUnauthorized, resp.StatusCode == http.StatusForbidden:
-		return nil, &provider.Error{Kind: provider.ErrAuth, HTTPStatus: resp.StatusCode, Message: snippet(body)}
+		return nil, &provider.Error{Kind: provider.ErrAuth, HTTPStatus: resp.StatusCode, Body: body, Message: snippet(body)}
 	case resp.StatusCode == http.StatusNotFound:
-		return nil, &provider.Error{Kind: provider.ErrNotFound, HTTPStatus: 404, Message: snippet(body)}
+		return nil, &provider.Error{Kind: provider.ErrNotFound, HTTPStatus: 404, Body: body, Message: snippet(body)}
 	case resp.StatusCode >= 500:
-		return nil, &provider.Error{Kind: provider.ErrTransient, HTTPStatus: resp.StatusCode,
+		return nil, &provider.Error{Kind: provider.ErrTransient, HTTPStatus: resp.StatusCode, Body: body,
 			RetryAfter: parseRetryAfter(resp.Header.Get("Retry-After")), Message: snippet(body)}
 	}
-	if r.ExpectJSON && resp.StatusCode/100 == 2 && !isJSON(resp.Header.Get("Content-Type")) {
+	if r.ExpectJSON && resp.StatusCode/100 == 2 && resp.StatusCode != http.StatusNoContent && len(body) > 0 && !isJSON(resp.Header.Get("Content-Type")) {
 		return nil, &provider.Error{Kind: provider.ErrTransient, HTTPStatus: resp.StatusCode,
 			Message: fmt.Sprintf("expected JSON, got %q: %s", resp.Header.Get("Content-Type"), snippet(body))}
 	}
@@ -306,10 +324,24 @@ func (c *Client) build(ctx context.Context, r Request) (*http.Request, error) {
 	return req, nil
 }
 
+// classifyTransport wraps a transport-level failure. *url.Error messages
+// include the full URL (query string and all), which may carry API tokens,
+// so the URL is redacted and only the underlying cause is wrapped.
 func classifyTransport(err error) error {
-	var ne net.Error
-	if errors.As(err, &ne) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, context.DeadlineExceeded) {
-		return &provider.Error{Kind: provider.ErrTransient, Message: err.Error(), Err: err}
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		target := ue.URL
+		if u, perr := url.Parse(ue.URL); perr == nil {
+			u.RawQuery = ""
+			u.User = nil
+			target = u.String()
+		}
+		cause := ue.Err
+		msg := fmt.Sprintf("%s %s: %v", ue.Op, target, cause)
+		if errors.Is(cause, context.Canceled) {
+			msg = "cancelled"
+		}
+		return &provider.Error{Kind: provider.ErrTransient, Message: msg, Err: cause}
 	}
 	if errors.Is(err, context.Canceled) {
 		return &provider.Error{Kind: provider.ErrTransient, Message: "cancelled", Err: err}
