@@ -98,6 +98,44 @@ components:
       required:
         - magnet
       type: object
+    AuthStatusOutBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/AuthStatusOutBody.json
+          format: uri
+          readOnly: true
+          type: string
+        configured:
+          description: Whether onboarding has completed
+          type: boolean
+        mode:
+          description: "Configured auth mode: password or oidc; empty until onboarding"
+          type: string
+      required:
+        - configured
+        - mode
+      type: object
+    ChangePasswordInBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/ChangePasswordInBody.json
+          format: uri
+          readOnly: true
+          type: string
+        current_password:
+          type: string
+        new_password:
+          maxLength: 512
+          minLength: 10
+          type: string
+      required:
+        - current_password
+        - new_password
+      type: object
     Credentials:
       additionalProperties: false
       properties:
@@ -377,6 +415,44 @@ components:
       required:
         - at
       type: object
+    LoginInBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/LoginInBody.json
+          format: uri
+          readOnly: true
+          type: string
+        password:
+          type: string
+        username:
+          type: string
+      required:
+        - username
+        - password
+      type: object
+    MeOutBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/MeOutBody.json
+          format: uri
+          readOnly: true
+          type: string
+        api_key:
+          description: True when authenticated with the API key
+          type: boolean
+        mode:
+          type: string
+        username:
+          description: Set for session requests; empty for API-key requests
+          type: string
+      required:
+        - mode
+        - api_key
+      type: object
     SelectFilesInBody:
       additionalProperties: false
       properties:
@@ -393,6 +469,20 @@ components:
           type: array
       required:
         - file_ids
+      type: object
+    SessionOutBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/SessionOutBody.json
+          format: uri
+          readOnly: true
+          type: string
+        username:
+          type: string
+      required:
+        - username
       type: object
     Settings:
       additionalProperties: false
@@ -416,6 +506,27 @@ components:
           type: integer
       required:
         - torrent_defaults
+      type: object
+    SetupPasswordInBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/SetupPasswordInBody.json
+          format: uri
+          readOnly: true
+          type: string
+        password:
+          maxLength: 512
+          minLength: 10
+          type: string
+        username:
+          maxLength: 64
+          minLength: 2
+          type: string
+      required:
+        - username
+        - password
       type: object
     Status:
       additionalProperties: false
@@ -827,6 +938,142 @@ paths:
       summary: Verify an account against its provider
       tags:
         - accounts
+  /api/v1/auth/login:
+    post:
+      operationId: auth-login
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginInBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionOutBody"
+          description: OK
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Log in with username and password
+      tags:
+        - auth
+  /api/v1/auth/logout:
+    post:
+      operationId: auth-logout
+      responses:
+        "204":
+          description: No Content
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Log out the current session
+      tags:
+        - auth
+  /api/v1/auth/me:
+    get:
+      operationId: auth-me
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MeOutBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Current authentication identity
+      tags:
+        - auth
+  /api/v1/auth/password:
+    post:
+      operationId: auth-change-password
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChangePasswordInBody"
+        required: true
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Change the local user's password (revokes all sessions)
+      tags:
+        - auth
+  /api/v1/auth/setup/password:
+    post:
+      operationId: auth-setup-password
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetupPasswordInBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionOutBody"
+          description: OK
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: "First-run setup: create the local user (requires the API key)"
+      tags:
+        - auth
+  /api/v1/auth/status:
+    get:
+      operationId: auth-status
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthStatusOutBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Authentication status
+      tags:
+        - auth
   /api/v1/downloads/{id}/retry:
     post:
       operationId: retry-download

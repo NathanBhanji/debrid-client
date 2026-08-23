@@ -15,6 +15,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 
+	"github.com/NathanBhanji/debrid-client/internal/auth"
 	"github.com/NathanBhanji/debrid-client/internal/buildinfo"
 	"github.com/NathanBhanji/debrid-client/internal/service"
 )
@@ -23,6 +24,9 @@ import (
 type Options struct {
 	// APIKey protects all routes except health. Empty disables auth (tests only).
 	APIKey string
+	// Auth enables cookie-session authentication for the web UI alongside the
+	// API key. Nil keeps key-only behavior (tests, embedded use).
+	Auth *auth.Manager
 	// BasePath is an optional URL prefix (e.g. "/debrid"); routes become <base>/api/v1/...
 	BasePath string
 	// Logger receives internal errors (never sent to clients). Nil = slog.Default().
@@ -33,8 +37,9 @@ type Options struct {
 
 // operation metadata keys
 const (
-	metaPublic   = "public"    // no API key required
+	metaPublic   = "public"    // no auth required
 	metaQueryKey = "query_key" // ?api_key= accepted (SSE / browsers)
+	metaKeyOnly  = "key_only"  // API key required; sessions not accepted (auth setup)
 )
 
 // Handler is the HTTP handler plus the huma API (for spec export).
@@ -76,6 +81,7 @@ func New(svc *service.Service, opts Options) *Handler {
 	h := &Handler{Mux: mux, Huma: api, svc: svc, opts: opts}
 	api.UseMiddleware(h.authMiddleware)
 	h.registerRoutes(prefix + "/api/v1")
+	h.registerAuthRoutes(prefix + "/api/v1")
 	return h
 }
 
@@ -91,25 +97,32 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.Mux.ServeHTTP(w, r)
 }
 
-// authMiddleware enforces the API key on every operation except those marked
-// public in their metadata — matched by operation identity, never by path
-// shape (a torrent or account whose id/name is "health" must not be public).
+// authMiddleware enforces authentication on every operation except those
+// marked public in their metadata — matched by operation identity, never by
+// path shape (a torrent or account whose id/name is "health" must not be
+// public). Requests may carry the Bearer API key (always accepted), the
+// ?api_key= query on operations that opt in (SSE), or a session cookie
+// (web UI) unless the operation is key-only.
 func (h *Handler) authMiddleware(ctx huma.Context, next func(huma.Context)) {
+	// Stash the huma context so handlers can reach cookies/remote address.
+	ctx = huma.WithValue(ctx, ctxHuma, ctx)
 	op := ctx.Operation()
 	if h.opts.APIKey == "" || (op != nil && op.Metadata[metaPublic] == true) {
 		next(ctx)
 		return
 	}
-	token, ok := strings.CutPrefix(ctx.Header("Authorization"), "Bearer ")
-	if !ok && op != nil && op.Metadata[metaQueryKey] == true {
-		token = ctx.Query("api_key") // EventSource can't set headers
-	}
-	if subtle.ConstantTimeCompare([]byte(token), []byte(h.opts.APIKey)) != 1 {
+	keyOnly := op != nil && op.Metadata[metaKeyOnly] == true
+	ctx, ok := h.authorize(ctx, keyOnly)
+	if !ok {
 		ctx.SetHeader("WWW-Authenticate", `Bearer realm="debrid"`)
-		_ = huma.WriteErr(h.Huma, ctx, http.StatusUnauthorized, "missing or invalid API key")
+		_ = huma.WriteErr(h.Huma, ctx, http.StatusUnauthorized, "missing or invalid credentials")
 		return
 	}
 	next(ctx)
+}
+
+func constantTimeEq(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
 // mapErr converts service errors to HTTP problems. Unknown errors are logged

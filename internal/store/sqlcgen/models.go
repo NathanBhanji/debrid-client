@@ -41,6 +41,15 @@ type ProviderAccount struct {
 	UpdatedAt   string
 }
 
+type Session struct {
+	ID        string
+	UserID    string
+	CreatedAt string
+	ExpiresAt string
+	LastSeen  string
+	UserAgent string
+}
+
 type Setting struct {
 	Key       string
 	Value     string
@@ -75,4 +84,14 @@ type Torrent struct {
 	CompletedAt     sql.NullString
 	RetryAt         sql.NullString
 	UpdatedAt       string
+}
+
+type User struct {
+	ID           string
+	Username     string
+	PasswordHash string
+	OidcSubject  string
+	OidcEmail    string
+	CreatedAt    string
+	UpdatedAt    string
 }
