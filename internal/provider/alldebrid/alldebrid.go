@@ -21,6 +21,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	"github.com/NathanBhanji/debrid-client/internal/domain"
 	"github.com/NathanBhanji/debrid-client/internal/provider"
 	"github.com/NathanBhanji/debrid-client/internal/provider/httpx"
@@ -49,7 +51,8 @@ func New(creds domain.Credentials, opts provider.Options) (provider.Provider, er
 	}
 	hc, err := httpx.New(httpx.Config{
 		BaseURL: base, UserAgent: opts.UserAgent, Auth: httpx.BearerAuth(creds.APIKey),
-		Limiter: httpx.PerMinute(600), MaxAttempts: 3, Timeout: 60 * time.Second, HTTPClient: opts.HTTPClient,
+		// 12 req/s and 600 req/min documented; 10/s with a small burst stays under both.
+		Limiter: rate.NewLimiter(10, 10), MaxAttempts: 3, Timeout: 60 * time.Second, HTTPClient: opts.HTTPClient,
 	})
 	if err != nil {
 		return nil, err
@@ -92,7 +95,7 @@ type magnetStatus struct {
 	ID             int64   `json:"id"`
 	Filename       string  `json:"filename"`
 	Size           int64   `json:"size"`
-	Hash           string  `json:"hash"`
+	Hash           string  `json:"hash"` // present in practice (undocumented); the engine's dedupe relies on it
 	Status         string  `json:"status"`
 	StatusCode     int     `json:"statusCode"`
 	Downloaded     int64   `json:"downloaded"`
@@ -236,7 +239,7 @@ func flatten(prefix string, nodes []fileNode, out *[]domain.File) {
 		if prefix != "" {
 			p = prefix + "/" + n.N
 		}
-		if n.L == "" { // folders have no link; files always do
+		if n.E != nil || n.L == "" { // folders carry "e"; a file without a link is unusable anyway
 			flatten(p, n.E, out)
 			continue
 		}
@@ -324,7 +327,7 @@ func (c *Client) files(ctx context.Context, id string) ([]domain.File, error) {
 	var out []domain.File
 	for _, m := range data.Magnets {
 		if m.Error != nil {
-			return nil, mapError(m.Error.Code, m.Error.Message, 200)
+			return nil, mapError(m.Error.Code, m.Error.Message, 0)
 		}
 		flatten("", m.Files, &out)
 	}
@@ -343,7 +346,7 @@ func (c *Client) AddMagnet(ctx context.Context, magnet string) (provider.AddResu
 	}
 	m := res.Magnets[0]
 	if m.Error != nil {
-		return provider.AddResult{}, mapError(m.Error.Code, m.Error.Message, 200)
+		return provider.AddResult{}, mapError(m.Error.Code, m.Error.Message, 0)
 	}
 	return provider.AddResult{ID: strconv.FormatInt(m.ID, 10), Hash: strings.ToLower(m.Hash)}, nil
 }
@@ -361,7 +364,7 @@ func (c *Client) AddTorrentFile(ctx context.Context, data []byte) (provider.AddR
 	}
 	f := res.Files[0]
 	if f.Error != nil {
-		return provider.AddResult{}, mapError(f.Error.Code, f.Error.Message, 200)
+		return provider.AddResult{}, mapError(f.Error.Code, f.Error.Message, 0)
 	}
 	return provider.AddResult{ID: strconv.FormatInt(f.ID, 10), Hash: strings.ToLower(f.Hash)}, nil
 }
@@ -375,8 +378,8 @@ func (c *Client) Links(ctx context.Context, id string) ([]provider.Link, error) 
 	if err != nil {
 		return nil, err
 	}
-	if t.Status != domain.TorrentFinished {
-		return nil, nil
+	if t.Status != domain.TorrentFinished || len(t.Files) == 0 {
+		return nil, nil // not ready
 	}
 	out := make([]provider.Link, 0, len(t.Files))
 	for _, f := range t.Files {
@@ -385,19 +388,60 @@ func (c *Client) Links(ctx context.Context, id string) ([]provider.Link, error) 
 	return out, nil
 }
 
-// Unrestrict implements provider.Provider via POST /link/unlock.
+// Unrestrict implements provider.Provider via POST /link/unlock. When AD
+// answers with a delayed id (link being generated), /link/delayed is polled
+// for up to delayedWait before giving up with a retryable error.
 func (c *Client) Unrestrict(ctx context.Context, link string) (provider.Direct, error) {
 	var u unlockData
 	if err := c.call(ctx, httpx.Request{Method: http.MethodPost, Path: "v4/link/unlock", Form: url.Values{"link": {link}}}, &u); err != nil {
 		return provider.Direct{}, err
 	}
-	if u.Delayed != 0 && u.Link == "" {
-		return provider.Direct{}, &provider.Error{Kind: provider.ErrTransient, Code: "DELAYED", Message: fmt.Sprintf("alldebrid: link generation delayed (id %d)", u.Delayed), RetryAfter: 15 * time.Second}
+	if u.Delayed != 0 { // the echoed `link` is not a download URL in this case
+		return c.waitDelayed(ctx, u)
 	}
 	if u.Link == "" {
 		return provider.Direct{}, &provider.Error{Kind: provider.ErrTransient, Message: "alldebrid: unlock returned no link"}
 	}
 	return provider.Direct{URL: u.Link, Filename: u.Filename, Size: u.Filesize, MaxConnections: 8}, nil
+}
+
+// delayedWait bounds how long Unrestrict blocks on a delayed link.
+const delayedWait = 90 * time.Second
+
+func (c *Client) waitDelayed(ctx context.Context, u unlockData) (provider.Direct, error) {
+	deadline := time.Now().Add(delayedWait)
+	id := strconv.FormatInt(u.Delayed, 10)
+	for {
+		var d struct {
+			Status   int    `json:"status"`
+			TimeLeft int    `json:"time_left"`
+			Link     string `json:"link"`
+		}
+		if err := c.call(ctx, httpx.Request{Method: http.MethodPost, Path: "v4/link/delayed", Form: url.Values{"id": {id}}}, &d); err != nil {
+			return provider.Direct{}, err
+		}
+		switch d.Status {
+		case 2:
+			if d.Link == "" {
+				return provider.Direct{}, &provider.Error{Kind: provider.ErrTransient, Message: "alldebrid: delayed link ready without url"}
+			}
+			return provider.Direct{URL: d.Link, Filename: u.Filename, Size: u.Filesize, MaxConnections: 8}, nil
+		case 3:
+			return provider.Direct{}, &provider.Error{Kind: provider.ErrPermanent, Code: "DELAYED_ERROR", Message: "alldebrid: link generation failed"}
+		}
+		if time.Now().After(deadline) {
+			return provider.Direct{}, &provider.Error{Kind: provider.ErrTransient, Code: "DELAYED", Message: fmt.Sprintf("alldebrid: link still generating (id %s)", id), RetryAfter: 30 * time.Second}
+		}
+		wait := 5 * time.Second
+		if d.TimeLeft > 0 && d.TimeLeft < 30 {
+			wait = time.Duration(d.TimeLeft) * time.Second
+		}
+		select {
+		case <-ctx.Done():
+			return provider.Direct{}, provider.Wrap(provider.ErrTransient, ctx.Err())
+		case <-time.After(wait):
+		}
+	}
 }
 
 // Delete implements provider.Provider.

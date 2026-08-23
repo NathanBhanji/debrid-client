@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/NathanBhanji/debrid-client/internal/domain"
@@ -129,9 +130,18 @@ func TestAddUnlockDeleteErrors(t *testing.T) {
 			case "https://alldebrid.com/f/AAA":
 				ok(w, `{"link":"https://cdn.ad/movie.mkv","host":"alldebrid","filename":"movie.mkv","filesize":400,"id":"x","paws":false}`)
 			case "https://alldebrid.com/f/SLOW":
-				ok(w, `{"filename":"x","filesize":1,"delayed":123}`)
+				ok(w, `{"link":"https://alldebrid.com/f/SLOW","filename":"x","filesize":1,"delayed":123}`) // echoed link + delayed id
+			case "https://alldebrid.com/f/FAILS":
+				ok(w, `{"link":"https://alldebrid.com/f/FAILS","filename":"x","filesize":1,"delayed":124}`)
 			default:
 				fail(w, "LINK_DOWN", "Link is not available")
+			}
+		case "/v4/link/delayed":
+			switch r.FormValue("id") {
+			case "123":
+				ok(w, `{"status":2,"time_left":0,"link":"https://cdn.ad/slow.mkv"}`)
+			default:
+				ok(w, `{"status":3,"time_left":0}`)
 			}
 		case "/v4/magnet/delete":
 			if r.FormValue("id") == "missing" {
@@ -161,10 +171,14 @@ func TestAddUnlockDeleteErrors(t *testing.T) {
 	if err != nil || d.URL != "https://cdn.ad/movie.mkv" || d.Size != 400 {
 		t.Fatalf("unlock: %v %+v", err, d)
 	}
-	_, err = c.Unrestrict(ctx, "https://alldebrid.com/f/SLOW")
+	d, err = c.Unrestrict(ctx, "https://alldebrid.com/f/SLOW")
+	if err != nil || d.URL != "https://cdn.ad/slow.mkv" {
+		t.Fatalf("delayed link should be resolved via /link/delayed, got %v %+v", err, d)
+	}
+	_, err = c.Unrestrict(ctx, "https://alldebrid.com/f/FAILS")
 	var pe *provider.Error
-	if !errors.As(err, &pe) || pe.Kind != provider.ErrTransient || pe.RetryAfter == 0 {
-		t.Fatalf("delayed should be transient with retry hint: %v", err)
+	if !errors.As(err, &pe) || pe.Kind != provider.ErrPermanent {
+		t.Fatalf("delayed status 3 should be permanent: %v", err)
 	}
 	if _, err := c.Unrestrict(ctx, "https://alldebrid.com/f/DEAD"); provider.KindOf(err) != provider.ErrNotFound {
 		t.Fatalf("link down: %v", err)
@@ -174,6 +188,36 @@ func TestAddUnlockDeleteErrors(t *testing.T) {
 	}
 	if err := c.Delete(ctx, "missing"); err != nil {
 		t.Fatalf("missing magnet delete should be ok: %v", err)
+	}
+}
+
+func TestGetTorrentArrayFormAndFilesError(t *testing.T) {
+	c := newClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		switch r.URL.Path {
+		case "/v4.1/magnet/status":
+			ok(w, `{"magnets":[{"id":9,"filename":"Arr","size":5,"hash":"abc","status":"Ready","statusCode":4,"downloaded":5}]}`)
+		case "/v4/magnet/files":
+			ok(w, `{"magnets":[{"id":"9","error":{"code":"MAGNET_INVALID_ID","message":"gone"}}]}`)
+		}
+	})
+	_, err := c.GetTorrent(context.Background(), "9")
+	if provider.KindOf(err) != provider.ErrNotFound || strings.Contains(err.Error(), "http 200") {
+		t.Fatalf("per-magnet files error: %v", err)
+	}
+	if mapError("MAGNET_PROCESSING", "", 0).Kind != provider.ErrTransient || mapError("LINK_TOO_MANY_DOWNLOADS", "", 0).Kind != provider.ErrLimit {
+		t.Fatal("classification")
+	}
+	// Finished with an empty tree → not ready.
+	c2 := newClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v4.1/magnet/status" {
+			ok(w, `{"magnets":[{"id":9,"filename":"Arr","status":"Ready","statusCode":4}]}`)
+			return
+		}
+		ok(w, `{"magnets":[{"id":"9","files":[]}]}`)
+	})
+	if links, err := c2.Links(context.Background(), "9"); err != nil || links != nil {
+		t.Fatalf("empty tree should be not-ready: %v %v", err, links)
 	}
 }
 
@@ -203,7 +247,10 @@ func TestLive(t *testing.T) {
 	if key == "" {
 		t.Skip("ALLDEBRID_API_KEY not set")
 	}
-	p, _ := New(domain.Credentials{APIKey: key}, provider.Options{})
+	p, err := New(domain.Credentials{APIKey: key}, provider.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	u, err := p.User(context.Background())
 	if err != nil {
 		t.Fatal(err)
