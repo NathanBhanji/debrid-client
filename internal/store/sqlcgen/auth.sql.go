@@ -20,6 +20,15 @@ func (q *Queries) CountUsers(ctx context.Context) (int64, error) {
 	return count, err
 }
 
+const deleteAllUsers = `-- name: DeleteAllUsers :exec
+DELETE FROM users
+`
+
+func (q *Queries) DeleteAllUsers(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteAllUsers)
+	return err
+}
+
 const deleteExpiredSessions = `-- name: DeleteExpiredSessions :exec
 DELETE FROM sessions WHERE expires_at < ?
 `

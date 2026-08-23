@@ -15,6 +15,7 @@ type Querier interface {
 	CountTorrents(ctx context.Context) (int64, error)
 	CountTorrentsForAccount(ctx context.Context, accountID string) (int64, error)
 	CountUsers(ctx context.Context) (int64, error)
+	DeleteAllUsers(ctx context.Context) error
 	DeleteDownload(ctx context.Context, id string) error
 	DeleteDownloadsForTorrent(ctx context.Context, torrentID string) error
 	DeleteExpiredSessions(ctx context.Context, expiresAt string) error

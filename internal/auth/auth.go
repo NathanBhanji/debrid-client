@@ -62,6 +62,7 @@ type Manager struct {
 	store   *store.Store
 	limiter *loginLimiter
 	now     func() time.Time
+	oidcRT  oidcRuntime
 }
 
 // New builds a Manager on the store.
@@ -70,6 +71,7 @@ func New(st *store.Store) *Manager {
 		store:   st,
 		limiter: newLoginLimiter(10, 5*time.Minute),
 		now:     time.Now,
+		oidcRT:  oidcRuntime{flows: map[string]oidcFlow{}},
 	}
 }
 
