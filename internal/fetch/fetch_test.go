@@ -343,3 +343,198 @@ func TestAutoChunkSize(t *testing.T) {
 	}
 	_ = io.Discard
 }
+
+func TestStateWithoutPartIsDiscarded(t *testing.T) {
+	bs := newBlob(2*MinChunkSize, true)
+	srv := httptest.NewServer(bs.handler())
+	defer srv.Close()
+	dest := filepath.Join(t.TempDir(), "f")
+	st := state{URL: "x", Size: int64(len(bs.data)), ETag: bs.etag, ChunkSz: MinChunkSize, Done: []bool{true, false}, Ranged: true}
+	if err := writeAtomic(dest+".part.json", &st); err != nil {
+		t.Fatal(err)
+	}
+	// No .part on disk → the "done" chunk would be zeros; state must be ignored.
+	res, err := Download(context.Background(), srv.URL, dest, Options{Connections: 2, ChunkSize: MinChunkSize})
+	if err != nil || res.Resumed {
+		t.Fatalf("orphan state should be discarded: %v %+v", err, res)
+	}
+	if fileSum(t, dest) != sum(bs.data) {
+		t.Fatal("content mismatch (zero-filled chunk)")
+	}
+	// Truncated .part must also invalidate the state.
+	dest2 := filepath.Join(t.TempDir(), "g")
+	_ = writeAtomic(dest2+".part.json", &st)
+	_ = os.WriteFile(dest2+".part", bs.data[:100], 0o644)
+	res, err = Download(context.Background(), srv.URL, dest2, Options{Connections: 2, ChunkSize: MinChunkSize})
+	if err != nil || res.Resumed || fileSum(t, dest2) != sum(bs.data) {
+		t.Fatalf("short .part should invalidate state: %v %+v", err, res)
+	}
+}
+
+func TestStreamAttemptInvalidatesChunkMap(t *testing.T) {
+	bs := newBlob(2*MinChunkSize, true)
+	ranged := httptest.NewServer(bs.handler())
+	defer ranged.Close()
+	dest := filepath.Join(t.TempDir(), "f")
+	// 1. Ranged run that fails on chunk 1 → chunk 0 done, state kept.
+	fail1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.Header.Get("Range"), fmt.Sprintf("bytes=%d-", MinChunkSize)) {
+			w.WriteHeader(500)
+			return
+		}
+		bs.handler().ServeHTTP(w, r)
+	}))
+	defer fail1.Close()
+	if _, err := Download(context.Background(), fail1.URL, dest, Options{Connections: 1, ChunkSize: MinChunkSize, Retries: 0}); err == nil {
+		t.Fatal("expected failure")
+	}
+	// 2. Range-less host that dies mid-stream (overwrites .part with partial garbage).
+	noRange := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", strconv.Itoa(len(bs.data)))
+		w.WriteHeader(200)
+		_, _ = w.Write(bs.data[:10])
+		if hj, ok := w.(http.Hijacker); ok {
+			c, _, _ := hj.Hijack()
+			_ = c.Close()
+		}
+	}))
+	defer noRange.Close()
+	if _, err := Download(context.Background(), noRange.URL, dest, Options{Retries: 0}); err == nil {
+		t.Fatal("expected stream failure")
+	}
+	if _, err := os.Stat(dest + ".part.json"); !os.IsNotExist(err) {
+		t.Fatal("stream attempt must drop the stale chunk map")
+	}
+	// 3. Ranged again: must not resume from the garbage.
+	res, err := Download(context.Background(), ranged.URL, dest, Options{Connections: 2, ChunkSize: MinChunkSize})
+	if err != nil || res.Resumed || fileSum(t, dest) != sum(bs.data) {
+		t.Fatalf("corrupt resume: %v %+v", err, res)
+	}
+}
+
+func TestContentRangeMismatchRejected(t *testing.T) {
+	bs := newBlob(2*MinChunkSize, true)
+	lying := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rng := r.Header.Get("Range")
+		if rng == "bytes=0-0" {
+			bs.handler().ServeHTTP(w, r)
+			return
+		}
+		// Always answer with chunk 0's bytes but claim the requested range.
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes 0-%d/%d", MinChunkSize-1, len(bs.data)))
+		w.WriteHeader(206)
+		_, _ = w.Write(bs.data[:MinChunkSize])
+	}))
+	defer lying.Close()
+	_, err := Download(context.Background(), lying.URL, filepath.Join(t.TempDir(), "f"), Options{Connections: 2, ChunkSize: MinChunkSize, Retries: 1})
+	if !errors.Is(err, ErrBadContentRange) {
+		t.Fatalf("expected content-range mismatch, got %v", err)
+	}
+}
+
+func TestChunk200FallsBackToStream(t *testing.T) {
+	bs := newBlob(2*MinChunkSize, true)
+	flaky := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Range") == "bytes=0-0" {
+			bs.handler().ServeHTTP(w, r) // advertises ranges...
+			return
+		}
+		w.Header().Set("Content-Length", strconv.Itoa(len(bs.data)))
+		w.WriteHeader(200) // ...but then ignores them
+		_, _ = w.Write(bs.data)
+	}))
+	defer flaky.Close()
+	dest := filepath.Join(t.TempDir(), "f")
+	res, err := Download(context.Background(), flaky.URL, dest, Options{Connections: 2, ChunkSize: MinChunkSize})
+	if err != nil || res.Ranged || fileSum(t, dest) != sum(bs.data) {
+		t.Fatalf("fallback to stream: %v %+v", err, res)
+	}
+}
+
+func TestUnlimitedLimiterDoesNotSpin(t *testing.T) {
+	bs := newBlob(100_000, true)
+	srv := httptest.NewServer(bs.handler())
+	defer srv.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for _, lim := range []*rate.Limiter{rate.NewLimiter(rate.Inf, 0), rate.NewLimiter(1000, 0)} {
+		dest := filepath.Join(t.TempDir(), "f")
+		if _, err := Download(ctx, srv.URL, dest, Options{Connections: 2, ChunkSize: 50_000, Limiter: lim}); err != nil {
+			t.Fatalf("limiter %v: %v", lim.Limit(), err)
+		}
+	}
+}
+
+func TestExpectedSizeOnUnknownSizeStream(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(200) // chunked, no Content-Length
+		_, _ = w.Write(bytes.Repeat([]byte("x"), 500))
+	}))
+	defer srv.Close()
+	_, err := Download(context.Background(), srv.URL, filepath.Join(t.TempDir(), "f"), Options{ExpectedSize: 1000})
+	if !errors.Is(err, ErrSizeMismatch) {
+		t.Fatalf("expected size mismatch, got %v", err)
+	}
+}
+
+func TestProbeRetriesOn503(t *testing.T) {
+	bs := newBlob(1000, true)
+	var n int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Range") == "bytes=0-0" && atomic.AddInt32(&n, 1) == 1 {
+			w.WriteHeader(503)
+			return
+		}
+		bs.handler().ServeHTTP(w, r)
+	}))
+	defer srv.Close()
+	dest := filepath.Join(t.TempDir(), "f")
+	if _, err := Download(context.Background(), srv.URL, dest, Options{Retries: 2}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestStallGuardAborts(t *testing.T) {
+	bs := newBlob(2*MinChunkSize, true)
+	stall := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Range") == "bytes=0-0" {
+			bs.handler().ServeHTTP(w, r)
+			return
+		}
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes 0-%d/%d", MinChunkSize-1, len(bs.data)))
+		w.WriteHeader(206)
+		_, _ = w.Write(bs.data[:10])
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		time.Sleep(2 * time.Second) // then silence
+	}))
+	defer stall.Close()
+	start := time.Now()
+	_, err := Download(context.Background(), stall.URL, filepath.Join(t.TempDir(), "f"), Options{Connections: 1, ChunkSize: MinChunkSize, Retries: 0, RequestTimeout: 200 * time.Millisecond})
+	if err == nil || !strings.Contains(err.Error(), "stalled") || time.Since(start) > 1500*time.Millisecond {
+		t.Fatalf("expected prompt stall error, got %v after %s", err, time.Since(start))
+	}
+}
+
+func TestDiskErrorNotRetried(t *testing.T) {
+	if !retryable(&os.PathError{Op: "write", Path: "x", Err: errors.New("no space left on device")}) {
+		return
+	}
+	t.Fatal("disk errors must not be retried")
+}
+
+func TestParseContentRange(t *testing.T) {
+	if s, e, tot, ok := parseContentRange("bytes 10-19/100"); !ok || s != 10 || e != 19 || tot != 100 {
+		t.Fatal("parse")
+	}
+	if _, _, tot, ok := parseContentRange("bytes 0-0/*"); !ok || tot != -1 {
+		t.Fatal("star total")
+	}
+	if _, _, _, ok := parseContentRange("garbage"); ok {
+		t.Fatal("garbage")
+	}
+	if parseRetryAfter("2") != 2*time.Second || parseRetryAfter("") != 0 {
+		t.Fatal("retry-after")
+	}
+}

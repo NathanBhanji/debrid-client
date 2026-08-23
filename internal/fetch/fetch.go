@@ -12,6 +12,7 @@ package fetch
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -78,11 +79,21 @@ type Result struct {
 // or the final file size differs from what the server announced.
 var ErrSizeMismatch = errors.New("fetch: size mismatch")
 
+// ErrRangeNotSupported is returned internally when a server that advertised
+// range support answers a chunk request with 200; Download falls back to a
+// single stream.
+var ErrRangeNotSupported = errors.New("fetch: server ignored range request")
+
+// ErrBadContentRange is returned when a 206 response's Content-Range does not
+// match the requested range (would corrupt the file).
+var ErrBadContentRange = errors.New("fetch: content-range mismatch")
+
 // HTTPError is returned for non-success status codes. Callers typically treat
 // 401/403/404/410 as "link expired, unrestrict again" and 5xx/429 as transient.
 type HTTPError struct {
 	StatusCode int
 	URL        string
+	RetryAfter time.Duration // from a 429/503 Retry-After header, if any
 }
 
 func (e *HTTPError) Error() string { return fmt.Sprintf("fetch: http %d from %s", e.StatusCode, e.URL) }
@@ -136,19 +147,11 @@ func Download(ctx context.Context, url, dest string, o Options) (Result, error) 
 	}
 
 	// Unknown size or no range support → single stream.
-	if pr.size < 0 || !pr.ranges || o.Connections == 1 && pr.size < MinChunkSize {
-		n, err := o.stream(ctx, url, part, pr.size)
-		if err != nil {
-			return Result{}, err
-		}
-		_ = os.Remove(stateFile)
-		if err := os.Rename(part, dest); err != nil {
-			return Result{}, err
-		}
-		return Result{Size: n, Ranged: false}, nil
+	if pr.size < 0 || !pr.ranges {
+		return o.streamToDest(ctx, url, part, stateFile, dest, pr.size)
 	}
 
-	st, resumed := loadState(stateFile, url, pr, o)
+	st, resumed := loadState(stateFile, part, url, pr, o)
 	f, err := os.OpenFile(part, os.O_RDWR|os.O_CREATE, 0o644)
 	if err != nil {
 		return Result{}, err
@@ -165,25 +168,50 @@ func Download(ctx context.Context, url, dest string, o Options) (Result, error) 
 		}
 	}
 	if err := o.downloadChunks(ctx, url, f, st, stateFile, &done); err != nil {
+		if errors.Is(err, ErrRangeNotSupported) {
+			_ = f.Close()
+			return o.streamToDest(ctx, url, part, stateFile, dest, pr.size)
+		}
 		return Result{}, err
 	}
 	if err := f.Sync(); err != nil {
 		return Result{}, err
 	}
-	if fi, err := f.Stat(); err != nil || fi.Size() != st.Size {
+	fi, err := f.Stat()
+	if err != nil {
+		return Result{}, err
+	}
+	if fi.Size() != st.Size {
 		return Result{}, fmt.Errorf("%w: wrote %d bytes, expected %d", ErrSizeMismatch, fi.Size(), st.Size)
 	}
 	if err := f.Close(); err != nil {
 		return Result{}, err
 	}
-	_ = os.Remove(stateFile)
 	if err := os.Rename(part, dest); err != nil {
-		return Result{}, err
+		return Result{}, err // keep state: the complete .part is reusable
 	}
+	_ = os.Remove(stateFile)
 	if o.Progress != nil {
 		o.Progress(st.Size, st.Size)
 	}
 	return Result{Size: st.Size, Resumed: resumed, Ranged: true}, nil
+}
+
+// streamToDest downloads with a single connection into part and renames it
+// into place. Any chunk map from a previous ranged attempt is discarded first:
+// the stream overwrites .part, so the map would describe bytes that no longer
+// exist.
+func (o Options) streamToDest(ctx context.Context, url, part, stateFile, dest string, size int64) (Result, error) {
+	_ = os.Remove(stateFile)
+	_ = os.Remove(stateFile + ".tmp")
+	n, err := o.stream(ctx, url, part, size)
+	if err != nil {
+		return Result{}, err
+	}
+	if err := os.Rename(part, dest); err != nil {
+		return Result{}, err
+	}
+	return Result{Size: n, Ranged: false}, nil
 }
 
 func (o Options) withDefaults() Options {
@@ -194,7 +222,7 @@ func (o Options) withDefaults() Options {
 		o.Retries = 0
 	}
 	if o.Client == nil {
-		o.Client = &http.Client{}
+		o.Client = defaultClient(o.Connections)
 	}
 	if o.UserAgent == "" {
 		o.UserAgent = "debrid-client"
@@ -203,6 +231,17 @@ func (o Options) withDefaults() Options {
 		o.ProgressInterval = time.Second
 	}
 	return o
+}
+
+// defaultClient keeps enough idle connections for parallel chunks and forces
+// HTTP/1.1: HTTP/2 multiplexes every range request onto one TCP connection,
+// which defeats the point of parallelism against CDNs.
+func defaultClient(conns int) *http.Client {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.MaxIdleConnsPerHost = max(conns, 2)
+	tr.ForceAttemptHTTP2 = false
+	tr.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
+	return &http.Client{Transport: tr}
 }
 
 func (o Options) newRequest(ctx context.Context, url string) (*http.Request, error) {
@@ -220,8 +259,29 @@ func (o Options) newRequest(ctx context.Context, url string) (*http.Request, err
 }
 
 // probe issues a tiny range request to learn size and range support without
-// relying on HEAD (which some CDNs reject).
+// relying on HEAD (which some CDNs reject). Transient failures are retried.
 func (o Options) probe(ctx context.Context, url string) (probe, error) {
+	var lastErr error
+	for attempt := 0; attempt <= o.Retries; attempt++ {
+		pr, err := o.probeOnce(ctx, url)
+		if err == nil {
+			return pr, nil
+		}
+		lastErr = err
+		if !retryable(err) || ctx.Err() != nil {
+			break
+		}
+		sleep(ctx, retryDelay(attempt, err))
+	}
+	return probe{}, lastErr
+}
+
+func (o Options) probeOnce(ctx context.Context, url string) (probe, error) {
+	if o.RequestTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, o.RequestTimeout)
+		defer cancel()
+	}
 	req, err := o.newRequest(ctx, url)
 	if err != nil {
 		return probe{}, err
@@ -277,7 +337,7 @@ func (o Options) stream(ctx context.Context, url, part string, size int64) (int6
 		if !retryable(err) || ctx.Err() != nil {
 			break
 		}
-		sleep(ctx, backoff(attempt))
+		sleep(ctx, retryDelay(attempt, err))
 	}
 	return 0, lastErr
 }
@@ -301,7 +361,7 @@ func (o Options) streamOnce(ctx context.Context, url, part string, size int64) (
 	}
 	var done atomic.Int64
 	stop := o.progressLoop(ctx, &done, size)
-	n, err := io.Copy(f, o.limited(ctx, &done, resp.Body))
+	n, err := copyBuf(f, o.limited(ctx, &done, o.stallGuard(ctx, resp.Body)))
 	stop()
 	if cerr := f.Close(); err == nil {
 		err = cerr
@@ -312,25 +372,36 @@ func (o Options) streamOnce(ctx context.Context, url, part string, size int64) (
 	if size >= 0 && n != size {
 		return 0, fmt.Errorf("%w: got %d bytes, expected %d", ErrSizeMismatch, n, size)
 	}
+	if size < 0 && o.ExpectedSize > 0 && n != o.ExpectedSize {
+		return 0, fmt.Errorf("%w: got %d bytes, expected %d", ErrSizeMismatch, n, o.ExpectedSize)
+	}
 	if o.Progress != nil {
 		o.Progress(n, n)
 	}
 	return n, nil
 }
 
-func loadState(stateFile, url string, pr probe, o Options) (*state, bool) {
+// loadState returns the resumable chunk map when the state file matches the
+// probed content (size and ETag) AND the data file is present with the full
+// preallocated size; otherwise a fresh map. The .part size check guards
+// against a map that outlived its data (manual cleanup, a stream attempt
+// overwriting .part, …), which would otherwise yield zero-filled chunks.
+func loadState(stateFile, part, url string, pr probe, o Options) (*state, bool) {
 	chunkSz := o.ChunkSize
 	if chunkSz <= 0 {
 		chunkSz = autoChunkSize(pr.size, o.Connections)
 	}
 	if b, err := os.ReadFile(stateFile); err == nil {
 		var st state
+		fi, statErr := os.Stat(part)
 		if json.Unmarshal(b, &st) == nil && st.Size == pr.size && st.Ranged && st.ChunkSz > 0 &&
-			len(st.Done) == numChunks(st.Size, st.ChunkSz) && (st.ETag == "" || pr.etag == "" || st.ETag == pr.etag) {
+			len(st.Done) == numChunks(st.Size, st.ChunkSz) && (st.ETag == "" || pr.etag == "" || st.ETag == pr.etag) &&
+			statErr == nil && fi.Size() == st.Size {
 			st.URL = url // URLs change between unrestricts; the content is what matters
 			return &st, true
 		}
 	}
+	_ = os.Remove(stateFile)
 	n := numChunks(pr.size, chunkSz)
 	return &state{URL: url, Size: pr.size, ETag: pr.etag, ChunkSz: chunkSz, Done: make([]bool, n), Ranged: true,
 		Created: time.Now().UTC().Format(time.RFC3339)}, false
@@ -396,6 +467,11 @@ func (o Options) downloadChunks(ctx context.Context, url string, f *os.File, st 
 				if err := o.fetchChunkRetry(gctx, url, f, st, i, done); err != nil {
 					return err
 				}
+				// Make the chunk durable before the map says it's done, so a power
+				// loss can't leave a "done" chunk of zeros.
+				if err := f.Sync(); err != nil {
+					return err
+				}
 				saveMu.Lock()
 				st.Done[i] = true
 				saveMu.Unlock()
@@ -420,7 +496,7 @@ func (o Options) fetchChunkRetry(ctx context.Context, url string, f *os.File, st
 		if !retryable(err) || ctx.Err() != nil {
 			break
 		}
-		sleep(ctx, backoff(attempt))
+		sleep(ctx, retryDelay(attempt, err))
 	}
 	return fmt.Errorf("chunk %d: %w", i, lastErr)
 }
@@ -428,11 +504,8 @@ func (o Options) fetchChunkRetry(ctx context.Context, url string, f *os.File, st
 func (o Options) fetchChunk(ctx context.Context, url string, f *os.File, st *state, i int, done *atomic.Int64) error {
 	start := int64(i) * st.ChunkSz
 	end := start + chunkLen(st, i) - 1
-	if o.RequestTimeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, o.RequestTimeout)
-		defer cancel()
-	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	req, err := o.newRequest(ctx, url)
 	if err != nil {
 		return err
@@ -443,26 +516,115 @@ func (o Options) fetchChunk(ctx context.Context, url string, f *os.File, st *sta
 		return err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusPartialContent {
-		return &HTTPError{StatusCode: resp.StatusCode, URL: url}
+	switch resp.StatusCode {
+	case http.StatusPartialContent:
+	case http.StatusOK:
+		return ErrRangeNotSupported
+	default:
+		he := &HTTPError{StatusCode: resp.StatusCode, URL: url}
+		if resp.StatusCode == http.StatusTooManyRequests {
+			he.RetryAfter = parseRetryAfter(resp.Header.Get("Retry-After"))
+		}
+		return he
+	}
+	if cs, ce, total, ok := parseContentRange(resp.Header.Get("Content-Range")); !ok || cs != start || ce != end || (total >= 0 && total != st.Size) {
+		return fmt.Errorf("%w: requested %d-%d/%d, got %q", ErrBadContentRange, start, end, st.Size, resp.Header.Get("Content-Range"))
 	}
 	want := end - start + 1
 	w := io.NewOffsetWriter(f, start)
-	n, err := io.Copy(w, o.limited(ctx, done, io.LimitReader(resp.Body, want)))
+	cr := o.limited(ctx, done, o.stallGuard(ctx, io.LimitReader(resp.Body, want)))
+	n, err := copyBuf(w, cr)
 	if err != nil {
-		done.Add(-n) // undo partial progress; the chunk will be refetched whole
+		done.Add(-cr.read()) // undo everything counted for this attempt; the chunk is refetched whole
 		return err
 	}
 	if n != want {
-		done.Add(-n)
+		done.Add(-cr.read())
 		return fmt.Errorf("short chunk: got %d of %d bytes", n, want)
 	}
 	return nil
 }
 
+// stallGuard cancels the request if no bytes arrive for RequestTimeout
+// (an idle timeout rather than a whole-transfer timeout, so a bandwidth cap
+// or a big chunk can't trip it).
+func (o Options) stallGuard(ctx context.Context, r io.Reader) io.Reader {
+	if o.RequestTimeout <= 0 {
+		return r
+	}
+	return &stallReader{r: r, timeout: o.RequestTimeout, ctx: ctx}
+}
+
+type stallReader struct {
+	r       io.Reader
+	timeout time.Duration
+	ctx     context.Context
+}
+
+func (s *stallReader) Read(p []byte) (int, error) {
+	type res struct {
+		n   int
+		err error
+	}
+	ch := make(chan res, 1)
+	go func() { n, err := s.r.Read(p); ch <- res{n, err} }()
+	t := time.NewTimer(s.timeout)
+	defer t.Stop()
+	select {
+	case r := <-ch:
+		return r.n, r.err
+	case <-t.C:
+		return 0, fmt.Errorf("fetch: no data for %s (stalled)", s.timeout)
+	case <-s.ctx.Done():
+		return 0, s.ctx.Err()
+	}
+}
+
+// parseContentRange parses "bytes start-end/total" (total may be "*" → -1).
+func parseContentRange(v string) (start, end, total int64, ok bool) {
+	v = strings.TrimSpace(v)
+	if !strings.HasPrefix(v, "bytes ") {
+		return 0, 0, 0, false
+	}
+	rangePart, totalPart, found := strings.Cut(v[len("bytes "):], "/")
+	if !found {
+		return 0, 0, 0, false
+	}
+	se := strings.SplitN(rangePart, "-", 2)
+	if len(se) != 2 {
+		return 0, 0, 0, false
+	}
+	var err error
+	if start, err = strconv.ParseInt(strings.TrimSpace(se[0]), 10, 64); err != nil {
+		return 0, 0, 0, false
+	}
+	if end, err = strconv.ParseInt(strings.TrimSpace(se[1]), 10, 64); err != nil {
+		return 0, 0, 0, false
+	}
+	total = -1
+	if tp := strings.TrimSpace(totalPart); tp != "*" {
+		if total, err = strconv.ParseInt(tp, 10, 64); err != nil {
+			return 0, 0, 0, false
+		}
+	}
+	return start, end, total, true
+}
+
+// copyBuf copies with a 256 KiB buffer (io.Copy's 32 KiB means 8× more pwrite syscalls).
+func copyBuf(dst io.Writer, src io.Reader) (int64, error) {
+	buf := make([]byte, readBuf)
+	return io.CopyBuffer(dst, struct{ io.Reader }{src}, buf) // hide WriterTo/ReaderFrom so the buffer is used
+}
+
 // limited wraps r with the rate limiter and progress counter.
-func (o Options) limited(ctx context.Context, done *atomic.Int64, r io.Reader) io.Reader {
-	return &countingReader{ctx: ctx, r: r, lim: o.Limiter, done: done}
+func (o Options) limited(ctx context.Context, done *atomic.Int64, r io.Reader) *countingReader {
+	lim := o.Limiter
+	// rate.Inf or a non-positive burst means "unlimited" — a zero burst would
+	// otherwise shrink every read to 0 bytes and spin forever.
+	if lim != nil && (lim.Limit() == rate.Inf || lim.Burst() <= 0) {
+		lim = nil
+	}
+	return &countingReader{ctx: ctx, r: r, lim: lim, done: done}
 }
 
 type countingReader struct {
@@ -470,7 +632,10 @@ type countingReader struct {
 	r    io.Reader
 	lim  *rate.Limiter
 	done *atomic.Int64
+	n    int64 // bytes counted by this reader (to undo on failure)
 }
+
+func (c *countingReader) read() int64 { return c.n }
 
 func (c *countingReader) Read(p []byte) (int, error) {
 	if len(p) > readBuf {
@@ -486,6 +651,7 @@ func (c *countingReader) Read(p []byte) (int, error) {
 		}
 	}
 	n, err := c.r.Read(p)
+	c.n += int64(n)
 	c.done.Add(int64(n))
 	return n, err
 }
@@ -530,18 +696,44 @@ func retryable(err error) bool {
 	if errors.As(err, &he) {
 		return he.Retryable()
 	}
-	if errors.Is(err, ErrSizeMismatch) || errors.Is(err, context.Canceled) {
+	if errors.Is(err, ErrSizeMismatch) || errors.Is(err, ErrBadContentRange) || errors.Is(err, ErrRangeNotSupported) || errors.Is(err, context.Canceled) {
 		return false
 	}
-	return true // network errors, short reads, timeouts
+	// Local I/O failures (disk full, permissions, read-only fs) won't fix themselves.
+	var pe *os.PathError
+	if errors.As(err, &pe) {
+		return false
+	}
+	return true // network errors, short reads, stalls, timeouts
 }
 
-func backoff(attempt int) time.Duration {
-	d := 500 * time.Millisecond << attempt
-	if d > 15*time.Second {
-		d = 15 * time.Second
+// retryDelay is the wait before retry number attempt (0-based): the server's
+// Retry-After when present, else 0.5s·2^attempt capped at 15s with jitter.
+func retryDelay(attempt int, err error) time.Duration {
+	var he *HTTPError
+	if errors.As(err, &he) && he.RetryAfter > 0 {
+		return min(he.RetryAfter, 60*time.Second)
+	}
+	d := 15 * time.Second
+	if attempt < 5 {
+		d = 500 * time.Millisecond << uint(attempt) //nolint:gosec // attempt < 5
 	}
 	return d/2 + time.Duration(rand.Int64N(int64(d/2))) //nolint:gosec // jitter
+}
+
+func parseRetryAfter(v string) time.Duration {
+	if v == "" {
+		return 0
+	}
+	if secs, err := strconv.Atoi(v); err == nil && secs >= 0 {
+		return time.Duration(secs) * time.Second
+	}
+	if t, err := http.ParseTime(v); err == nil {
+		if d := time.Until(t); d > 0 {
+			return d
+		}
+	}
+	return 0
 }
 
 func sleep(ctx context.Context, d time.Duration) {
