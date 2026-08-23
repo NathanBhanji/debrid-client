@@ -14,10 +14,10 @@ import (
 )
 
 func main() {
-	os.Exit(run())
+	os.Exit(realMain())
 }
 
-func run() int {
+func realMain() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := newRootCmd().ExecuteContext(ctx); err != nil {
