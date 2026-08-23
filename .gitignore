@@ -1,0 +1,10 @@
+/bin/
+/dist/
+/data/
+*.db
+*.db-wal
+*.db-shm
+*.log
+.env
+.DS_Store
+coverage.out
