@@ -10,6 +10,7 @@ function Home() {
   const [status, setStatus] = useState<Status | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [needsKey, setNeedsKey] = useState(false)
+  const [rejected, setRejected] = useState(false)
   const [keyInput, setKeyInput] = useState('')
 
   const load = () => {
@@ -21,8 +22,13 @@ function Home() {
         setNeedsKey(false)
       })
       .catch((e: unknown) => {
-        if (e instanceof ApiError && e.status === 401) setNeedsKey(true)
-        else setError(e instanceof Error ? e.message : String(e))
+        if (e instanceof ApiError && e.status === 401) {
+          // A rejected key on a repeat attempt deserves feedback, not silence.
+          setRejected(needsKey && keyInput.trim() !== '')
+          setNeedsKey(true)
+        } else {
+          setError(e instanceof Error ? e.message : String(e))
+        }
       })
   }
   useEffect(load, [])
@@ -33,7 +39,9 @@ function Home() {
         <div className="lcd" style={{ marginBottom: 14 }}>
           <div className="lbl">Authorization required</div>
           <div className="big" style={{ fontSize: 15 }}>
-            INSERT API KEY TO CONTINUE
+            {rejected
+              ? 'KEY REJECTED — TRY AGAIN'
+              : 'INSERT API KEY TO CONTINUE'}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10 }}>

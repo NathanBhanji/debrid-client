@@ -13,7 +13,7 @@
     "lint": "eslint",
     "format": "prettier --write . && eslint --fix",
     "check": "prettier --check .",
-    "gen:api": "openapi-typescript ../internal/apiclient/openapi.yaml -o src/lib/api.gen.d.ts",
+    "gen:api": "openapi-typescript ../internal/apiclient/openapi.yaml -o src/lib/api.gen.d.ts && prettier --write src/lib/api.gen.d.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

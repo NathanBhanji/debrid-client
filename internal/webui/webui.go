@@ -50,6 +50,12 @@ func Handler() http.Handler {
 				files.ServeHTTP(w, r)
 				return
 			}
+			// A missing asset means a stale reference (e.g. a cached shell after
+			// an upgrade); serving the shell here would hand HTML to a script tag.
+			if strings.HasPrefix(name, "assets/") {
+				http.NotFound(w, r)
+				return
+			}
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache")

@@ -1,11 +1,14 @@
 // Minimal typed API client over the generated OpenAPI types.
 // The API key is kept in localStorage (single-user, self-hosted).
+// Known limitation: URLs are root-absolute, so the UI only works with an
+// empty server.base_path (the default) — see web/README.md.
 import type { components } from './api.gen'
 
 export type Status = components['schemas']['Status']
 export type Torrent = components['schemas']['Torrent']
 export type Account = components['schemas']['Account']
 export type Settings = components['schemas']['Settings']
+export type Health = components['schemas']['HealthOutBody']
 
 const KEY_STORAGE = 'debrid.apiKey'
 
@@ -51,7 +54,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  health: () => request<{ ok: boolean; version: string }>('/health'),
+  health: () => request<Health>('/health'),
   status: () => request<Status>('/system/status'),
   torrents: {
     list: () => request<Array<Torrent>>('/torrents'),
@@ -81,6 +84,8 @@ export const api = {
 }
 
 // Server-sent events stream (EventSource can't set headers → query key).
+// TODO(next PR): reconnect on error and watch the heartbeat event (15s) for
+// liveness when the torrent rack starts consuming this.
 export function openEvents(
   onEvent: (type: string, data: unknown) => void,
 ): () => void {
