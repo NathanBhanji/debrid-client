@@ -131,7 +131,7 @@ func TestEmptySettingsDecodeToDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tor.Settings != domain.DefaultTorrentSettings() {
+	if !reflect.DeepEqual(tor.Settings, domain.DefaultTorrentSettings()) {
 		t.Fatalf("empty settings should decode to defaults, got %+v", tor.Settings)
 	}
 	// nil payload is coerced rather than failing NOT NULL.
