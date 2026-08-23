@@ -1,13 +1,7 @@
 import { useEffect, useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 
-import {
-  ApiError,
-  PROVIDER_KINDS,
-  PROVIDER_LABELS,
-  api,
-  openEvents,
-} from '#/lib/api'
+import { PROVIDER_KINDS, PROVIDER_LABELS, api, openEvents } from '#/lib/api'
 import { formatWhen } from '#/lib/format'
 import type { Account, ProviderKind, User } from '#/lib/api'
 
@@ -254,13 +248,9 @@ function AccountsPage() {
         setAccounts(list)
         setError(null)
       })
-      .catch((e: unknown) => {
-        if (e instanceof ApiError && e.status === 401) {
-          setError('not authorized — connect on the TORRENTS tab first')
-        } else {
-          setError(e instanceof Error ? e.message : String(e))
-        }
-      })
+      .catch((e: unknown) =>
+        setError(e instanceof Error ? e.message : String(e)),
+      )
   }, [tick])
 
   // Follow account.changed events (e.g. changes made via CLI/MCP). Fatal

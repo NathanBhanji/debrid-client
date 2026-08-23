@@ -32,7 +32,9 @@ Files land in `<download_dir>/[<category>/]<torrent name>/…`. Archives are ext
 
 ## Web UI
 
-`debrid serve` also serves a web UI at the server address (http://127.0.0.1:8080 by default). Sign in with the API key, then add magnets or drop `.torrent` files, watch progress live, and manage accounts and settings. Release binaries and Docker images ship with the UI embedded; when building from source, run `make web` before `make build` to include it (plain `go build` works without it and serves the API only).
+`debrid serve` also serves a web UI at the server address (http://127.0.0.1:8080 by default). Add magnets or drop `.torrent` files, watch progress live, and manage accounts and settings. Release binaries and Docker images ship with the UI embedded; when building from source, run `make web` before `make build` to include it (plain `go build` works without it and serves the API only).
+
+On first visit the UI runs a one-time onboarding: choose **username & password** or **SSO/passkeys via any OIDC provider** (e.g. a self-hosted [Pocket ID](https://pocket-id.org)); completing it requires the API key printed by `debrid serve`, which proves you own the server. Browser sessions use HttpOnly cookies; the API key keeps working unchanged for the CLI, MCP and automation. For OIDC, register a client at your provider with callback `https://<host>/api/v1/auth/oidc/callback` — the first sign-in pins your identity and nobody else's account at that provider can log in.
 
 The UI uses root-absolute URLs, so it requires an empty `server.base_path` (the default) — put it behind its own (sub)domain rather than a path prefix if proxying.
 

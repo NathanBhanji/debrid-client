@@ -6,6 +6,7 @@ import {
   createRootRoute,
 } from '@tanstack/react-router'
 
+import { AuthGate, useAuth } from '#/lib/auth'
 import appCss from '../styles.css?url'
 
 export const Route = createRootRoute({
@@ -38,6 +39,20 @@ function RootDocument({ children }: { children: React.ReactNode }) {
   )
 }
 
+// SessionBadge shows who is signed in and offers logout; only rendered
+// inside the gate, where useAuth is available.
+function SessionBadge() {
+  const { username, logout } = useAuth()
+  return (
+    <span className="session-badge">
+      {username && <span className="session-user">{username}</span>}
+      <button className="key sm" onClick={logout}>
+        LOG OUT
+      </button>
+    </span>
+  )
+}
+
 function Chassis() {
   return (
     <div className="device">
@@ -51,31 +66,35 @@ function Chassis() {
         <span className="flex-spacer" />
         <span className="screw" />
       </header>
-      <nav className="tabs">
-        <Link
-          to="/"
-          className="tab"
-          activeProps={{ className: 'tab on' }}
-          activeOptions={{ exact: true }}
-        >
-          TORRENTS
-        </Link>
-        <Link
-          to="/accounts"
-          className="tab"
-          activeProps={{ className: 'tab on' }}
-        >
-          ACCOUNTS
-        </Link>
-        <Link
-          to="/settings"
-          className="tab"
-          activeProps={{ className: 'tab on' }}
-        >
-          SETTINGS
-        </Link>
-      </nav>
-      <Outlet />
+      <AuthGate>
+        <nav className="tabs">
+          <Link
+            to="/"
+            className="tab"
+            activeProps={{ className: 'tab on' }}
+            activeOptions={{ exact: true }}
+          >
+            TORRENTS
+          </Link>
+          <Link
+            to="/accounts"
+            className="tab"
+            activeProps={{ className: 'tab on' }}
+          >
+            ACCOUNTS
+          </Link>
+          <Link
+            to="/settings"
+            className="tab"
+            activeProps={{ className: 'tab on' }}
+          >
+            SETTINGS
+          </Link>
+          <span className="flex-spacer" />
+          <SessionBadge />
+        </nav>
+        <Outlet />
+      </AuthGate>
       <footer className="strip">
         <span>API ● MCP ● SSE</span>
         <div className="grill">

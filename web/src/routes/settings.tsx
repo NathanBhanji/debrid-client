@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 
-import { ApiError, api } from '#/lib/api'
+import { api } from '#/lib/api'
+import { useAuth } from '#/lib/auth'
 import type { Settings } from '#/lib/api'
 
 export const Route = createFileRoute('/settings')({ component: SettingsPage })
@@ -38,12 +39,14 @@ function Field({
   onChange,
   placeholder,
   id,
+  type,
 }: {
   label: string
   value: string
   onChange: (v: string) => void
   placeholder?: string
   id: string
+  type?: string
 }) {
   return (
     <div className="field">
@@ -52,6 +55,7 @@ function Field({
         <input
           id={id}
           value={value}
+          type={type}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
         />
@@ -60,9 +64,78 @@ function Field({
   )
 }
 
+// ChangePasswordCard is only offered in password mode; a successful change
+// revokes every session (including this one), so the auth gate will show the
+// login screen right after.
+function ChangePasswordCard() {
+  const [current, setCurrent] = useState('')
+  const [next, setNext] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  const submit = () => {
+    if (next !== confirm) {
+      setMsg('new passwords do not match')
+      return
+    }
+    setBusy(true)
+    setMsg(null)
+    api.auth.changePassword(current, next).catch((e: unknown) => {
+      setMsg(e instanceof Error ? e.message : String(e))
+      setBusy(false)
+    })
+    // On success every session is revoked; the next request 401s and the
+    // auth gate takes over, so there is nothing to render here.
+  }
+
+  return (
+    <div className="acard">
+      <h3>Change password</h3>
+      <div className="sub">
+        Saving signs you out everywhere; log back in with the new password.
+      </div>
+      <Field
+        id="pw-current"
+        label="Current password"
+        value={current}
+        onChange={setCurrent}
+        type="password"
+      />
+      <Field
+        id="pw-new"
+        label="New password (min 10 characters)"
+        value={next}
+        onChange={setNext}
+        type="password"
+      />
+      <Field
+        id="pw-confirm"
+        label="Confirm new password"
+        value={confirm}
+        onChange={setConfirm}
+        type="password"
+      />
+      <button
+        className="key org"
+        disabled={busy || current === '' || next === '' || confirm === ''}
+        onClick={submit}
+      >
+        {busy ? 'CHANGING…' : 'CHANGE PASSWORD'}
+      </button>
+      {msg && (
+        <div className="form-err" role="alert">
+          {msg}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // The form edits string shadows of the numeric/list fields so partial input
 // isn't fought by the parser; parsing happens on save.
 function SettingsPage() {
+  const { mode } = useAuth()
   const [settings, setSettings] = useState<Settings | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saveMsg, setSaveMsg] = useState<{ ok: boolean; text: string } | null>(
@@ -85,13 +158,9 @@ function SettingsPage() {
         setMinSize(String(s.torrent_defaults.min_file_size ?? 0))
         setError(null)
       })
-      .catch((e: unknown) => {
-        if (e instanceof ApiError && e.status === 401) {
-          setError('not authorized — connect on the TORRENTS tab first')
-        } else {
-          setError(e instanceof Error ? e.message : String(e))
-        }
-      })
+      .catch((e: unknown) =>
+        setError(e instanceof Error ? e.message : String(e)),
+      )
   }, [])
 
   if (error) {
@@ -249,6 +318,7 @@ function SettingsPage() {
           </div>
         )}
       </div>
+      {mode === 'password' && <ChangePasswordCard />}
     </div>
   )
 }
