@@ -25,6 +25,7 @@ import (
 	_ "github.com/NathanBhanji/debrid-client/internal/provider/all" // register providers
 	"github.com/NathanBhanji/debrid-client/internal/service"
 	"github.com/NathanBhanji/debrid-client/internal/store"
+	"github.com/NathanBhanji/debrid-client/internal/webui"
 )
 
 const apiKeySetting = "server.api_key"
@@ -85,6 +86,11 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*App, error)
 	}
 	mcpPath := strings.TrimSuffix(cfg.Server.BasePath, "/") + "/mcp"
 	h.Mux.Handle(mcpPath, api.RequireAPIKey(key, mcpserver.NewHTTPHandler(cl)))
+
+	// Embedded web UI at the base path. More specific mux patterns (/api/v1,
+	// /docs, /openapi, /mcp) win, so this only catches UI routes and assets.
+	uiPrefix := strings.TrimSuffix(cfg.Server.BasePath, "/")
+	h.Mux.Handle(uiPrefix+"/", http.StripPrefix(uiPrefix, webui.Handler()))
 
 	return &App{Cfg: cfg, Log: log, Store: st, Service: svc, Engine: eng, API: h, APIKey: key, Bus: bus, Mux: h.Mux}, nil
 }

@@ -9,3 +9,10 @@
 .DS_Store
 coverage.out
 /debrid
+
+# web UI build outputs
+web/node_modules/
+web/dist/
+web/.tanstack/
+internal/webui/dist/*
+!internal/webui/dist/.gitkeep

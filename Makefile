@@ -11,10 +11,17 @@ GOLANGCI := go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLA
 SQLC     := go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
 OAPI     := go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.8.0
 
-.PHONY: build test lint vet tidy run clean generate generate-check
+.PHONY: build test lint vet tidy run clean generate generate-check web
 
 build: ## Build the binary into ./bin
 	CGO_ENABLED=0 go build -trimpath -ldflags '$(LDFLAGS)' -o bin/debrid ./cmd/debrid
+
+web: ## Build the web UI and stage it for embedding into the binary
+	cd web && npm ci && npm run build
+	rm -rf internal/webui/dist
+	mkdir -p internal/webui/dist
+	cp -R web/dist/client/. internal/webui/dist/
+	touch internal/webui/dist/.gitkeep
 
 test: ## Run tests with race detector
 	go test -race -count=1 ./...
