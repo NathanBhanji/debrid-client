@@ -123,7 +123,7 @@ func TestCLIEndToEnd(t *testing.T) {
 	r := newRootCmd()
 	r.SetOut(&bad)
 	r.SetArgs([]string{"--server", srv.URL, "--api-key", "nope", "status"})
-	if err := r.Execute(); err == nil || !strings.Contains(err.Error(), "API key") {
+	if err := r.Execute(); err == nil || !strings.Contains(err.Error(), "credentials") {
 		t.Fatalf("bad key: %v", err)
 	}
 }

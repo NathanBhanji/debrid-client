@@ -17,6 +17,7 @@ import (
 
 	"github.com/NathanBhanji/debrid-client/internal/api"
 	"github.com/NathanBhanji/debrid-client/internal/apiclient"
+	"github.com/NathanBhanji/debrid-client/internal/auth"
 	"github.com/NathanBhanji/debrid-client/internal/config"
 	"github.com/NathanBhanji/debrid-client/internal/engine"
 	"github.com/NathanBhanji/debrid-client/internal/events"
@@ -71,7 +72,11 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*App, error)
 		_ = st.Close()
 		return nil, err
 	}
-	h := api.New(svc, api.Options{APIKey: key, BasePath: cfg.Server.BasePath, Logger: log})
+	authMgr := auth.New(st)
+	if err := authMgr.PruneExpired(ctx); err != nil {
+		log.Warn("auth: pruning expired sessions failed", "err", err)
+	}
+	h := api.New(svc, api.Options{APIKey: key, Auth: authMgr, BasePath: cfg.Server.BasePath, Logger: log})
 
 	// MCP over Streamable HTTP at <base>/mcp, driving the API in-process.
 	cl, err := apiclient.NewClientWithResponses("http://127.0.0.1"+strings.TrimSuffix(cfg.Server.BasePath, "/"),

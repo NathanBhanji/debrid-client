@@ -261,6 +261,30 @@ type AddTorrentInBody struct {
 	Settings *TorrentSettings `json:"settings,omitempty"`
 }
 
+// AuthStatusOutBody defines model for AuthStatusOutBody.
+type AuthStatusOutBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	//
+	// Example: https://example.com/schemas/AuthStatusOutBody.json
+	Schema *string `json:"$schema,omitempty"`
+
+	// Configured Whether onboarding has completed
+	Configured bool `json:"configured"`
+
+	// Mode Configured auth mode: password or oidc; empty until onboarding
+	Mode string `json:"mode"`
+}
+
+// ChangePasswordInBody defines model for ChangePasswordInBody.
+type ChangePasswordInBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	//
+	// Example: https://example.com/schemas/ChangePasswordInBody.json
+	Schema          *string `json:"$schema,omitempty"`
+	CurrentPassword string  `json:"current_password"`
+	NewPassword     string  `json:"new_password"`
+}
+
 // Credentials defines model for Credentials.
 type Credentials struct {
 	// ApiKey API key / token for the provider
@@ -422,6 +446,31 @@ type Heartbeat struct {
 	At time.Time `json:"at"`
 }
 
+// LoginInBody defines model for LoginInBody.
+type LoginInBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	//
+	// Example: https://example.com/schemas/LoginInBody.json
+	Schema   *string `json:"$schema,omitempty"`
+	Password string  `json:"password"`
+	Username string  `json:"username"`
+}
+
+// MeOutBody defines model for MeOutBody.
+type MeOutBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	//
+	// Example: https://example.com/schemas/MeOutBody.json
+	Schema *string `json:"$schema,omitempty"`
+
+	// ApiKey True when authenticated with the API key
+	ApiKey bool   `json:"api_key"`
+	Mode   string `json:"mode"`
+
+	// Username Set for session requests; empty for API-key requests
+	Username *string `json:"username,omitempty"`
+}
+
 // SelectFilesInBody defines model for SelectFilesInBody.
 type SelectFilesInBody struct {
 	// Schema A URL to the JSON Schema for this object.
@@ -429,6 +478,15 @@ type SelectFilesInBody struct {
 	// Example: https://example.com/schemas/SelectFilesInBody.json
 	Schema  *string  `json:"$schema,omitempty"`
 	FileIds []string `json:"file_ids"`
+}
+
+// SessionOutBody defines model for SessionOutBody.
+type SessionOutBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	//
+	// Example: https://example.com/schemas/SessionOutBody.json
+	Schema   *string `json:"$schema,omitempty"`
+	Username string  `json:"username"`
 }
 
 // Settings defines model for Settings.
@@ -440,6 +498,16 @@ type Settings struct {
 	Categories      *[]string       `json:"categories,omitempty"`
 	TorrentDefaults TorrentSettings `json:"torrent_defaults"`
 	UnpackMaxDepth  *int64          `json:"unpack_max_depth,omitempty"`
+}
+
+// SetupPasswordInBody defines model for SetupPasswordInBody.
+type SetupPasswordInBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	//
+	// Example: https://example.com/schemas/SetupPasswordInBody.json
+	Schema   *string `json:"$schema,omitempty"`
+	Password string  `json:"password"`
+	Username string  `json:"username"`
 }
 
 // Status defines model for Status.
@@ -617,6 +685,15 @@ type AddAccountJSONRequestBody = AddAccountInBody
 // UpdateAccountJSONRequestBody defines body for UpdateAccount for application/json ContentType.
 type UpdateAccountJSONRequestBody = UpdateAccountInBody
 
+// AuthLoginJSONRequestBody defines body for AuthLogin for application/json ContentType.
+type AuthLoginJSONRequestBody = LoginInBody
+
+// AuthChangePasswordJSONRequestBody defines body for AuthChangePassword for application/json ContentType.
+type AuthChangePasswordJSONRequestBody = ChangePasswordInBody
+
+// AuthSetupPasswordJSONRequestBody defines body for AuthSetupPassword for application/json ContentType.
+type AuthSetupPasswordJSONRequestBody = SetupPasswordInBody
+
 // UpdateSettingsJSONRequestBody defines body for UpdateSettings for application/json ContentType.
 type UpdateSettingsJSONRequestBody = Settings
 
@@ -757,6 +834,63 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /api/v1/accounts/{id}/test (the `TestAccount` operationId).
 	TestAccount(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AuthLoginWithBody Log in with username and password
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/auth/login (the `AuthLogin` operationId).
+	AuthLoginWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AuthLogin Log in with username and password
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/auth/login (the `AuthLogin` operationId).
+	AuthLogin(ctx context.Context, body AuthLoginJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AuthLogout Log out the current session
+	//
+	// Corresponds with POST /api/v1/auth/logout (the `AuthLogout` operationId).
+	AuthLogout(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AuthMe Current authentication identity
+	//
+	// Corresponds with GET /api/v1/auth/me (the `AuthMe` operationId).
+	AuthMe(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AuthChangePasswordWithBody Change the local user's password (revokes all sessions)
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/auth/password (the `AuthChangePassword` operationId).
+	AuthChangePasswordWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AuthChangePassword Change the local user's password (revokes all sessions)
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/auth/password (the `AuthChangePassword` operationId).
+	AuthChangePassword(ctx context.Context, body AuthChangePasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AuthSetupPasswordWithBody First-run setup: create the local user (requires the API key)
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/auth/setup/password (the `AuthSetupPassword` operationId).
+	AuthSetupPasswordWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AuthSetupPassword First-run setup: create the local user (requires the API key)
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/auth/setup/password (the `AuthSetupPassword` operationId).
+	AuthSetupPassword(ctx context.Context, body AuthSetupPasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AuthStatus Authentication status
+	//
+	// Corresponds with GET /api/v1/auth/status (the `AuthStatus` operationId).
+	AuthStatus(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// RetryDownload Retry a failed download
 	//
@@ -991,6 +1125,153 @@ func (c *Client) UpdateAccount(ctx context.Context, id string, body UpdateAccoun
 // Corresponds with POST /api/v1/accounts/{id}/test (the `TestAccount` operationId).
 func (c *Client) TestAccount(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewTestAccountRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AuthLoginWithBody Log in with username and password
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/auth/login (the `AuthLogin` operationId).
+func (c *Client) AuthLoginWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAuthLoginRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AuthLogin Log in with username and password
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/auth/login (the `AuthLogin` operationId).
+func (c *Client) AuthLogin(ctx context.Context, body AuthLoginJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAuthLoginRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AuthLogout Log out the current session
+//
+// Corresponds with POST /api/v1/auth/logout (the `AuthLogout` operationId).
+func (c *Client) AuthLogout(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAuthLogoutRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AuthMe Current authentication identity
+//
+// Corresponds with GET /api/v1/auth/me (the `AuthMe` operationId).
+func (c *Client) AuthMe(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAuthMeRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AuthChangePasswordWithBody Change the local user's password (revokes all sessions)
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/auth/password (the `AuthChangePassword` operationId).
+func (c *Client) AuthChangePasswordWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAuthChangePasswordRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AuthChangePassword Change the local user's password (revokes all sessions)
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/auth/password (the `AuthChangePassword` operationId).
+func (c *Client) AuthChangePassword(ctx context.Context, body AuthChangePasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAuthChangePasswordRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AuthSetupPasswordWithBody First-run setup: create the local user (requires the API key)
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/auth/setup/password (the `AuthSetupPassword` operationId).
+func (c *Client) AuthSetupPasswordWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAuthSetupPasswordRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AuthSetupPassword First-run setup: create the local user (requires the API key)
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/auth/setup/password (the `AuthSetupPassword` operationId).
+func (c *Client) AuthSetupPassword(ctx context.Context, body AuthSetupPasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAuthSetupPasswordRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AuthStatus Authentication status
+//
+// Corresponds with GET /api/v1/auth/status (the `AuthStatus` operationId).
+func (c *Client) AuthStatus(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAuthStatusRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -1527,6 +1808,207 @@ func NewTestAccountRequest(server string, id string) (*http.Request, error) {
 	}
 
 	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewAuthLoginRequest calls the generic AuthLogin builder with application/json body
+func NewAuthLoginRequest(server string, body AuthLoginJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewAuthLoginRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewAuthLoginRequestWithBody constructs an http.Request for the AuthLogin method, with any body, and a specified content type
+func NewAuthLoginRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/auth/login")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewAuthLogoutRequest constructs an http.Request for the AuthLogout method
+func NewAuthLogoutRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/auth/logout")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewAuthMeRequest constructs an http.Request for the AuthMe method
+func NewAuthMeRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/auth/me")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewAuthChangePasswordRequest calls the generic AuthChangePassword builder with application/json body
+func NewAuthChangePasswordRequest(server string, body AuthChangePasswordJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewAuthChangePasswordRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewAuthChangePasswordRequestWithBody constructs an http.Request for the AuthChangePassword method, with any body, and a specified content type
+func NewAuthChangePasswordRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/auth/password")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewAuthSetupPasswordRequest calls the generic AuthSetupPassword builder with application/json body
+func NewAuthSetupPasswordRequest(server string, body AuthSetupPasswordJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewAuthSetupPasswordRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewAuthSetupPasswordRequestWithBody constructs an http.Request for the AuthSetupPassword method, with any body, and a specified content type
+func NewAuthSetupPasswordRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/auth/setup/password")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewAuthStatusRequest constructs an http.Request for the AuthStatus method
+func NewAuthStatusRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/auth/status")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -2202,6 +2684,69 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /api/v1/accounts/{id}/test (the `TestAccount` operationId).
 	TestAccountWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*TestAccountResponse, error)
 
+	// AuthLoginWithBodyWithResponse Log in with username and password
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/auth/login (the `AuthLogin` operationId).
+	AuthLoginWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AuthLoginResponse, error)
+
+	// AuthLoginWithResponse Log in with username and password
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/auth/login (the `AuthLogin` operationId).
+	AuthLoginWithResponse(ctx context.Context, body AuthLoginJSONRequestBody, reqEditors ...RequestEditorFn) (*AuthLoginResponse, error)
+
+	// AuthLogoutWithResponse Log out the current session
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/auth/logout (the `AuthLogout` operationId).
+	AuthLogoutWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*AuthLogoutResponse, error)
+
+	// AuthMeWithResponse Current authentication identity
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/auth/me (the `AuthMe` operationId).
+	AuthMeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*AuthMeResponse, error)
+
+	// AuthChangePasswordWithBodyWithResponse Change the local user's password (revokes all sessions)
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/auth/password (the `AuthChangePassword` operationId).
+	AuthChangePasswordWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AuthChangePasswordResponse, error)
+
+	// AuthChangePasswordWithResponse Change the local user's password (revokes all sessions)
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/auth/password (the `AuthChangePassword` operationId).
+	AuthChangePasswordWithResponse(ctx context.Context, body AuthChangePasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*AuthChangePasswordResponse, error)
+
+	// AuthSetupPasswordWithBodyWithResponse First-run setup: create the local user (requires the API key)
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/auth/setup/password (the `AuthSetupPassword` operationId).
+	AuthSetupPasswordWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AuthSetupPasswordResponse, error)
+
+	// AuthSetupPasswordWithResponse First-run setup: create the local user (requires the API key)
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/auth/setup/password (the `AuthSetupPassword` operationId).
+	AuthSetupPasswordWithResponse(ctx context.Context, body AuthSetupPasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*AuthSetupPasswordResponse, error)
+
+	// AuthStatusWithResponse Authentication status
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/auth/status (the `AuthStatus` operationId).
+	AuthStatusWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*AuthStatusResponse, error)
+
 	// RetryDownloadWithResponse Retry a failed download
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -2606,6 +3151,301 @@ func (r TestAccountResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r TestAccountResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// AuthLoginResponse200Headers the declared response headers of an HTTP 200 response for AuthLogin
+type AuthLoginResponse200Headers struct {
+	SetCookie *string
+}
+
+type AuthLoginResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SessionOutBody
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *AuthLoginResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r AuthLoginResponse) GetJSON200() *SessionOutBody {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r AuthLoginResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r AuthLoginResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AuthLoginResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AuthLoginResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AuthLoginResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// AuthLogoutResponse204Headers the declared response headers of an HTTP 204 response for AuthLogout
+type AuthLogoutResponse204Headers struct {
+	SetCookie *string
+}
+
+type AuthLogoutResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers204 the parsed response headers for an HTTP 204 response
+	Headers204 *AuthLogoutResponse204Headers
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r AuthLogoutResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r AuthLogoutResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AuthLogoutResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AuthLogoutResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AuthLogoutResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type AuthMeResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *MeOutBody
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r AuthMeResponse) GetJSON200() *MeOutBody {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r AuthMeResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r AuthMeResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AuthMeResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AuthMeResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AuthMeResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type AuthChangePasswordResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r AuthChangePasswordResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r AuthChangePasswordResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AuthChangePasswordResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AuthChangePasswordResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AuthChangePasswordResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// AuthSetupPasswordResponse200Headers the declared response headers of an HTTP 200 response for AuthSetupPassword
+type AuthSetupPasswordResponse200Headers struct {
+	SetCookie *string
+}
+
+type AuthSetupPasswordResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SessionOutBody
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *AuthSetupPasswordResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r AuthSetupPasswordResponse) GetJSON200() *SessionOutBody {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r AuthSetupPasswordResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r AuthSetupPasswordResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AuthSetupPasswordResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AuthSetupPasswordResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AuthSetupPasswordResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type AuthStatusResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *AuthStatusOutBody
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r AuthStatusResponse) GetJSON200() *AuthStatusOutBody {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r AuthStatusResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r AuthStatusResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AuthStatusResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AuthStatusResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AuthStatusResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -3378,6 +4218,123 @@ func (c *ClientWithResponses) TestAccountWithResponse(ctx context.Context, id st
 	return ParseTestAccountResponse(rsp)
 }
 
+// AuthLoginWithBodyWithResponse Log in with username and password
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/auth/login (the `AuthLogin` operationId).
+func (c *ClientWithResponses) AuthLoginWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AuthLoginResponse, error) {
+	rsp, err := c.AuthLoginWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAuthLoginResponse(rsp)
+}
+
+// AuthLoginWithResponse Log in with username and password
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/auth/login (the `AuthLogin` operationId).
+func (c *ClientWithResponses) AuthLoginWithResponse(ctx context.Context, body AuthLoginJSONRequestBody, reqEditors ...RequestEditorFn) (*AuthLoginResponse, error) {
+	rsp, err := c.AuthLogin(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAuthLoginResponse(rsp)
+}
+
+// AuthLogoutWithResponse Log out the current session
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/auth/logout (the `AuthLogout` operationId).
+func (c *ClientWithResponses) AuthLogoutWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*AuthLogoutResponse, error) {
+	rsp, err := c.AuthLogout(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAuthLogoutResponse(rsp)
+}
+
+// AuthMeWithResponse Current authentication identity
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/auth/me (the `AuthMe` operationId).
+func (c *ClientWithResponses) AuthMeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*AuthMeResponse, error) {
+	rsp, err := c.AuthMe(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAuthMeResponse(rsp)
+}
+
+// AuthChangePasswordWithBodyWithResponse Change the local user's password (revokes all sessions)
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/auth/password (the `AuthChangePassword` operationId).
+func (c *ClientWithResponses) AuthChangePasswordWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AuthChangePasswordResponse, error) {
+	rsp, err := c.AuthChangePasswordWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAuthChangePasswordResponse(rsp)
+}
+
+// AuthChangePasswordWithResponse Change the local user's password (revokes all sessions)
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/auth/password (the `AuthChangePassword` operationId).
+func (c *ClientWithResponses) AuthChangePasswordWithResponse(ctx context.Context, body AuthChangePasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*AuthChangePasswordResponse, error) {
+	rsp, err := c.AuthChangePassword(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAuthChangePasswordResponse(rsp)
+}
+
+// AuthSetupPasswordWithBodyWithResponse First-run setup: create the local user (requires the API key)
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/auth/setup/password (the `AuthSetupPassword` operationId).
+func (c *ClientWithResponses) AuthSetupPasswordWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AuthSetupPasswordResponse, error) {
+	rsp, err := c.AuthSetupPasswordWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAuthSetupPasswordResponse(rsp)
+}
+
+// AuthSetupPasswordWithResponse First-run setup: create the local user (requires the API key)
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/auth/setup/password (the `AuthSetupPassword` operationId).
+func (c *ClientWithResponses) AuthSetupPasswordWithResponse(ctx context.Context, body AuthSetupPasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*AuthSetupPasswordResponse, error) {
+	rsp, err := c.AuthSetupPassword(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAuthSetupPasswordResponse(rsp)
+}
+
+// AuthStatusWithResponse Authentication status
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/auth/status (the `AuthStatus` operationId).
+func (c *ClientWithResponses) AuthStatusWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*AuthStatusResponse, error) {
+	rsp, err := c.AuthStatus(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAuthStatusResponse(rsp)
+}
+
 // RetryDownloadWithResponse Retry a failed download
 //
 // Returns a wrapper object for the known response body format(s).
@@ -3791,6 +4748,235 @@ func ParseTestAccountResponse(rsp *http.Response) (*TestAccountResponse, error) 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest User
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseAuthLoginResponse parses an HTTP response from a AuthLoginWithResponse call
+func ParseAuthLoginResponse(rsp *http.Response) (*AuthLoginResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AuthLoginResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SessionOutBody
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers AuthLoginResponse200Headers
+		if values := rsp.Header.Values("Set-Cookie"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Set-Cookie", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.SetCookie = &value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseAuthLogoutResponse parses an HTTP response from a AuthLogoutWithResponse call
+func ParseAuthLogoutResponse(rsp *http.Response) (*AuthLogoutResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AuthLogoutResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		var headers AuthLogoutResponse204Headers
+		if values := rsp.Header.Values("Set-Cookie"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Set-Cookie", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.SetCookie = &value
+		}
+		response.Headers204 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseAuthMeResponse parses an HTTP response from a AuthMeWithResponse call
+func ParseAuthMeResponse(rsp *http.Response) (*AuthMeResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AuthMeResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest MeOutBody
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseAuthChangePasswordResponse parses an HTTP response from a AuthChangePasswordWithResponse call
+func ParseAuthChangePasswordResponse(rsp *http.Response) (*AuthChangePasswordResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AuthChangePasswordResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseAuthSetupPasswordResponse parses an HTTP response from a AuthSetupPasswordWithResponse call
+func ParseAuthSetupPasswordResponse(rsp *http.Response) (*AuthSetupPasswordResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AuthSetupPasswordResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SessionOutBody
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers AuthSetupPasswordResponse200Headers
+		if values := rsp.Header.Values("Set-Cookie"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Set-Cookie", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.SetCookie = &value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseAuthStatusResponse parses an HTTP response from a AuthStatusWithResponse call
+func ParseAuthStatusResponse(rsp *http.Response) (*AuthStatusResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AuthStatusResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest AuthStatusOutBody
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

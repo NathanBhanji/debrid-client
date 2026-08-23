@@ -9,12 +9,15 @@ import (
 	"os"
 
 	"github.com/NathanBhanji/debrid-client/internal/api"
+	"github.com/NathanBhanji/debrid-client/internal/auth"
 )
 
 func main() {
 	yamlOut := flag.Bool("yaml", false, "emit YAML (OpenAPI 3.0 downgrade)")
 	flag.Parse()
-	h := api.New(nil, api.Options{})
+	// Auth must be non-nil so the auth routes appear in the spec; the
+	// handlers are never invoked here.
+	h := api.New(nil, api.Options{Auth: auth.New(nil)})
 	var b []byte
 	var err error
 	if *yamlOut {

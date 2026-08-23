@@ -14,22 +14,32 @@ type Querier interface {
 	CountStartedDownloadsForTorrent(ctx context.Context, torrentID string) (int64, error)
 	CountTorrents(ctx context.Context) (int64, error)
 	CountTorrentsForAccount(ctx context.Context, accountID string) (int64, error)
+	CountUsers(ctx context.Context) (int64, error)
 	DeleteDownload(ctx context.Context, id string) error
 	DeleteDownloadsForTorrent(ctx context.Context, torrentID string) error
+	DeleteExpiredSessions(ctx context.Context, expiresAt string) error
 	DeleteProviderAccount(ctx context.Context, id string) error
+	DeleteSession(ctx context.Context, id string) error
+	DeleteSessionsForUser(ctx context.Context, userID string) error
 	DeleteSetting(ctx context.Context, key string) error
 	DeleteTorrent(ctx context.Context, id string) error
 	GetDefaultProviderAccount(ctx context.Context) (ProviderAccount, error)
 	GetDownload(ctx context.Context, id string) (Download, error)
 	GetProviderAccount(ctx context.Context, id string) (ProviderAccount, error)
 	GetProviderAccountByName(ctx context.Context, name string) (ProviderAccount, error)
+	GetSession(ctx context.Context, id string) (Session, error)
 	GetSetting(ctx context.Context, key string) (string, error)
 	GetTorrent(ctx context.Context, id string) (Torrent, error)
 	GetTorrentByHash(ctx context.Context, arg GetTorrentByHashParams) (Torrent, error)
 	GetTorrentByProviderID(ctx context.Context, arg GetTorrentByProviderIDParams) (Torrent, error)
+	GetUser(ctx context.Context, id string) (User, error)
+	GetUserByOIDCSubject(ctx context.Context, oidcSubject string) (User, error)
+	GetUserByUsername(ctx context.Context, username string) (User, error)
 	InsertDownload(ctx context.Context, arg InsertDownloadParams) (int64, error)
 	InsertProviderAccount(ctx context.Context, arg InsertProviderAccountParams) error
+	InsertSession(ctx context.Context, arg InsertSessionParams) error
 	InsertTorrent(ctx context.Context, arg InsertTorrentParams) error
+	InsertUser(ctx context.Context, arg InsertUserParams) error
 	ListActiveTorrents(ctx context.Context) ([]Torrent, error)
 	ListDownloads(ctx context.Context) ([]Download, error)
 	ListDownloadsByState(ctx context.Context, state string) ([]Download, error)
@@ -40,10 +50,13 @@ type Querier interface {
 	ListTorrentsByAccount(ctx context.Context, accountID string) ([]Torrent, error)
 	ListTorrentsByStatus(ctx context.Context, status string) ([]Torrent, error)
 	SetDefaultProviderAccount(ctx context.Context, arg SetDefaultProviderAccountParams) error
+	TouchSession(ctx context.Context, arg TouchSessionParams) error
 	UpdateDownload(ctx context.Context, arg UpdateDownloadParams) error
 	UpdateDownloadProgress(ctx context.Context, arg UpdateDownloadProgressParams) error
 	UpdateProviderAccount(ctx context.Context, arg UpdateProviderAccountParams) error
 	UpdateTorrent(ctx context.Context, arg UpdateTorrentParams) error
+	UpdateUserOIDC(ctx context.Context, arg UpdateUserOIDCParams) error
+	UpdateUserPassword(ctx context.Context, arg UpdateUserPasswordParams) error
 	UpsertSetting(ctx context.Context, arg UpsertSettingParams) error
 }
 

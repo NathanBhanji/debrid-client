@@ -61,6 +61,108 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/auth/login': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Log in with username and password */
+    post: operations['auth-login']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/auth/logout': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Log out the current session */
+    post: operations['auth-logout']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/auth/me': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /** Current authentication identity */
+    get: operations['auth-me']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/auth/password': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Change the local user's password (revokes all sessions) */
+    post: operations['auth-change-password']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/auth/setup/password': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** First-run setup: create the local user (requires the API key) */
+    post: operations['auth-setup-password']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/auth/status': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /** Authentication status */
+    get: operations['auth-status']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/downloads/{id}/retry': {
     parameters: {
       query?: never
@@ -297,6 +399,28 @@ export interface components {
       /** @description Full per-torrent settings replacing the configured defaults (not merged) */
       settings?: components['schemas']['TorrentSettings']
     }
+    AuthStatusOutBody: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://example.com/schemas/AuthStatusOutBody.json
+       */
+      readonly $schema?: string
+      /** @description Whether onboarding has completed */
+      configured: boolean
+      /** @description Configured auth mode: password or oidc; empty until onboarding */
+      mode: string
+    }
+    ChangePasswordInBody: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://example.com/schemas/ChangePasswordInBody.json
+       */
+      readonly $schema?: string
+      current_password: string
+      new_password: string
+    }
     Credentials: {
       /** @description API key / token for the provider */
       api_key?: string
@@ -460,6 +584,29 @@ export interface components {
       /** Format: date-time */
       at: string
     }
+    LoginInBody: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://example.com/schemas/LoginInBody.json
+       */
+      readonly $schema?: string
+      password: string
+      username: string
+    }
+    MeOutBody: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://example.com/schemas/MeOutBody.json
+       */
+      readonly $schema?: string
+      /** @description True when authenticated with the API key */
+      api_key: boolean
+      mode: string
+      /** @description Set for session requests; empty for API-key requests */
+      username?: string
+    }
     SelectFilesInBody: {
       /**
        * Format: uri
@@ -468,6 +615,15 @@ export interface components {
        */
       readonly $schema?: string
       file_ids: string[]
+    }
+    SessionOutBody: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://example.com/schemas/SessionOutBody.json
+       */
+      readonly $schema?: string
+      username: string
     }
     Settings: {
       /**
@@ -480,6 +636,16 @@ export interface components {
       torrent_defaults: components['schemas']['TorrentSettings']
       /** Format: int64 */
       unpack_max_depth?: number
+    }
+    SetupPasswordInBody: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://example.com/schemas/SetupPasswordInBody.json
+       */
+      readonly $schema?: string
+      password: string
+      username: string
     }
     Status: {
       /**
@@ -825,6 +991,191 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['User']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'auth-login': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['LoginInBody']
+      }
+    }
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          'Set-Cookie'?: string
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['SessionOutBody']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'auth-logout': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          'Set-Cookie'?: string
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'auth-me': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['MeOutBody']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'auth-change-password': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ChangePasswordInBody']
+      }
+    }
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'auth-setup-password': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['SetupPasswordInBody']
+      }
+    }
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          'Set-Cookie'?: string
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['SessionOutBody']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'auth-status': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['AuthStatusOutBody']
         }
       }
       /** @description Error */
