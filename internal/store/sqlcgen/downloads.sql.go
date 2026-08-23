@@ -21,6 +21,26 @@ func (q *Queries) CountDownloadsByState(ctx context.Context, state string) (int6
 	return count, err
 }
 
+const countStartedDownloadsForTorrent = `-- name: CountStartedDownloadsForTorrent :one
+SELECT COUNT(*) FROM downloads WHERE torrent_id = ? AND state <> 'pending'
+`
+
+func (q *Queries) CountStartedDownloadsForTorrent(ctx context.Context, torrentID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countStartedDownloadsForTorrent, torrentID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const deleteDownload = `-- name: DeleteDownload :exec
+DELETE FROM downloads WHERE id = ?
+`
+
+func (q *Queries) DeleteDownload(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, deleteDownload, id)
+	return err
+}
+
 const deleteDownloadsForTorrent = `-- name: DeleteDownloadsForTorrent :exec
 DELETE FROM downloads WHERE torrent_id = ?
 `
@@ -117,6 +137,53 @@ func (q *Queries) InsertDownload(ctx context.Context, arg InsertDownloadParams) 
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const listDownloads = `-- name: ListDownloads :many
+SELECT id, torrent_id, file_id, provider_link, direct_url, rel_path, filename, size, bytes_done, state, error, retry_count, queued_at, started_at, finished_at, unpack_started_at, unpack_finished_at, completed_at, updated_at FROM downloads ORDER BY queued_at
+`
+
+func (q *Queries) ListDownloads(ctx context.Context) ([]Download, error) {
+	rows, err := q.db.QueryContext(ctx, listDownloads)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Download{}
+	for rows.Next() {
+		var i Download
+		if err := rows.Scan(
+			&i.ID,
+			&i.TorrentID,
+			&i.FileID,
+			&i.ProviderLink,
+			&i.DirectUrl,
+			&i.RelPath,
+			&i.Filename,
+			&i.Size,
+			&i.BytesDone,
+			&i.State,
+			&i.Error,
+			&i.RetryCount,
+			&i.QueuedAt,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.UnpackStartedAt,
+			&i.UnpackFinishedAt,
+			&i.CompletedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listDownloadsByState = `-- name: ListDownloadsByState :many
