@@ -9,6 +9,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -132,4 +133,38 @@ func (h *Handler) mapErr(err error) error {
 	}
 	h.opts.Logger.Error("api: internal error", "err", err)
 	return huma.Error500InternalServerError("internal error")
+}
+
+// RequireAPIKey wraps next with the same Bearer/?api_key check the API uses,
+// for handlers mounted outside huma (e.g. /mcp).
+func RequireAPIKey(key string, next http.Handler) http.Handler {
+	if key == "" {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if !ok {
+			token = r.URL.Query().Get("api_key")
+		}
+		if subtle.ConstantTimeCompare([]byte(token), []byte(key)) != 1 {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="debrid"`)
+			http.Error(w, "missing or invalid API key", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// InProcessTransport is an http.RoundTripper that dispatches requests straight
+// to the handler without a network socket. Used to give the in-process MCP
+// server an API client.
+type InProcessTransport struct{ Handler http.Handler }
+
+// RoundTrip implements http.RoundTripper.
+func (t InProcessTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	rec := httptest.NewRecorder()
+	t.Handler.ServeHTTP(rec, req)
+	resp := rec.Result()
+	resp.Request = req
+	return resp, nil
 }
