@@ -32,7 +32,8 @@ const transfers = `{"status":"success","transfers":[
  {"id":"t2","name":"Movie","message":"","status":"finished","progress":1,"src":"magnet:?xt=urn:btih:1111111111111111111111111111111111111111","folder_id":"F1","file_id":null},
  {"id":"t3","name":"Single","message":"","status":"seeding","progress":1,"src":"","folder_id":null,"file_id":"FILE9"},
  {"id":"t4","name":"Bad","message":"Torrent is dead","status":"error","progress":0,"src":"","folder_id":null,"file_id":null},
- {"id":"t5","name":"W","message":"","status":"waiting","progress":0,"src":"","folder_id":null,"file_id":null}]}`
+ {"id":"t5","name":"W","message":"","status":"waiting","progress":"0.25","src":"https://www.premiumize.me/api/job/src?id=t5","folder_id":null,"file_id":null},
+ {"id":"t6","name":"NotReady","message":"","status":"finished","progress":1,"src":"","folder_id":null,"file_id":null}]}`
 
 func TestListAndStatus(t *testing.T) {
 	c := newClient(t, func(w http.ResponseWriter, r *http.Request) {
@@ -42,10 +43,13 @@ func TestListAndStatus(t *testing.T) {
 		js(w, transfers)
 	})
 	ts, err := c.ListTorrents(context.Background())
-	if err != nil || len(ts) != 5 {
+	if err != nil || len(ts) != 6 {
 		t.Fatalf("list: %v %d", err, len(ts))
 	}
-	want := map[string]domain.TorrentStatus{"t1": domain.TorrentDownloading, "t2": domain.TorrentFinished, "t3": domain.TorrentFinished, "t4": domain.TorrentError, "t5": domain.TorrentProcessing}
+	want := map[string]domain.TorrentStatus{"t1": domain.TorrentDownloading, "t2": domain.TorrentFinished, "t3": domain.TorrentFinished, "t4": domain.TorrentError, "t5": domain.TorrentProcessing, "t6": domain.TorrentFinished}
+	if ts[4].Progress != 0.25 || ts[4].Hash != "" {
+		t.Fatalf("tolerant progress / proxy src: %+v", ts[4])
+	}
 	for _, x := range ts {
 		if x.Status != want[x.ID] {
 			t.Errorf("%s: %s want %s", x.ID, x.Status, want[x.ID])
@@ -97,6 +101,10 @@ func TestGetTorrentWalksFolderAndLinks(t *testing.T) {
 	if _, err := c.GetTorrent(context.Background(), "nope"); provider.KindOf(err) != provider.ErrNotFound {
 		t.Fatalf("missing: %v", err)
 	}
+	// Finished but not yet materialised in the cloud → not ready.
+	if links, err := c.Links(context.Background(), "t6"); err != nil || links != nil {
+		t.Fatalf("not-ready links: %v %v", err, links)
+	}
 	d, _ := c.Unrestrict(context.Background(), "https://dl.pm/movie.mkv")
 	if d.URL != "https://dl.pm/movie.mkv" || d.Filename != "movie.mkv" {
 		t.Fatalf("unrestrict identity: %+v", d)
@@ -110,6 +118,14 @@ func TestAddDeleteCacheErrors(t *testing.T) {
 		case "/api/transfer/create":
 			if r.FormValue("src") == "magnet:?xt=urn:btih:full" {
 				js(w, `{"status":"error","message":"You have reached the limit of active transfers","code":"account_limit_reached"}`)
+				return
+			}
+			if r.FormValue("src") == "magnet:?xt=urn:btih:dddddddddddddddddddddddddddddddddddddddd&dn=Dup" {
+				js(w, `{"status":"error","message":"You already added this job"}`)
+				return
+			}
+			if r.FormValue("src") == "magnet:?xt=urn:btih:cccccccccccccccccccccccccccccccccccccccc&dn=Slow" {
+				js(w, `{"status":"error","message":"Too many API requests too quickly"}`)
 				return
 			}
 			if f, _, err := r.FormFile("file"); err == nil {
@@ -134,7 +150,9 @@ func TestAddDeleteCacheErrors(t *testing.T) {
 				js(w, `{"status":"error","message":"Not logged in.","code":"authentication_failed"}`)
 				return
 			}
-			js(w, `{"status":"success","customer_id":"123","premium_until":4102444800,"limit_used":0.1}`)
+			js(w, `{"status":"success","customer_id":"123","premium_until":"4102444800","limit_used":0.1}`)
+		case "/api/transfer/list":
+			js(w, `{"status":"success","transfers":[{"id":"existing","name":"Dup","status":"running","progress":0.1,"src":"https://www.premiumize.me/api/job/src?id=existing"}]}`)
 		default:
 			t.Errorf("unexpected %s", r.URL.Path)
 		}
@@ -147,8 +165,16 @@ func TestAddDeleteCacheErrors(t *testing.T) {
 	if _, err := c.AddMagnet(ctx, "magnet:?xt=urn:btih:full"); provider.KindOf(err) != provider.ErrLimit {
 		t.Fatalf("limit: %v", err)
 	}
-	if r, err := c.AddTorrentFile(ctx, []byte("d8:announce0:e")); err != nil || r.ID != "tf" {
-		t.Fatalf("add file: %v %+v", err, r)
+	// Duplicate refusal → adopt the existing transfer by name.
+	if r, err := c.AddMagnet(ctx, "magnet:?xt=urn:btih:dddddddddddddddddddddddddddddddddddddddd&dn=Dup"); err != nil || r.ID != "existing" {
+		t.Fatalf("duplicate adoption: %v %+v", err, r)
+	}
+	// Code-less rate limit wording → rate limited.
+	if _, err := c.AddMagnet(ctx, "magnet:?xt=urn:btih:cccccccccccccccccccccccccccccccccccccccc&dn=Slow"); provider.KindOf(err) != provider.ErrRateLimited {
+		t.Fatalf("rate-limit wording: %v", err)
+	}
+	if r, err := c.AddTorrentFile(ctx, []byte("d8:announce0:e")); err != nil || r.ID != "tf" || r.Hash != "" {
+		t.Fatalf("add file (unparsable → no hash): %v %+v", err, r)
 	}
 	if err := c.Delete(ctx, "tn"); err != nil {
 		t.Fatal(err)
