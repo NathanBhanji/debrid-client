@@ -2,7 +2,7 @@
 
 A self-hosted debrid download manager written in Go. Add magnets/torrents, let your debrid provider fetch them, and have the files downloaded to your own disk — with an HTTP API, a CLI, and an MCP server for AI agents. Single static binary, SQLite, no cgo.
 
-**Providers:** TorBox and Real-Debrid (private API token from the RD control panel; OAuth refresh not yet supported). AllDebrid, Premiumize and Debrid-Link are in review.
+**Providers:** TorBox, Real-Debrid (private API token; OAuth refresh not yet supported) and AllDebrid. Premiumize and Debrid-Link are in review.
 
 ## Install
 
@@ -81,7 +81,7 @@ make lint       # golangci-lint via go run
 make generate   # sqlc + OpenAPI spec + Go client (CI fails if stale)
 ```
 
-Design notes: [docs/DESIGN.md](docs/DESIGN.md). Provider API references: [docs/research/](docs/research/). Live TorBox tests run when `TORBOX_API_KEY` is set.
+Design notes: [docs/DESIGN.md](docs/DESIGN.md). Provider API references: [docs/research/](docs/research/). Live provider tests run when `TORBOX_API_KEY`, `REALDEBRID_API_KEY` or `ALLDEBRID_API_KEY` are set.
 
 ## License
 
