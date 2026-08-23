@@ -502,7 +502,6 @@ func mustAcc(now time.Time) (p sqlcgen.InsertProviderAccountParams) {
 	return p
 }
 
-
 func TestRelinkWhenProviderIDChanges(t *testing.T) {
 	h := newHarness(t, func(c *Config) { c.PollInterval = 10 * time.Millisecond })
 	tor := h.add(nil)

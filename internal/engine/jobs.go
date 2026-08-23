@@ -21,7 +21,9 @@ import (
 
 func newID() string { return uuid.Must(uuid.NewV7()).String() }
 
-func downloadInsert(d domain.Download) sqlcgen.InsertDownloadParams { return store.DownloadInsertParams(d) }
+func downloadInsert(d domain.Download) sqlcgen.InsertDownloadParams {
+	return store.DownloadInsertParams(d)
+}
 
 func isArchive(name string) bool { return unpack.IsArchive(name) }
 
