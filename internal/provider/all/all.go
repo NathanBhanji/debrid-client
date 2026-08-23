@@ -6,6 +6,7 @@ package all
 
 import (
 	_ "github.com/NathanBhanji/debrid-client/internal/provider/alldebrid"  // register
+	_ "github.com/NathanBhanji/debrid-client/internal/provider/debridlink" // register
 	_ "github.com/NathanBhanji/debrid-client/internal/provider/premiumize" // register
 	_ "github.com/NathanBhanji/debrid-client/internal/provider/realdebrid" // register
 	_ "github.com/NathanBhanji/debrid-client/internal/provider/torbox"     // register
