@@ -16,7 +16,7 @@ SELECT * FROM downloads WHERE state = ? ORDER BY queued_at;
 
 -- name: UpdateDownload :exec
 UPDATE downloads SET
-    direct_url = ?, filename = ?, size = ?, bytes_done = ?, state = ?, error = ?, retry_count = ?,
+    direct_url = ?, rel_path = ?, filename = ?, size = ?, bytes_done = ?, state = ?, error = ?, retry_count = ?,
     started_at = ?, finished_at = ?, unpack_started_at = ?, unpack_finished_at = ?, completed_at = ?, updated_at = ?
 WHERE id = ?;
 

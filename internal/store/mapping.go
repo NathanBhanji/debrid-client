@@ -202,7 +202,7 @@ func DownloadInsertParams(d domain.Download) sqlcgen.InsertDownloadParams {
 // DownloadUpdateParams builds the update params for a download.
 func DownloadUpdateParams(d domain.Download) sqlcgen.UpdateDownloadParams {
 	return sqlcgen.UpdateDownloadParams{
-		DirectUrl: d.DirectURL, Filename: d.Filename, Size: d.Size, BytesDone: d.BytesDone,
+		DirectUrl: d.DirectURL, RelPath: d.RelPath, Filename: d.Filename, Size: d.Size, BytesDone: d.BytesDone,
 		State: string(d.State), Error: d.Error, RetryCount: int64(d.RetryCount),
 		StartedAt: NullTime(d.StartedAt), FinishedAt: NullTime(d.FinishedAt),
 		UnpackStartedAt: NullTime(d.UnpackStartedAt), UnpackFinishedAt: NullTime(d.UnpackFinishedAt),

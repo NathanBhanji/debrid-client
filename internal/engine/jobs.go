@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"time"
 
@@ -80,15 +81,20 @@ func (e *Engine) runDownload(ctx context.Context, t domain.Torrent, d domain.Dow
 				return
 			}
 			d.DirectURL = direct.URL
+			sizeUnknown := d.Size == 0
 			if direct.Size > 0 {
 				d.Size = direct.Size
 			}
-			if direct.Filename != "" && d.Filename == "" {
-				d.Filename = direct.Filename
+			// A provider that couldn't map links to files (repacked/split
+			// archives) reports Size 0 and a placeholder path; the unrestricted
+			// filename is authoritative then.
+			if direct.Filename != "" && (d.Filename == "" || sizeUnknown && d.Filename != direct.Filename) {
+				d.Filename = service.SanitizeName(direct.Filename)
+				d.RelPath = path.Join(path.Dir(d.RelPath), d.Filename)
 			}
 		}
 	}
-	directURL, size, filename := d.DirectURL, d.Size, d.Filename
+	directURL, size, filename, relPath := d.DirectURL, d.Size, d.Filename, d.RelPath
 	nd, err := e.mutateDL(sctx, d.ID, func(d *domain.Download) error {
 		if d.State != domain.DownloadUnrestricting {
 			return store.ErrSkip
@@ -96,7 +102,7 @@ func (e *Engine) runDownload(ctx context.Context, t domain.Torrent, d domain.Dow
 		if err := d.Transition(domain.DownloadDownloading); err != nil {
 			return err
 		}
-		d.DirectURL, d.Size, d.Filename = directURL, size, filename
+		d.DirectURL, d.Size, d.Filename, d.RelPath = directURL, size, filename, relPath
 		now := e.now()
 		d.StartedAt = &now
 		return nil

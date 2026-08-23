@@ -22,7 +22,7 @@ import (
 	"github.com/NathanBhanji/debrid-client/internal/events"
 	"github.com/NathanBhanji/debrid-client/internal/mcpserver"
 	"github.com/NathanBhanji/debrid-client/internal/provider"
-	_ "github.com/NathanBhanji/debrid-client/internal/provider/torbox" // register providers
+	_ "github.com/NathanBhanji/debrid-client/internal/provider/all" // register providers
 	"github.com/NathanBhanji/debrid-client/internal/service"
 	"github.com/NathanBhanji/debrid-client/internal/store"
 )

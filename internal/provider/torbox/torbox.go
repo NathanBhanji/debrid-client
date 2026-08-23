@@ -212,8 +212,10 @@ func mapError(code, detail string, status int) *provider.Error {
 		kind = provider.ErrAuth // AUTH_ERROR / OAUTH_VERIFICATION_ERROR are server-side ("try again later")
 	case "ITEM_NOT_FOUND", "NOT_OWNER":
 		kind = provider.ErrNotFound
-	case "ACTIVE_LIMIT", "MONTHLY_LIMIT", "COOLDOWN_LIMIT", "DOWNLOAD_TOO_LARGE", "PLAN_RESTRICTED_FEATURE":
-		kind = provider.ErrLimit
+	case "ACTIVE_LIMIT", "MONTHLY_LIMIT", "COOLDOWN_LIMIT":
+		kind = provider.ErrLimit // account-level, clears with time
+	case "DOWNLOAD_TOO_LARGE", "PLAN_RESTRICTED_FEATURE":
+		kind = provider.ErrPermanent // never clears for this torrent/plan
 	case "INVALID_OPTION", "MISSING_REQUIRED_OPTION", "TOO_MANY_OPTIONS", "BOZO_TORRENT", "BOZO_NZB",
 		"BOZO_FILE", "BOZO_RSS_FEED", "BOZO_REGEX", "TOO_MUCH_DATA", "UNSUPPORTED_SITE", "LINK_OFFLINE",
 		"INVALID_HASH", "NAME_TOO_LONG", "NAME_TOO_SHORT", "ENDPOINT_NOT_FOUND", "DUPLICATE_ITEM", "INVALID_DEVICE":

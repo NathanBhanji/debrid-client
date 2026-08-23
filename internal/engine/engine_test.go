@@ -672,3 +672,35 @@ func TestShutdownLeavesDownloadResumable(t *testing.T) {
 		t.Fatalf("interrupted download should be pending for resume, got %s", d.Downloads[0].State)
 	}
 }
+
+func TestSelectFilesProviderDownloadsAllLinksAndAdoptsRealName(t *testing.T) {
+	h := newHarness(t, nil)
+	h.fake.SetCaps(provider.Caps{SelectFiles: true, DirectLinks: false, MaxConnections: 4})
+	tor := h.add(&domain.TorrentSettings{ExcludeRegex: `\.srt$`, DownloadRetries: 1, FinishedAction: domain.FinishedKeep})
+	pid := h.waitProviderID(tor.ID)
+	// Provider knows two files; selection happens at the provider (fake: waiting_selection → downloading).
+	h.fake.SetFiles(pid, []domain.File{{ID: "1", Path: "Show.S01/e01.mkv", Size: 3}, {ID: "2", Path: "Show.S01/e01.srt", Size: 1}})
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && h.fake.Calls("SelectFiles") == 0 {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if h.fake.Calls("SelectFiles") == 0 {
+		t.Fatal("engine should select files at the provider")
+	}
+	// RD-style repack: one link, placeholder path, size 0; unrestrict reveals the real name.
+	h.fetch.mu.Lock()
+	h.fetch.content["http://cdn/Show.S01.rar"] = []byte("rar")
+	h.fetch.mu.Unlock()
+	h.fake.SetHooks(providertest.Hooks{OnUnrestrict: func(link string) (provider.Direct, error) {
+		return provider.Direct{URL: "http://cdn/Show.S01.rar", Filename: "Show.S01.rar", Size: 3}, nil
+	}})
+	h.fake.Finish(pid, []provider.Link{{FileID: "link-1", Path: "Show.S01/Show.S01.part1", Size: 0, URL: "rd://link1"}})
+	got := h.waitStatus(tor.ID, domain.TorrentCompleted)
+	d, _ := h.svc.GetTorrent(context.Background(), tor.ID)
+	if len(d.Downloads) != 1 || d.Downloads[0].Filename != "Show.S01.rar" || d.Downloads[0].RelPath != "Show.S01.rar" {
+		t.Fatalf("placeholder link should take the unrestricted filename: %+v", d.Downloads)
+	}
+	if _, err := os.Stat(filepath.Join(service.TorrentDir(h.eng.cfg.DownloadDir, got), "Show.S01.rar")); err != nil {
+		t.Fatal("file should be written under its real name")
+	}
+}
