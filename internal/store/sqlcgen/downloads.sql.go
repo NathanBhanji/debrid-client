@@ -282,13 +282,14 @@ func (q *Queries) ListDownloadsForTorrent(ctx context.Context, torrentID string)
 
 const updateDownload = `-- name: UpdateDownload :exec
 UPDATE downloads SET
-    direct_url = ?, filename = ?, size = ?, bytes_done = ?, state = ?, error = ?, retry_count = ?,
+    direct_url = ?, rel_path = ?, filename = ?, size = ?, bytes_done = ?, state = ?, error = ?, retry_count = ?,
     started_at = ?, finished_at = ?, unpack_started_at = ?, unpack_finished_at = ?, completed_at = ?, updated_at = ?
 WHERE id = ?
 `
 
 type UpdateDownloadParams struct {
 	DirectUrl        string
+	RelPath          string
 	Filename         string
 	Size             int64
 	BytesDone        int64
@@ -307,6 +308,7 @@ type UpdateDownloadParams struct {
 func (q *Queries) UpdateDownload(ctx context.Context, arg UpdateDownloadParams) error {
 	_, err := q.db.ExecContext(ctx, updateDownload,
 		arg.DirectUrl,
+		arg.RelPath,
 		arg.Filename,
 		arg.Size,
 		arg.BytesDone,

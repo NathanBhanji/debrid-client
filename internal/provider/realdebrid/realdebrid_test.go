@@ -106,8 +106,40 @@ func TestLinksFewerThanSelectedFiles(t *testing.T) {
 		jsonw(w, 200, strings.Replace(infoJSON, `"links":["https://real-debrid.com/d/AAA","https://real-debrid.com/d/BBB"]`, `"links":["https://real-debrid.com/d/RAR"]`, 1))
 	})
 	links, err := c.Links(context.Background(), "ABC123")
-	if err != nil || len(links) != 1 || links[0].Size != 0 || links[0].FileID != "1" {
-		t.Fatalf("repacked links: %v %+v", err, links)
+	if err != nil || len(links) != 1 || links[0].Size != 0 || links[0].FileID != "link-1" || !strings.HasPrefix(links[0].Path, "Show.S01/") {
+		t.Fatalf("repacked links should be placeholders: %v %+v", err, links)
+	}
+}
+
+func TestLinksMoreThanSelectedFiles(t *testing.T) {
+	c := newClient(t, func(w http.ResponseWriter, _ *http.Request) {
+		jsonw(w, 200, strings.Replace(infoJSON, `"links":["https://real-debrid.com/d/AAA","https://real-debrid.com/d/BBB"]`, `"links":["https://real-debrid.com/d/A1","https://real-debrid.com/d/A2","https://real-debrid.com/d/B1"]`, 1))
+	})
+	links, err := c.Links(context.Background(), "ABC123")
+	if err != nil || len(links) != 3 {
+		t.Fatalf("split links: %v %+v", err, links)
+	}
+	for i, l := range links {
+		if l.FileID != "link-"+string(rune('1'+i)) || l.Size != 0 {
+			t.Fatalf("split link %d should be a placeholder: %+v", i, l)
+		}
+	}
+}
+
+func TestLinksNotReadyAndNotFound(t *testing.T) {
+	c := newClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/GONE") {
+			jsonw(w, 404, `{"error":"unknown_ressource","error_code":7}`)
+			return
+		}
+		jsonw(w, 200, strings.Replace(infoJSON, `"status":"downloaded"`, `"status":"downloading"`, 1))
+	})
+	links, err := c.Links(context.Background(), "ABC123")
+	if err != nil || links != nil {
+		t.Fatalf("not finished → (nil,nil): %v %v", err, links)
+	}
+	if _, err := c.Links(context.Background(), "GONE"); provider.KindOf(err) != provider.ErrNotFound {
+		t.Fatalf("404 should be not found: %v", err)
 	}
 }
 
@@ -165,7 +197,10 @@ func TestAddSelectUnrestrictDelete(t *testing.T) {
 	if err := c.SelectFiles(ctx, "NEW1", []string{"1", "2"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.SelectFiles(ctx, "ALL", nil); err != nil {
+	if err := c.SelectFiles(ctx, "ALL", nil); provider.KindOf(err) != provider.ErrPermanent {
+		t.Fatalf("empty selection must be rejected, not 'all': %v", err)
+	}
+	if err := c.SelectFiles(ctx, "ALL", []string{"all"}); err != nil {
 		t.Fatalf("202 should be ok: %v", err)
 	}
 	d, err := c.Unrestrict(ctx, "https://real-debrid.com/d/AAA")
@@ -191,10 +226,12 @@ func TestErrorClassification(t *testing.T) {
 		{403, `{"error":"permission_denied","error_code":9}`, provider.ErrAuth, "9"},
 		{429, `{"error":"too_many_requests","error_code":34}`, provider.ErrRateLimited, "34"},
 		{503, `{"error":"service_unavailable","error_code":25}`, provider.ErrTransient, "25"},
-		{400, `{"error":"torrent_too_big","error_code":29}`, provider.ErrLimit, "29"},
+		{400, `{"error":"torrent_too_big","error_code":29}`, provider.ErrPermanent, "29"},
+		{400, `{"error":"too_many_active_downloads","error_code":21}`, provider.ErrLimit, "21"},
+		{500, `{"error":"upload_error","error_code":27}`, provider.ErrTransient, "27"},
 		{400, `{"error":"infringing_file","error_code":35}`, provider.ErrPermanent, "35"},
 		{403, `{"error":"infringing_file","error_code":35}`, provider.ErrPermanent, "35"}, // RD uses 403 for non-auth errors
-		{403, `{"error":"torrent_too_big","error_code":29}`, provider.ErrLimit, "29"},
+		{403, `{"error":"torrent_too_big","error_code":29}`, provider.ErrPermanent, "29"},
 		{400, `{"error":"fair_usage_limit","error_code":36}`, provider.ErrLimit, "36"},
 		{400, `{"error":"torrent_already_active","error_code":33}`, provider.ErrPermanent, "33"},
 		{400, `not json`, provider.ErrPermanent, ""},

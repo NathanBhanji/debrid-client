@@ -460,19 +460,11 @@ func (e *Engine) runCreateDownloads(ctx context.Context, t domain.Torrent, prov 
 		return false
 	}
 	// Decide which files to download. Providers that track selection already
-	// restricted the links; otherwise apply our filters now.
+	// restricted the links (and may have repacked/split them, so link ids need
+	// not match file ids) — download everything they return. Otherwise apply
+	// our filters now.
 	var wanted map[string]bool
-	if prov.Caps().SelectFiles {
-		wanted = map[string]bool{}
-		for _, f := range t.Files {
-			if f.Selected {
-				wanted[f.ID] = true
-			}
-		}
-		if len(wanted) == 0 { // selection unknown (adopted torrent): take all linked files
-			wanted = nil
-		}
-	} else {
+	if !prov.Caps().SelectFiles {
 		selected, err := domain.SelectFiles(linkFiles(links, t.Files), t.Settings)
 		if err != nil {
 			_ = e.fail(sctx, &t, err.Error())

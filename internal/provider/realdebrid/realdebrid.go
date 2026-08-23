@@ -5,9 +5,15 @@
 //     token from the control panel, or an OAuth access token). 250 req/min.
 //   - Errors: HTTP 4xx/5xx with {"error": msg, "error_code": int}.
 //   - Torrents need explicit SelectFiles after add (status waiting_files_selection).
-//   - Finished torrents expose links[] (real-debrid.com/d/...), one per selected
-//     file in file order, unless RD packed the files (split) — then fewer links.
+//   - Finished torrents expose links[] (real-debrid.com/d/...), normally one
+//     per selected file in file order. RD may also repack files into fewer
+//     archives, or split very large files into several links; in either case
+//     the count differs from the selection and the links are reported with
+//     placeholder paths (the unrestricted filename is authoritative).
 //     Each link must be unrestricted via /unrestrict/link for a direct URL.
+//   - Credentials: the private API token from the RD control panel. OAuth
+//     access tokens are accepted but not refreshed (they expire after ~1h);
+//     device-flow refresh is a follow-up.
 package realdebrid
 
 import (
@@ -183,9 +189,11 @@ func mapCode(ae apiError, status int) *provider.Error {
 		kind = provider.ErrRateLimited
 	case 7, 24: // resource not found, file unavailable
 		kind = provider.ErrNotFound
-	case 21, 23, 36, 29, 26: // too many active downloads, traffic exhausted, fair usage, torrent too big, upload too big
+	case 18, 21, 23, 36: // hoster limit, too many active downloads, traffic exhausted, fair usage — account-level, clear with time
 		kind = provider.ErrLimit
-	case -1, 6, 17, 19, 25, 37: // internal, resource unreachable, hoster maintenance, hoster unavailable, service unavailable, disabled endpoint
+	case 26, 29: // upload too big, torrent too big — never clears for this torrent
+		kind = provider.ErrPermanent
+	case -1, 6, 17, 19, 25, 27, 37: // internal, unreachable, hoster maintenance/unavailable, service unavailable, upload error, disabled endpoint
 		kind = provider.ErrTransient
 	case 33: // torrent already active → caller dedupes by hash; treat as permanent (no retry)
 		kind = provider.ErrPermanent
@@ -279,10 +287,19 @@ func (c *Client) ListTorrents(ctx context.Context) ([]provider.Torrent, error) {
 	return out, nil
 }
 
-// GetTorrent implements provider.Provider (includes files).
-func (c *Client) GetTorrent(ctx context.Context, id string) (provider.Torrent, error) {
+// fetch loads /torrents/info/{id} (files + links).
+func (c *Client) fetch(ctx context.Context, id string) (torrentData, error) {
 	var t torrentData
 	if err := c.call(ctx, httpx.Request{Path: "torrents/info/" + url.PathEscape(id), ExpectJSON: true}, &t); err != nil {
+		return torrentData{}, err
+	}
+	return t, nil
+}
+
+// GetTorrent implements provider.Provider (includes files).
+func (c *Client) GetTorrent(ctx context.Context, id string) (provider.Torrent, error) {
+	t, err := c.fetch(ctx, id)
+	if err != nil {
 		return provider.Torrent{}, err
 	}
 	return mapTorrent(t), nil
@@ -308,34 +325,30 @@ func (c *Client) AddTorrentFile(ctx context.Context, data []byte) (provider.AddR
 	return provider.AddResult{ID: a.ID}, nil
 }
 
-// SelectFiles implements provider.Provider. Empty ids selects all.
+// SelectFiles implements provider.Provider. At least one id is required (the
+// engine always filters first; "select nothing" must not mean "select all").
 func (c *Client) SelectFiles(ctx context.Context, id string, fileIDs []string) error {
-	files := "all"
-	if len(fileIDs) > 0 {
-		files = strings.Join(fileIDs, ",")
+	if len(fileIDs) == 0 {
+		return provider.Errorf(provider.ErrPermanent, "", "realdebrid: no files selected")
 	}
+	files := strings.Join(fileIDs, ",")
 	// 204 on success, 202 when already done (both 2xx → nil); 404 code 7 for bad ids.
 	return c.call(ctx, httpx.Request{Method: http.MethodPost, Path: "torrents/selectFiles/" + url.PathEscape(id), Form: url.Values{"files": {files}}}, nil)
 }
 
-// Links implements provider.Provider. RD returns one link per selected file, in
-// file order, when the torrent is downloaded. If RD merged files into an
-// archive (fewer links than selected files) the links are attributed to the
-// first selected files and the path keeps the original name; the unrestricted
-// filename will reveal the real name.
+// Links implements provider.Provider. When the torrent is downloaded RD
+// returns one link per selected file, in file order, and we map them 1:1.
+// If the counts differ (RD repacked files into archives, or split a large
+// file into several links) the mapping is unknowable, so every link is
+// reported with a placeholder path and Size 0; the engine downloads all of
+// them and takes the real filename from the unrestricted link.
 func (c *Client) Links(ctx context.Context, id string) ([]provider.Link, error) {
-	t, err := c.GetTorrent(ctx, id)
+	td, err := c.fetch(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	if t.Status != domain.TorrentFinished {
-		return nil, nil
-	}
-	raw, err := c.rawLinks(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	if len(raw) == 0 {
+	t := mapTorrent(td)
+	if t.Status != domain.TorrentFinished || len(td.Links) == 0 {
 		return nil, nil
 	}
 	var selected []domain.File
@@ -344,30 +357,21 @@ func (c *Client) Links(ctx context.Context, id string) ([]provider.Link, error) 
 			selected = append(selected, f)
 		}
 	}
-	out := make([]provider.Link, 0, len(raw))
-	for i, l := range raw {
-		link := provider.Link{URL: l}
-		if i < len(selected) {
-			link.FileID, link.Path, link.Size = selected[i].ID, selected[i].Path, selected[i].Size
-		} else {
-			link.FileID = "link-" + strconv.Itoa(i)
-			link.Path = fmt.Sprintf("%s/part-%d", t.Name, i+1)
+	out := make([]provider.Link, 0, len(td.Links))
+	if len(td.Links) == len(selected) {
+		for i, l := range td.Links {
+			out = append(out, provider.Link{FileID: selected[i].ID, Path: selected[i].Path, Size: selected[i].Size, URL: l})
 		}
-		if len(raw) != len(selected) && len(raw) > 0 {
-			// Sizes are unreliable when files were repacked; let the unrestrict step fill them.
-			link.Size = 0
-		}
-		out = append(out, link)
+		return out, nil
+	}
+	for i, l := range td.Links {
+		out = append(out, provider.Link{
+			FileID: "link-" + strconv.Itoa(i+1),
+			Path:   fmt.Sprintf("%s/%s.part%d", t.Name, t.Name, i+1), // placeholder; real name comes from Unrestrict
+			URL:    l,
+		})
 	}
 	return out, nil
-}
-
-func (c *Client) rawLinks(ctx context.Context, id string) ([]string, error) {
-	var t torrentData
-	if err := c.call(ctx, httpx.Request{Path: "torrents/info/" + url.PathEscape(id), ExpectJSON: true}, &t); err != nil {
-		return nil, err
-	}
-	return t.Links, nil
 }
 
 // Unrestrict implements provider.Provider.

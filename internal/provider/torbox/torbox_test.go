@@ -176,10 +176,11 @@ func TestAddMagnetAndFile(t *testing.T) {
 
 func TestAddErrorsAreClassifiedAndNotRetried(t *testing.T) {
 	cases := map[string]provider.ErrorKind{
-		"ACTIVE_LIMIT":   provider.ErrLimit,
-		"BOZO_TORRENT":   provider.ErrPermanent,
-		"DATABASE_ERROR": provider.ErrTransient,
-		"BAD_TOKEN":      provider.ErrAuth,
+		"ACTIVE_LIMIT":       provider.ErrLimit,
+		"DOWNLOAD_TOO_LARGE": provider.ErrPermanent,
+		"BOZO_TORRENT":       provider.ErrPermanent,
+		"DATABASE_ERROR":     provider.ErrTransient,
+		"BAD_TOKEN":          provider.ErrAuth,
 	}
 	for code, kind := range cases {
 		var n int32
