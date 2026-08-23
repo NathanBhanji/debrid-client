@@ -1,0 +1,16 @@
+services:
+  debrid:
+    image: ghcr.io/nathanbhanji/debrid-client:latest
+    container_name: debrid
+    restart: unless-stopped
+    # Run as your own uid/gid so downloaded files are owned by you.
+    user: "1000:1000"
+    ports:
+      - "8080:8080"
+    environment:
+      DEBRID_SERVER__API_KEY: "change-me"   # or leave unset to auto-generate (printed in logs, stored in /data)
+      DEBRID_ENGINE__DOWNLOAD_LIMIT: "3"
+      DEBRID_LOG__FORMAT: json
+    volumes:
+      - ./data:/data
+      - /path/to/downloads:/downloads
