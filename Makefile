@@ -6,7 +6,7 @@ LDFLAGS  := -s -w \
   -X $(MODULE)/internal/buildinfo.Version=$(VERSION) \
   -X $(MODULE)/internal/buildinfo.Commit=$(COMMIT) \
   -X $(MODULE)/internal/buildinfo.Date=$(DATE)
-GOLANGCI := go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.5.0
+GOLANGCI := go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1
 
 .PHONY: build test lint vet tidy run clean
 
