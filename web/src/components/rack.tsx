@@ -118,45 +118,127 @@ function downloadStateClass(state: string): string {
   }
 }
 
+// Selection UI while the provider waits for file selection; otherwise a
+// read-only listing of local downloads (with per-download retry) or files.
+function FilePanel({
+  t,
+  busy,
+  run,
+}: {
+  t: Torrent
+  busy: boolean
+  run: (p: Promise<unknown>) => void
+}) {
+  const selecting = t.status === 'waiting_selection'
+  const [picked, setPicked] = useState<Set<string>>(
+    () => new Set(t.files.filter((f) => f.selected).map((f) => f.id)),
+  )
+  const toggle = (id: string) =>
+    setPicked((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+
+  if (t.downloads.length > 0 && !selecting) {
+    return (
+      <div className="filelist">
+        <div className="hd">LOCAL DOWNLOADS</div>
+        {t.downloads.map((d) => (
+          <div className="frow" key={d.id}>
+            <span className="fp">{d.path}</span>
+            <span className="fs">{formatBytes(d.size)}</span>
+            {d.state === 'error' ? (
+              <button
+                className="fst bad frow-retry"
+                disabled={busy}
+                onClick={() => run(api.downloads.retry(d.id))}
+              >
+                retry
+              </button>
+            ) : (
+              <span className={`fst ${downloadStateClass(d.state)}`}>
+                {d.state === 'downloading'
+                  ? `${Math.floor(d.progress * 100)}%`
+                  : d.state}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+    )
+  }
+  return (
+    <div className="filelist">
+      <div className="hd">
+        {selecting ? 'SELECT FILES TO FETCH' : 'FILES AT PROVIDER'}
+      </div>
+      {t.files.map((f) => (
+        <div className="frow" key={f.id}>
+          {selecting ? (
+            <label className="fp fsel">
+              <input
+                type="checkbox"
+                checked={picked.has(f.id)}
+                disabled={busy}
+                onChange={() => toggle(f.id)}
+              />
+              {f.path}
+            </label>
+          ) : (
+            <span className="fp">{f.path}</span>
+          )}
+          <span className="fs">{formatBytes(f.size)}</span>
+          {!selecting && (
+            <span className={`fst ${f.selected ? 'ok' : 'wait'}`}>
+              {f.selected ? 'sel' : '—'}
+            </span>
+          )}
+        </div>
+      ))}
+      {t.files.length === 0 && (
+        <div className="frow">
+          <span className="fp" style={{ color: 'var(--lcd-dim)' }}>
+            no file listing yet
+          </span>
+        </div>
+      )}
+      {selecting && (
+        <div style={{ marginTop: 10 }}>
+          <button
+            className="key sm org"
+            disabled={busy || picked.size === 0}
+            onClick={() => run(api.torrents.selectFiles(t.id, [...picked]))}
+          >
+            FETCH {picked.size} FILE{picked.size === 1 ? '' : 'S'}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function Bay({ t }: { t: Torrent }) {
-  const downloads = t.downloads
-  const files = t.files
+  const [busy, setBusy] = useState(false)
+  const [actErr, setActErr] = useState<string | null>(null)
+  const [confirmEject, setConfirmEject] = useState(false)
+  const [wipeFiles, setWipeFiles] = useState(false)
+  const [wipeProvider, setWipeProvider] = useState(false)
+
+  // Actions rely on SSE to refresh the list; Bay only tracks in-flight state.
+  const run = (p: Promise<unknown>) => {
+    setBusy(true)
+    setActErr(null)
+    p.catch((e: unknown) =>
+      setActErr(e instanceof Error ? e.message : String(e)),
+    ).finally(() => setBusy(false))
+  }
+
   return (
     <div className="bay">
       <div className="cols">
-        <div className="filelist">
-          <div className="hd">
-            {downloads.length > 0 ? 'LOCAL DOWNLOADS' : 'FILES AT PROVIDER'}
-          </div>
-          {downloads.length > 0
-            ? downloads.map((d) => (
-                <div className="frow" key={d.id}>
-                  <span className="fp">{d.path}</span>
-                  <span className="fs">{formatBytes(d.size)}</span>
-                  <span className={`fst ${downloadStateClass(d.state)}`}>
-                    {d.state === 'downloading'
-                      ? `${Math.floor(d.progress * 100)}%`
-                      : d.state}
-                  </span>
-                </div>
-              ))
-            : files.map((f) => (
-                <div className="frow" key={f.id}>
-                  <span className="fp">{f.path}</span>
-                  <span className="fs">{formatBytes(f.size)}</span>
-                  <span className={`fst ${f.selected ? 'ok' : 'wait'}`}>
-                    {f.selected ? 'sel' : '—'}
-                  </span>
-                </div>
-              ))}
-          {downloads.length === 0 && files.length === 0 && (
-            <div className="frow">
-              <span className="fp" style={{ color: 'var(--lcd-dim)' }}>
-                no file listing yet
-              </span>
-            </div>
-          )}
-        </div>
+        <FilePanel t={t} busy={busy} run={run} />
         <div className="bayside">
           <div>
             <div className="kv">
@@ -204,6 +286,76 @@ function Bay({ t }: { t: Torrent }) {
               </div>
             ) : null}
           </div>
+          <div className="bayacts">
+            {(t.status === 'error' || t.status === 'completed') && (
+              <button
+                className="key sm"
+                disabled={busy}
+                onClick={() => run(api.torrents.retry(t.id))}
+              >
+                RETRY
+              </button>
+            )}
+            {!confirmEject ? (
+              <button
+                className="key sm danger"
+                disabled={busy}
+                onClick={() => setConfirmEject(true)}
+              >
+                EJECT
+              </button>
+            ) : (
+              <div className="eject-confirm">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={wipeFiles}
+                    onChange={(e) => setWipeFiles(e.target.checked)}
+                  />
+                  delete downloaded files
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={wipeProvider}
+                    onChange={(e) => setWipeProvider(e.target.checked)}
+                  />
+                  remove at provider
+                </label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    className="key sm danger"
+                    disabled={busy}
+                    onClick={() =>
+                      run(
+                        api.torrents.remove(t.id, {
+                          files: wipeFiles,
+                          provider: wipeProvider,
+                        }),
+                      )
+                    }
+                  >
+                    CONFIRM EJECT
+                  </button>
+                  <button
+                    className="key sm"
+                    disabled={busy}
+                    onClick={() => setConfirmEject(false)}
+                  >
+                    CANCEL
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+          {actErr && (
+            <div
+              style={{ color: '#c23a1c', fontSize: 11.5, marginTop: 6 }}
+              role="alert"
+            >
+              {actErr}
+            </div>
+          )}
         </div>
       </div>
     </div>
