@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -43,32 +44,32 @@ type oidcCallbackOut struct {
 	SetCookie http.Cookie `header:"Set-Cookie"`
 }
 
+// basePrefix is the operator-configured base path with no trailing slash
+// ("" when serving at the root). It is trusted config, not user input.
+func (h *Handler) basePrefix() string {
+	p := strings.TrimSuffix(h.opts.BasePath, "/")
+	if p == "" || p == "/" {
+		return ""
+	}
+	return p
+}
+
 // callbackURL builds the redirect URI for this server as the browser sees it.
 func (h *Handler) callbackURL(hc huma.Context) string {
 	scheme := "http"
 	if cookieSecure(hc) {
 		scheme = "https"
 	}
-	prefix := ""
-	if h.opts.BasePath != "" && h.opts.BasePath != "/" {
-		prefix = "/" + url.PathEscape(trimSlashes(h.opts.BasePath))
-	}
-	return scheme + "://" + hc.Host() + prefix + "/api/v1/auth/oidc/callback"
-}
-
-func trimSlashes(s string) string {
-	for len(s) > 0 && s[0] == '/' {
-		s = s[1:]
-	}
-	for len(s) > 0 && s[len(s)-1] == '/' {
-		s = s[:len(s)-1]
-	}
-	return s
+	return scheme + "://" + hc.Host() + h.basePrefix() + "/api/v1/auth/oidc/callback"
 }
 
 // uiError sends the browser back to the UI with a message it can display.
-func uiError(msg string) string {
-	return "/?auth_error=" + url.QueryEscape(msg)
+// Provider-supplied text is length-capped; the UI must render it as text.
+func (h *Handler) uiError(msg string) string {
+	if len(msg) > 200 {
+		msg = msg[:200]
+	}
+	return h.basePrefix() + "/?auth_error=" + url.QueryEscape(msg)
 }
 
 // registerOIDCRoutes wires the OIDC endpoints. p is the /api/v1 prefix.
@@ -125,7 +126,7 @@ func (h *Handler) registerOIDCRoutes(p string) {
 	}, func(ctx context.Context, in *oidcCallbackIn) (*oidcCallbackOut, error) {
 		hc := humaCtxFrom(ctx)
 		fail := func(msg string) (*oidcCallbackOut, error) {
-			return &oidcCallbackOut{Status: http.StatusFound, Location: uiError(msg)}, nil
+			return &oidcCallbackOut{Status: http.StatusFound, Location: h.uiError(msg)}, nil
 		}
 		if in.AuthErr != "" {
 			msg := in.AuthErr
@@ -144,10 +145,11 @@ func (h *Handler) registerOIDCRoutes(p string) {
 		}
 		token, err := mgr.CreateSession(ctx, u.ID, hc.Header("User-Agent"))
 		if err != nil {
+			h.opts.Logger.Warn("oidc session creation failed", "err", err)
 			return fail("session creation failed")
 		}
 		return &oidcCallbackOut{
-			Status: http.StatusFound, Location: "/",
+			Status: http.StatusFound, Location: h.basePrefix() + "/",
 			SetCookie: newSessionCookie(token, cookieSecure(hc), int(auth.SessionTTL.Seconds())),
 		}, nil
 	})

@@ -26,6 +26,8 @@ const (
 
 	// flowTTL bounds how long a started authorization flow stays valid.
 	flowTTL = 10 * time.Minute
+	// maxLiveFlows caps in-memory pending flows (the start endpoint is public).
+	maxLiveFlows = 128
 )
 
 // OIDC-specific errors.
@@ -96,6 +98,10 @@ func (m *Manager) OIDCIssuer(ctx context.Context) (string, error) {
 // discovery document and stores it. It does not switch the auth mode — the
 // mode flips to oidc only when the first sign-in pins a subject, so a broken
 // configuration can be retried with the API key.
+//
+// Changing the issuer while OIDC is active resets pinning entirely (user,
+// sessions and mode): OIDC subjects are only unique per issuer, so a pinned
+// sub must never survive an issuer change.
 func (m *Manager) ConfigureOIDC(ctx context.Context, cfg OIDCConfig) error {
 	cfg.Issuer = strings.TrimRight(strings.TrimSpace(cfg.Issuer), "/")
 	if !strings.HasPrefix(cfg.Issuer, "https://") && !strings.HasPrefix(cfg.Issuer, "http://") {
@@ -104,18 +110,32 @@ func (m *Manager) ConfigureOIDC(ctx context.Context, cfg OIDCConfig) error {
 	if cfg.ClientID == "" {
 		return fmt.Errorf("%w: client_id is required", ErrValidation)
 	}
-	mode, err := m.Mode(ctx)
-	if err != nil {
-		return err
-	}
-	if mode == ModePassword {
-		return fmt.Errorf("%w: password auth is already configured", ErrAlreadyConfigured)
-	}
 	if _, err := oidc.NewProvider(ctx, cfg.Issuer); err != nil {
 		return fmt.Errorf("provider discovery failed: %w: %w", ErrValidation, err)
 	}
 	now := store.FormatTime(m.now())
 	return m.store.WithTx(ctx, func(q *sqlcgen.Queries) error {
+		mode, err := q.GetSetting(ctx, modeKey)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if Mode(mode) == ModePassword {
+			return fmt.Errorf("%w: password auth is already configured", ErrAlreadyConfigured)
+		}
+		oldIssuer, err := q.GetSetting(ctx, oidcIssuerKey)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if Mode(mode) == ModeOIDC && oldIssuer != cfg.Issuer {
+			if err := q.DeleteAllUsers(ctx); err != nil { // sessions cascade
+				return err
+			}
+			if err := q.UpsertSetting(ctx, sqlcgen.UpsertSettingParams{
+				Key: modeKey, Value: string(ModeUnconfigured), UpdatedAt: now,
+			}); err != nil {
+				return err
+			}
+		}
 		for k, v := range map[string]string{
 			oidcIssuerKey: cfg.Issuer, oidcClientIDKey: cfg.ClientID, oidcClientSecretKey: cfg.ClientSecret,
 		} {
@@ -181,6 +201,18 @@ func (m *Manager) StartOIDC(ctx context.Context, redirectURI string, setup bool)
 			delete(m.oidcRT.flows, k)
 		}
 	}
+	// /oidc/start is public, so cap live flows to bound memory: beyond the
+	// cap, evict the flow closest to expiry (oldest start).
+	for len(m.oidcRT.flows) >= maxLiveFlows {
+		var oldestKey string
+		var oldest time.Time
+		for k, f := range m.oidcRT.flows {
+			if oldestKey == "" || f.expires.Before(oldest) {
+				oldestKey, oldest = k, f.expires
+			}
+		}
+		delete(m.oidcRT.flows, oldestKey)
+	}
 	m.oidcRT.flows[state] = oidcFlow{
 		verifier: verifier, redirectURI: redirectURI, setup: setup, expires: now.Add(flowTTL),
 	}
@@ -236,8 +268,14 @@ func (m *Manager) CompleteOIDC(ctx context.Context, state, code string) (User, e
 	}
 	_ = idt.Claims(&claims)
 
+	// No nonce: the single-use server-side state plus PKCE (S256) already
+	// binds the callback to this flow for a confidential client, which covers
+	// the code-injection/replay attacks nonce defends against.
 	if flow.setup {
 		username := firstNonEmpty(claims.PreferredUsername, claims.Email, claims.Name, "user")
+		if len(username) > 64 {
+			username = username[:64]
+		}
 		return m.createSoleUser(ctx, ModeOIDC, username, "", idt.Subject, claims.Email)
 	}
 	u, err := m.store.GetUserByOIDCSubject(ctx, idt.Subject)

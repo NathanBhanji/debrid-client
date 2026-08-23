@@ -38,3 +38,6 @@ DELETE FROM sessions WHERE user_id = ?;
 
 -- name: DeleteExpiredSessions :exec
 DELETE FROM sessions WHERE expires_at < ?;
+
+-- name: DeleteAllUsers :exec
+DELETE FROM users;

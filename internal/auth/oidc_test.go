@@ -195,3 +195,57 @@ func TestOIDCFlowExpiry(t *testing.T) {
 		t.Fatalf("expired flow: %v", err)
 	}
 }
+
+func TestOIDCIssuerChangeResetsPinning(t *testing.T) {
+	m := newManager(t)
+	ctx := context.Background()
+	idp1 := newFakeIDP(t)
+	idp2 := newFakeIDP(t)
+
+	// Pin against provider 1.
+	if err := m.ConfigureOIDC(ctx, OIDCConfig{Issuer: idp1.srv.URL, ClientID: "client-1"}); err != nil {
+		t.Fatal(err)
+	}
+	authURL, _ := m.StartOIDC(ctx, "http://app/cb", true)
+	u, err := m.CompleteOIDC(ctx, stateFrom(t, authURL), "code")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, _ := m.CreateSession(ctx, u.ID, "")
+
+	// Same-issuer reconfiguration (e.g. secret rotation) keeps the pinning.
+	if err := m.ConfigureOIDC(ctx, OIDCConfig{Issuer: idp1.srv.URL, ClientID: "client-1", ClientSecret: "rotated"}); err != nil {
+		t.Fatal(err)
+	}
+	if mode, _ := m.Mode(ctx); mode != ModeOIDC {
+		t.Fatalf("mode after secret rotation = %q", mode)
+	}
+
+	// Changing the issuer resets pinning: mode drops to unconfigured, the
+	// user and its sessions are gone, and subjects at the new provider don't
+	// inherit access even when the sub string collides.
+	if err := m.ConfigureOIDC(ctx, OIDCConfig{Issuer: idp2.srv.URL, ClientID: "client-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if mode, _ := m.Mode(ctx); mode != ModeUnconfigured {
+		t.Fatalf("mode after issuer change = %q", mode)
+	}
+	if _, err := m.ValidateSession(ctx, token); !errors.Is(err, ErrNoSession) {
+		t.Fatalf("session survived issuer change: %v", err)
+	}
+	if _, err := m.StartOIDC(ctx, "http://app/cb", false); !errors.Is(err, ErrOIDCNotConfigured) {
+		t.Fatalf("login flow available without re-pinning: %v", err)
+	}
+
+	// Re-pinning against provider 2 works.
+	authURL, err = m.StartOIDC(ctx, "http://app/cb", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.CompleteOIDC(ctx, stateFrom(t, authURL), "code"); err != nil {
+		t.Fatal(err)
+	}
+	if mode, _ := m.Mode(ctx); mode != ModeOIDC {
+		t.Fatalf("mode after re-pinning = %q", mode)
+	}
+}
