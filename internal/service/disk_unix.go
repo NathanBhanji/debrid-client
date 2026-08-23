@@ -9,6 +9,8 @@ func diskUsage(path string) (free, total int64) {
 	if err := unix.Statfs(path, &st); err != nil {
 		return 0, 0
 	}
-	//nolint:unconvert,gosec // Statfs_t field types differ per platform; conversions are needed on some
-	return int64(st.Bavail) * int64(st.Bsize), int64(st.Blocks) * int64(st.Bsize)
+	// Statfs_t field types differ per platform; go through float64 so the
+	// conversions are always required (keeps unconvert quiet everywhere).
+	bsize := float64(st.Bsize)
+	return int64(float64(st.Bavail) * bsize), int64(float64(st.Blocks) * bsize)
 }

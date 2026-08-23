@@ -78,11 +78,11 @@ func TestAccountsLifecycle(t *testing.T) {
 	if _, err := f.svc.AddAccount(ctx, AddAccountInput{Kind: domain.ProviderTorBox, Name: "x"}); !errors.Is(err, ErrValidation) {
 		t.Fatalf("missing key should fail validation: %v", err)
 	}
-	f.fake.Err = provider.Errorf(provider.ErrAuth, "", "bad")
+	f.fake.SetErr(provider.Errorf(provider.ErrAuth, "", "bad"))
 	if _, err := f.svc.AddAccount(ctx, AddAccountInput{Kind: domain.ProviderTorBox, Name: "x", Credentials: domain.Credentials{APIKey: "k"}}); !errors.Is(err, ErrValidation) {
 		t.Fatalf("provider rejection should fail validation: %v", err)
 	}
-	f.fake.Err = nil
+	f.fake.SetErr(nil)
 
 	a1 := f.addAccount(t, "main")
 	if !a1.IsDefault || a1.User == nil || a1.User.Username != "fake" {
@@ -231,7 +231,7 @@ func TestRetryTorrentAndDownload(t *testing.T) {
 	p, _ := store.TorrentUpdateParams(tor)
 	_ = f.store.UpdateTorrent(ctx, p)
 	dl := domain.Download{ID: "d1", TorrentID: tor.ID, ProviderLink: "L", RelPath: "a", Filename: "a", State: domain.DownloadError, Error: "x", QueuedAt: tor.AddedAt, UpdatedAt: tor.AddedAt}
-	_ = f.store.InsertDownload(ctx, store.DownloadInsertParams(dl))
+	_, _ = f.store.InsertDownload(ctx, store.DownloadInsertParams(dl))
 
 	got, err := f.svc.RetryDownload(ctx, "d1")
 	if err != nil || got.State != domain.DownloadPending || got.Error != "" {
@@ -269,7 +269,7 @@ func TestUpdateTorrentAndSelectFiles(t *testing.T) {
 	_ = f.store.UpdateTorrent(ctx, p)
 	for _, id := range []string{"1", "2"} {
 		dl := domain.Download{ID: "d" + id, TorrentID: tor.ID, FileID: id, ProviderLink: "L" + id, RelPath: id, Filename: id, State: domain.DownloadPending, QueuedAt: tor.AddedAt, UpdatedAt: tor.AddedAt}
-		_ = f.store.InsertDownload(ctx, store.DownloadInsertParams(dl))
+		_, _ = f.store.InsertDownload(ctx, store.DownloadInsertParams(dl))
 	}
 
 	u, err := f.svc.UpdateTorrent(ctx, tor.ID, UpdateTorrentInput{Category: ptr("movies"), Settings: &domain.TorrentSettings{MinFileSize: 5}})
