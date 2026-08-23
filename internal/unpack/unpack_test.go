@@ -7,10 +7,13 @@ import (
 	"crypto/sha1" //nolint:gosec // fixture checksum
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
+	"time"
 )
 
 func makeZip(t *testing.T, path string, entries map[string][]byte) {
@@ -255,5 +258,158 @@ func TestSafeRel(t *testing.T) {
 		if _, err := safeRel(in); err == nil {
 			t.Errorf("%q should be rejected", in)
 		}
+	}
+}
+
+func TestVolumesIgnoresDecoys(t *testing.T) {
+	dir := t.TempDir()
+	for _, n := range []string{"foo.rar", "foo.r00", "foo.r01", "foo.s00", "foobar.r00", "foo.sample.r00", "foo2.part2.rar", "foo.part2.rar",
+		"show.part1.rar", "show.part2.rar", "show.part10.rar", "showx.part2.rar", "show.sample.part2.rar", "show.part02.rar",
+		"big.7z.001", "big.7z.002", "bigger.7z.002"} {
+		_ = os.WriteFile(filepath.Join(dir, n), []byte("x"), 0o644)
+	}
+	got := func(primary string) []string {
+		vs := Volumes(filepath.Join(dir, primary))
+		out := make([]string, 0, len(vs))
+		for _, v := range vs {
+			out = append(out, filepath.Base(v))
+		}
+		sort.Strings(out)
+		return out
+	}
+	want := func(a, b []string) {
+		t.Helper()
+		sort.Strings(b)
+		if strings.Join(a, ",") != strings.Join(b, ",") {
+			t.Fatalf("got %v want %v", a, b)
+		}
+	}
+	want(got("foo.rar"), []string{"foo.rar", "foo.r00", "foo.r01", "foo.s00"})
+	want(got("show.part1.rar"), []string{"show.part1.rar", "show.part2.rar"}) // same digit width only
+	want(got("big.7z.001"), []string{"big.7z.001", "big.7z.002"})
+	want(got("foo.zip"), []string{"foo.zip"})
+}
+
+func TestConflictCheckIsAllOrNothing(t *testing.T) {
+	dir := t.TempDir()
+	arc := filepath.Join(dir, "a.zip")
+	makeZip(t, arc, map[string][]byte{"a.txt": []byte("a"), "b.txt": []byte("b"), "c.txt": []byte("c")})
+	dest := filepath.Join(dir, "out")
+	_ = os.MkdirAll(dest, 0o755)
+	_ = os.WriteFile(filepath.Join(dest, "b.txt"), []byte("old"), 0o644)
+	if _, err := Extract(context.Background(), arc, dest, Options{}); !errors.Is(err, ErrExists) {
+		t.Fatalf("expected ErrExists, got %v", err)
+	}
+	for _, n := range []string{"a.txt", "c.txt"} {
+		if _, err := os.Stat(filepath.Join(dest, n)); !os.IsNotExist(err) {
+			t.Fatalf("%s should not have been moved on conflict", n)
+		}
+	}
+	entries, _ := os.ReadDir(dest)
+	if len(entries) != 1 {
+		t.Fatalf("dest should be untouched (plus no temp dirs): %v", entries)
+	}
+	// Retry with Overwrite succeeds.
+	if _, err := Extract(context.Background(), arc, dest, Options{Overwrite: true}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestOverwriteNeverReplacesDirWithFile(t *testing.T) {
+	dir := t.TempDir()
+	arc := filepath.Join(dir, "a.zip")
+	makeZip(t, arc, map[string][]byte{"data": []byte("file")})
+	dest := filepath.Join(dir, "out")
+	_ = os.MkdirAll(filepath.Join(dest, "data", "important"), 0o755)
+	_ = os.WriteFile(filepath.Join(dest, "data", "important", "keep.txt"), []byte("k"), 0o644)
+	if _, err := Extract(context.Background(), arc, dest, Options{Overwrite: true}); !errors.Is(err, ErrExists) {
+		t.Fatalf("expected type-mismatch ErrExists, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "data", "important", "keep.txt")); err != nil {
+		t.Fatal("directory tree was destroyed")
+	}
+}
+
+func TestCancelMidEntry(t *testing.T) {
+	dir := t.TempDir()
+	arc := filepath.Join(dir, "big.zip")
+	makeZip(t, arc, map[string][]byte{"big.bin": bytes.Repeat([]byte("z"), 64<<20)})
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() { time.Sleep(20 * time.Millisecond); cancel() }()
+	start := time.Now()
+	_, err := Extract(ctx, arc, filepath.Join(dir, "out"), Options{})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected context.Canceled, got %v", err)
+	}
+	if time.Since(start) > 2*time.Second {
+		t.Fatal("cancel not honoured promptly")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "out", "big.bin")); !os.IsNotExist(err) {
+		t.Fatal("partial file should not be moved into dest")
+	}
+}
+
+func TestMultiVolume7z(t *testing.T) {
+	dir := t.TempDir()
+	for i := 1; i <= 6; i++ {
+		n := fmt.Sprintf("multi.7z.%03d", i)
+		b, err := os.ReadFile(filepath.Join("testdata", n))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = os.WriteFile(filepath.Join(dir, n), b, 0o644)
+	}
+	dest := filepath.Join(dir, "out")
+	res, err := Extract(context.Background(), filepath.Join(dir, "multi.7z.001"), dest, Options{DeleteArchives: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Files) == 0 || res.Bytes == 0 {
+		t.Fatalf("nothing extracted: %+v", res)
+	}
+	if len(res.Deleted) != 6 {
+		t.Fatalf("all 6 volumes should be deleted, got %v", res.Deleted)
+	}
+}
+
+func TestNestedAccounting(t *testing.T) {
+	dir := t.TempDir()
+	innermost := filepath.Join(dir, "innermost.zip")
+	makeZip(t, innermost, map[string][]byte{"deep.txt": []byte("deep")})
+	innermostBytes, _ := os.ReadFile(innermost)
+	inner := filepath.Join(dir, "inner.zip")
+	makeZip(t, inner, map[string][]byte{"mid.txt": []byte("mid-mid"), "innermost.zip": innermostBytes})
+	innerBytes, _ := os.ReadFile(inner)
+	outer := filepath.Join(dir, "outer.zip")
+	makeZip(t, outer, map[string][]byte{"top.txt": []byte("top"), "sub/inner.zip": innerBytes})
+
+	dest := filepath.Join(dir, "out")
+	res, err := Extract(context.Background(), outer, dest, Options{MaxDepth: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Depth 1: inner.zip consumed; innermost.zip left as a file and must be reported.
+	sort.Strings(res.Files)
+	want := []string{filepath.Join("sub", "innermost.zip"), filepath.Join("sub", "mid.txt"), "top.txt"}
+	if strings.Join(res.Files, ",") != strings.Join(want, ",") {
+		t.Fatalf("files %v want %v", res.Files, want)
+	}
+	var total int64
+	for _, f := range res.Files {
+		fi, _ := os.Stat(filepath.Join(dest, f))
+		total += fi.Size()
+	}
+	if res.Bytes != total {
+		t.Fatalf("bytes %d want %d (no double counting)", res.Bytes, total)
+	}
+	if len(res.Deleted) != 1 || !strings.HasSuffix(res.Deleted[0], filepath.Join("sub", "inner.zip")) {
+		t.Fatalf("consumed inner archive should be reported as deleted relative to dest: %v", res.Deleted)
+	}
+}
+
+func TestSafeRelStripsDrive(t *testing.T) {
+	got, err := safeRel(`C:\Windows\x.txt`)
+	if err != nil || got != filepath.Join("Windows", "x.txt") {
+		t.Fatalf("%q %v", got, err)
 	}
 }

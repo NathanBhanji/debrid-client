@@ -3,6 +3,7 @@ module github.com/NathanBhanji/debrid-client
 go 1.26
 
 require (
+	github.com/bodgit/sevenzip v1.6.5
 	github.com/go-viper/mapstructure/v2 v2.5.0
 	github.com/knadh/koanf/parsers/yaml v1.1.1
 	github.com/knadh/koanf/providers/confmap v1.0.1
@@ -24,7 +25,6 @@ require (
 	github.com/STARRY-S/zip v0.2.3 // indirect
 	github.com/andybalholm/brotli v1.2.2 // indirect
 	github.com/bodgit/plumbing v1.3.0 // indirect
-	github.com/bodgit/sevenzip v1.6.1 // indirect
 	github.com/bodgit/windows v1.0.1 // indirect
 	github.com/dsnet/compress v0.0.2-0.20230904184137-39efe44ab707 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
@@ -48,9 +48,10 @@ require (
 	github.com/sethvargo/go-retry v0.4.0 // indirect
 	github.com/sorairolake/lzip-go v0.3.8 // indirect
 	github.com/spf13/afero v1.15.0 // indirect
+	github.com/stangelandcl/ppmd v0.1.1 // indirect
 	github.com/ulikunitz/xz v0.5.15 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	go4.org v0.0.0-20230225012048-214862532bf5 // indirect
+	go4.org v0.0.0-20260112195520-a5071408f32f // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
 	modernc.org/libc v1.74.4 // indirect
