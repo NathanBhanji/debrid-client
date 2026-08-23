@@ -9,6 +9,7 @@ LDFLAGS  := -s -w \
 GOLANGCI_VERSION := $(shell cat .golangci-version)
 GOLANGCI := go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)
 SQLC     := go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
+OAPI     := go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.8.0
 
 .PHONY: build test lint vet tidy run clean generate generate-check
 
@@ -28,11 +29,13 @@ tidy:
 	go mod tidy
 	@git diff --exit-code go.mod go.sum || (echo "go.mod/go.sum not tidy" && exit 1)
 
-generate: ## Regenerate sqlc code
+generate: ## Regenerate sqlc code, the OpenAPI spec and the Go API client
 	cd internal/store && $(SQLC) generate
+	go run ./tools/openapi -yaml > internal/apiclient/openapi.yaml
+	cd internal/apiclient && $(OAPI) -config oapi-codegen.yaml openapi.yaml
 
 generate-check: generate ## Fail if generated code is stale or uncommitted
-	@git add -N internal/store/sqlcgen && git diff --exit-code internal/store/sqlcgen || (echo "sqlc output is stale: run make generate and commit" && exit 1)
+	@git add -N internal/store/sqlcgen internal/apiclient && git diff --exit-code internal/store/sqlcgen internal/apiclient || (echo "generated code is stale: run make generate and commit" && exit 1)
 
 run: build
 	./bin/debrid $(ARGS)

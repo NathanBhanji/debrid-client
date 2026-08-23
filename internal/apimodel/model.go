@@ -42,7 +42,7 @@ type TorrentSettings struct {
 	MinFileSize     int64    `json:"min_file_size,omitempty" minimum:"0" doc:"Skip files smaller than this many bytes"`
 	IncludeRegex    string   `json:"include_regex,omitempty" doc:"Only download paths matching this (case-insensitive); overrides exclude"`
 	ExcludeRegex    string   `json:"exclude_regex,omitempty" doc:"Skip paths matching this (case-insensitive)"`
-	ManualFiles     []string `json:"manual_files,omitempty" doc:"Download exactly these provider file ids"`
+	ManualFiles     []string `json:"manual_files,omitempty" nullable:"false" doc:"Download exactly these provider file ids"`
 	FinishedAction  string   `json:"finished_action,omitempty" enum:"keep,remove_from_provider" doc:"What to do at the provider after local completion"`
 	FinishedDelay   string   `json:"finished_delay,omitempty" doc:"Delay before finished_action, e.g. 10m (Go duration)"`
 	DownloadRetries int      `json:"download_retries" minimum:"0" required:"false" doc:"Automatic retries per file"`
@@ -107,7 +107,7 @@ type Torrent struct {
 // Settings are runtime settings.
 type Settings struct {
 	TorrentDefaults TorrentSettings `json:"torrent_defaults"`
-	Categories      []string        `json:"categories" required:"false"`
+	Categories      []string        `json:"categories" required:"false" nullable:"false"`
 	UnpackMaxDepth  int             `json:"unpack_max_depth" minimum:"0" maximum:"5" required:"false"`
 }
 

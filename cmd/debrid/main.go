@@ -26,7 +26,12 @@ func newRootCmd() *cobra.Command {
 		SilenceErrors: true,
 	}
 	root.PersistentFlags().StringVar(&g.configFile, "config", "", "config file (default: $DEBRID_CONFIG, else $XDG_CONFIG_HOME/debrid/config.yaml)")
-	root.AddCommand(newVersionCmd(), newConfigCmd(g), newServeCmd(g), newOpenAPICmd())
+	cf := &clientFlags{}
+	cf.bind(root)
+	root.AddCommand(
+		newVersionCmd(), newConfigCmd(g), newServeCmd(g), newOpenAPICmd(),
+		newStatusCmd(g, cf), newTorrentsCmd(g, cf), newAccountsCmd(g, cf), newDownloadsCmd(g, cf), newSettingsCmd(g, cf),
+	)
 	return root
 }
 

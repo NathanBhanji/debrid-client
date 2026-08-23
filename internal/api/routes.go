@@ -95,7 +95,7 @@ type updateTorrentIn struct {
 type selectFilesIn struct {
 	ID   string `path:"id"`
 	Body struct {
-		FileIDs []string `json:"file_ids" minItems:"1"`
+		FileIDs []string `json:"file_ids" minItems:"1" nullable:"false"`
 	}
 }
 type downloadIDIn struct {
