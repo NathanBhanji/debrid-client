@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { createFileRoute } from '@tanstack/react-router'
+import { Link, createFileRoute } from '@tanstack/react-router'
 
 import { ApiError, api, openEvents, setApiKey } from '#/lib/api'
 import { InsertWell } from '#/components/insert'
@@ -92,7 +92,7 @@ function Home() {
               : 'INSERT API KEY TO CONTINUE'}
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <div className="well" style={{ flex: 1 }}>
             <input
               placeholder="API KEY — printed by `debrid serve` on first start"
@@ -148,12 +148,24 @@ function Home() {
           </div>
         </div>
       </div>
-      {authed && (
+      {authed && status.accounts === 0 ? (
+        <div className="lcd rack-empty">
+          <div className="lbl">First run</div>
+          <div className="big" style={{ fontSize: 15 }}>
+            NO PROVIDER ACCOUNT CONNECTED
+          </div>
+          <div style={{ marginTop: 16 }}>
+            <Link to="/accounts" className="key org first-run-key">
+              CONNECT A PROVIDER
+            </Link>
+          </div>
+        </div>
+      ) : authed ? (
         <>
           <InsertWell onAdded={() => setTick((n) => n + 1)} />
           <Rack refreshTick={tick} />
         </>
-      )}
+      ) : null}
     </section>
   )
 }
