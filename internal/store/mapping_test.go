@@ -94,7 +94,7 @@ func TestRoundTripThroughDB(t *testing.T) {
 		Size: 100, BytesDone: 40, State: domain.DownloadDownloading, RetryCount: 2,
 		QueuedAt: ts("2026-08-23T10:01:00Z"), StartedAt: tp("2026-08-23T10:01:01Z"), UpdatedAt: ts("2026-08-23T10:01:02Z"),
 	}
-	if err := s.InsertDownload(ctx, DownloadInsertParams(dl)); err != nil {
+	if _, err := s.InsertDownload(ctx, DownloadInsertParams(dl)); err != nil {
 		t.Fatal(err)
 	}
 	drow, err := s.GetDownload(ctx, "d1")
