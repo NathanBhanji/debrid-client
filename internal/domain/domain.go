@@ -233,7 +233,10 @@ type Torrent struct {
 	AccountID string
 	Hash      string
 	Name      string
-	Category  string
+	// DirName is the sanitised folder name under the download dir, frozen by
+	// the engine when local downloads start (Name may still change before that).
+	DirName  string
+	Category string
 
 	Status       TorrentStatus
 	StatusReason string

@@ -71,7 +71,7 @@ func TorrentFromRow(r sqlcgen.Torrent) (domain.Torrent, error) {
 		settings.FinishedAction = domain.FinishedKeep
 	}
 	t := domain.Torrent{
-		ID: r.ID, AccountID: r.AccountID, Hash: r.Hash, Name: r.Name, Category: r.Category,
+		ID: r.ID, AccountID: r.AccountID, Hash: r.Hash, Name: r.Name, DirName: r.DirName, Category: r.Category,
 		Status: domain.TorrentStatus(r.Status), StatusReason: r.StatusReason, Error: r.Error,
 		Progress: r.Progress, Size: r.Size, Speed: r.Speed, Seeders: int(r.Seeders),
 		ProviderID: r.ProviderID, ProviderStatus: r.ProviderStatus, Files: files, Settings: settings,
@@ -112,7 +112,7 @@ func TorrentInsertParams(t domain.Torrent) (sqlcgen.InsertTorrentParams, error) 
 		t.Payload = []byte{} // column is NOT NULL; an empty payload is a caller bug but shouldn't fail the insert
 	}
 	return sqlcgen.InsertTorrentParams{
-		ID: t.ID, AccountID: t.AccountID, Hash: t.Hash, Name: t.Name, Category: t.Category,
+		ID: t.ID, AccountID: t.AccountID, Hash: t.Hash, Name: t.Name, DirName: t.DirName, Category: t.Category,
 		Status: string(t.Status), StatusReason: t.StatusReason, Error: t.Error,
 		Progress: t.Progress, Size: t.Size, Speed: t.Speed, Seeders: int64(t.Seeders),
 		ProviderID: t.ProviderID, ProviderStatus: t.ProviderStatus, Files: files, Settings: settings,
@@ -130,7 +130,7 @@ func TorrentUpdateParams(t domain.Torrent) (sqlcgen.UpdateTorrentParams, error) 
 		return sqlcgen.UpdateTorrentParams{}, err
 	}
 	return sqlcgen.UpdateTorrentParams{
-		Name: t.Name, Category: t.Category, Status: string(t.Status), StatusReason: t.StatusReason, Error: t.Error,
+		Name: t.Name, DirName: t.DirName, Category: t.Category, Status: string(t.Status), StatusReason: t.StatusReason, Error: t.Error,
 		Progress: t.Progress, Size: t.Size, Speed: t.Speed, Seeders: int64(t.Seeders),
 		ProviderID: t.ProviderID, ProviderStatus: t.ProviderStatus, Files: files, Settings: settings,
 		RetryCount: int64(t.RetryCount), ProviderAddedAt: NullTime(t.ProviderAddedAt),

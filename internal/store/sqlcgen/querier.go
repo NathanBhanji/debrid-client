@@ -11,8 +11,10 @@ import (
 type Querier interface {
 	ClearDefaultProviderAccount(ctx context.Context, updatedAt string) error
 	CountDownloadsByState(ctx context.Context, state string) (int64, error)
+	CountStartedDownloadsForTorrent(ctx context.Context, torrentID string) (int64, error)
 	CountTorrents(ctx context.Context) (int64, error)
 	CountTorrentsForAccount(ctx context.Context, accountID string) (int64, error)
+	DeleteDownload(ctx context.Context, id string) error
 	DeleteDownloadsForTorrent(ctx context.Context, torrentID string) error
 	DeleteProviderAccount(ctx context.Context, id string) error
 	DeleteSetting(ctx context.Context, key string) error
@@ -29,6 +31,7 @@ type Querier interface {
 	InsertProviderAccount(ctx context.Context, arg InsertProviderAccountParams) error
 	InsertTorrent(ctx context.Context, arg InsertTorrentParams) error
 	ListActiveTorrents(ctx context.Context) ([]Torrent, error)
+	ListDownloads(ctx context.Context) ([]Download, error)
 	ListDownloadsByState(ctx context.Context, state string) ([]Download, error)
 	ListDownloadsForTorrent(ctx context.Context, torrentID string) ([]Download, error)
 	ListProviderAccounts(ctx context.Context) ([]ProviderAccount, error)

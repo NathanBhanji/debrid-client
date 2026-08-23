@@ -52,6 +52,7 @@ type Torrent struct {
 	AccountID       string
 	Hash            string
 	Name            string
+	DirName         string
 	Category        string
 	Status          string
 	StatusReason    string

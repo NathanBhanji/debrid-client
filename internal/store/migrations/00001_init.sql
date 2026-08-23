@@ -16,6 +16,7 @@ CREATE TABLE torrents (
     account_id          TEXT NOT NULL REFERENCES provider_accounts(id) ON DELETE RESTRICT,
     hash                TEXT NOT NULL CHECK (hash = lower(hash)), -- lowercase info hash
     name                TEXT NOT NULL DEFAULT '',
+    dir_name            TEXT NOT NULL DEFAULT '', -- sanitised folder name, frozen once local downloads start
     category            TEXT NOT NULL DEFAULT '',
     status              TEXT NOT NULL,            -- domain.TorrentStatus
     status_reason       TEXT NOT NULL DEFAULT '', -- human-readable why we're in this state

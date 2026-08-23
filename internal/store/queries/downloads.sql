@@ -28,3 +28,12 @@ DELETE FROM downloads WHERE torrent_id = ?;
 
 -- name: CountDownloadsByState :one
 SELECT COUNT(*) FROM downloads WHERE state = ?;
+
+-- name: ListDownloads :many
+SELECT * FROM downloads ORDER BY queued_at;
+
+-- name: DeleteDownload :exec
+DELETE FROM downloads WHERE id = ?;
+
+-- name: CountStartedDownloadsForTorrent :one
+SELECT COUNT(*) FROM downloads WHERE torrent_id = ? AND state <> 'pending';
