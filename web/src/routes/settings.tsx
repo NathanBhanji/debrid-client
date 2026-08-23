@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 
-import { api } from '#/lib/api'
+import { UNAUTHORIZED_EVENT, api } from '#/lib/api'
 import { useAuth } from '#/lib/auth'
 import type { Settings } from '#/lib/api'
 
@@ -81,12 +81,17 @@ function ChangePasswordCard() {
     }
     setBusy(true)
     setMsg(null)
-    api.auth.changePassword(current, next).catch((e: unknown) => {
-      setMsg(e instanceof Error ? e.message : String(e))
-      setBusy(false)
-    })
-    // On success every session is revoked; the next request 401s and the
-    // auth gate takes over, so there is nothing to render here.
+    api.auth
+      .changePassword(current, next)
+      .then(() => {
+        // Every session (including this one) is now revoked. Nothing on this
+        // page issues another request, so flip the auth gate explicitly.
+        window.dispatchEvent(new Event(UNAUTHORIZED_EVENT))
+      })
+      .catch((e: unknown) => {
+        setMsg(e instanceof Error ? e.message : String(e))
+        setBusy(false)
+      })
   }
 
   return (

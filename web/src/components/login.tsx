@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { api } from '#/lib/api'
 import { authErrorFromURL } from '#/lib/auth'
@@ -16,7 +16,12 @@ export function Login({
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(() => authErrorFromURL())
+  const [error, setError] = useState<string | null>(null)
+  // Read+strip ?auth_error= as an effect, not during render (URL mutation).
+  useEffect(() => {
+    const e = authErrorFromURL()
+    if (e) setError(e)
+  }, [])
 
   const submit = () => {
     if (busy || username === '' || password === '') return
@@ -52,7 +57,13 @@ export function Login({
           SIGN IN WITH {issuerHost.toUpperCase() || 'SSO'}
         </a>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <form
+          style={{ display: 'flex', flexDirection: 'column', gap: 10 }}
+          onSubmit={(e) => {
+            e.preventDefault()
+            submit()
+          }}
+        >
           <div className="well">
             <input
               placeholder="USERNAME"
@@ -69,22 +80,19 @@ export function Login({
               value={password}
               autoComplete="current-password"
               onChange={(e) => setPassword(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.nativeEvent.isComposing) submit()
-              }}
               disabled={busy}
             />
           </div>
           <div>
             <button
               className="key org"
-              onClick={submit}
+              type="submit"
               disabled={busy || username === '' || password === ''}
             >
               {busy ? 'SIGNING IN…' : 'SIGN IN'}
             </button>
           </div>
-        </div>
+        </form>
       )}
       {error && (
         <div className="form-err" role="alert">

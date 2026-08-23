@@ -70,8 +70,6 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       )
   }, [])
 
-  useEffect(resolve, [resolve])
-
   // Any 401 from the app flips back to the login screen.
   useEffect(() => {
     const onUnauthorized = () =>
@@ -89,6 +87,11 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       <div className="lcd rack-empty">
         <div className="big" style={{ color: 'var(--lcd-red)', fontSize: 14 }}>
           SERVER UNREACHABLE — {phase.message.toUpperCase()}
+        </div>
+        <div style={{ marginTop: 16 }}>
+          <button className="key" onClick={() => setPhase({ kind: 'loading' })}>
+            RETRY
+          </button>
         </div>
       </div>
     )

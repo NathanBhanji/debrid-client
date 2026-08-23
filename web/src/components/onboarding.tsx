@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { api } from '#/lib/api'
 import { authErrorFromURL } from '#/lib/auth'
@@ -18,7 +18,12 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
   const [clientID, setClientID] = useState('')
   const [clientSecret, setClientSecret] = useState('')
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(() => authErrorFromURL())
+  const [error, setError] = useState<string | null>(null)
+  // Read+strip ?auth_error= as an effect, not during render (URL mutation).
+  useEffect(() => {
+    const e = authErrorFromURL()
+    if (e) setError(e)
+  }, [])
 
   const run = (p: Promise<unknown>) => {
     setBusy(true)
