@@ -1,0 +1,308 @@
+/* ============================================================
+   debrid web UI — design tokens & base
+   Hardware-panel aesthetic: warm plastic chassis, dark LCD
+   readouts, LED segments, physical keys. Single loud colour.
+   ============================================================ */
+@import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=Azeret+Mono:wght@400;500;600&display=swap');
+
+:root {
+  /* surfaces */
+  --shell: #d8d5cd;
+  --face: #e9e7e1;
+  --face-hi: #f2f1ec;
+  --face-lo: #e6e4de;
+  --well: #c7c4bb;
+  --edge: #b3b0a6;
+  --key-shadow: #b9b6ac;
+  /* ink */
+  --ink: #23241f;
+  --mut: #75766e;
+  /* accent */
+  --org: #ff4f00;
+  --org-2: #f04a00;
+  /* LCD */
+  --lcd: #1d211b;
+  --lcd-txt: #c9f5b1;
+  --lcd-amber: #ffd27a;
+  --lcd-red: #ff9d8a;
+  --lcd-cyan: #7ad9f2;
+  --lcd-dim: #5a6b52;
+  /* LEDs */
+  --led-dl-a: #39c2ff;
+  --led-dl-b: #0e8fd0;
+  --led-ok-a: #59d97a;
+  --led-ok-b: #27a04a;
+  --led-rem-a: #ffc23e;
+  --led-rem-b: #e29400;
+  --led-err-a: #ff7d66;
+  --led-err-b: #e03415;
+  --led-off-a: #c9c6bd;
+  --led-off-b: #a5a297;
+  /* type */
+  --disp: 'Chakra Petch', sans-serif;
+  --mono: 'Azeret Mono', monospace;
+  /* geometry */
+  --r-device: 22px;
+  --r-mod: 14px;
+  --r-key: 12px;
+  --r-lcd: 10px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+}
+
+body {
+  background: var(--shell);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 13px;
+  background-image:
+    radial-gradient(circle at 30% 10%, #efede8, transparent 60%),
+    repeating-linear-gradient(45deg, #00000006 0 2px, transparent 2px 8px);
+}
+
+/* --- chassis ------------------------------------------------ */
+.device {
+  max-width: 1080px;
+  margin: 30px auto 70px;
+  background: var(--face);
+  border-radius: var(--r-device);
+  border: 1px solid var(--edge);
+  box-shadow:
+    0 2px 0 #fff inset,
+    0 -3px 0 #00000014 inset,
+    0 18px 40px -18px #00000059;
+  padding: 24px 28px 30px;
+}
+.device-top {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+.brand {
+  font-family: var(--disp);
+  font-weight: 700;
+  font-size: 20px;
+  letter-spacing: 0.04em;
+}
+.brand .dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--org);
+  box-shadow: 0 0 0 3px #ff4f0033;
+  margin-right: 8px;
+  animation: brand-pulse 2s infinite;
+}
+@keyframes brand-pulse {
+  50% {
+    box-shadow: 0 0 0 6px #ff4f0015;
+  }
+}
+.model-label {
+  color: var(--mut);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+}
+.flex-spacer {
+  flex: 1;
+}
+.screw {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #f2f1ec, #a9a69c);
+  box-shadow: inset 0 1px 2px #00000059;
+}
+
+/* --- tabs --------------------------------------------------- */
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.tab {
+  font-family: var(--disp);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  padding: 8px 18px;
+  border-radius: 10px;
+  color: var(--mut);
+  cursor: pointer;
+  border: 1px solid transparent;
+  user-select: none;
+  text-decoration: none;
+}
+.tab.on {
+  background: linear-gradient(var(--face-hi), #e2e0d9);
+  border-color: var(--edge);
+  color: var(--ink);
+  box-shadow:
+    0 2px 0 var(--key-shadow),
+    0 1px 0 #fff inset;
+}
+.tab .n {
+  color: var(--org);
+  margin-left: 6px;
+}
+
+/* --- LCD panels --------------------------------------------- */
+.lcd {
+  background: var(--lcd);
+  border-radius: var(--r-lcd);
+  padding: 12px 16px;
+  color: var(--lcd-txt);
+  font-size: 12px;
+  position: relative;
+  overflow: hidden;
+  box-shadow:
+    inset 0 3px 10px #000c,
+    0 1px 0 #ffffffcc;
+}
+.lcd::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    #ffffff05 0 1px,
+    transparent 1px 3px
+  );
+}
+.lcd .lbl {
+  color: var(--lcd-dim);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.lcd .big {
+  font-family: var(--disp);
+  font-weight: 600;
+  font-size: 22px;
+  letter-spacing: 0.02em;
+}
+.lcd .u {
+  font-size: 12px;
+  color: var(--lcd-dim);
+}
+.lcd-row {
+  display: grid;
+  grid-template-columns: 2.2fr 1fr 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.lcd-row .wide .big {
+  font-size: 15px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+}
+@media (max-width: 820px) {
+  .lcd-row {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* --- keys --------------------------------------------------- */
+.key {
+  font-family: var(--disp);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.05em;
+  background: linear-gradient(var(--face-hi), #e2e0d9);
+  border: 1px solid var(--edge);
+  border-radius: var(--r-key);
+  padding: 11px 20px;
+  cursor: pointer;
+  user-select: none;
+  box-shadow:
+    0 3px 0 var(--key-shadow),
+    0 1px 0 #fff inset;
+  transition: transform 0.06s;
+  color: var(--ink);
+}
+.key:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 var(--key-shadow);
+}
+.key.org {
+  background: linear-gradient(#ff6a24, var(--org-2));
+  color: #fff;
+  border-color: #c93e00;
+  box-shadow:
+    0 3px 0 #a83400,
+    0 1px 0 #ffffff59 inset;
+}
+.key.sm {
+  padding: 7px 14px;
+  font-size: 11px;
+  border-radius: 9px;
+}
+.key.danger:hover {
+  color: #c23a1c;
+}
+.key:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* --- input wells -------------------------------------------- */
+.well {
+  display: flex;
+  align-items: center;
+  background: var(--well);
+  border-radius: var(--r-key);
+  box-shadow: inset 0 2px 5px #00000026;
+  padding: 0 16px;
+}
+.well input {
+  flex: 1;
+  background: none;
+  border: 0;
+  outline: none;
+  font: inherit;
+  color: var(--ink);
+  padding: 12px 0;
+}
+.well input::placeholder {
+  color: #8b887d;
+}
+.well.drag {
+  outline: 2px dashed var(--org);
+  outline-offset: -4px;
+}
+
+/* --- bottom strip ------------------------------------------- */
+.strip {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 20px;
+  color: var(--mut);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+.strip .grill {
+  display: flex;
+  gap: 4px;
+}
+.strip .grill i {
+  width: 26px;
+  height: 5px;
+  border-radius: 3px;
+  background: #cbc8bf;
+  box-shadow: inset 0 1px 2px #0000002b;
+}
+.strip .ok {
+  color: #27a04a;
+}
+.strip .bad {
+  color: #c23a1c;
+}

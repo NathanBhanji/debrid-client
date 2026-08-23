@@ -3,6 +3,9 @@ project_name: debrid
 before:
   hooks:
     - go mod verify
+    # Build the web UI and stage it into internal/webui/dist so every
+    # released binary and image ships with the embedded UI.
+    - make web
 builds:
   - id: debrid
     main: ./cmd/debrid
