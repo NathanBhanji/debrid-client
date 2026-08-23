@@ -55,6 +55,8 @@ engine:
 			"DEBRID_LOG__LEVEL=warn",
 			"DEBRID_ENGINE__IDLE_POLL_INTERVAL=1m",
 			"DEBRID_CONFIG=/should/be/ignored",
+			"DEBRID_API_KEY=cli-only-must-be-ignored",
+			"DEBRID_SERVER=http://cli-only",
 			"UNRELATED=1",
 		}
 	}

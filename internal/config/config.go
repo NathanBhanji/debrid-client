@@ -212,7 +212,10 @@ func Load(opts Options) (Config, error) {
 		EnvironFunc: opts.environ(),
 		TransformFunc: func(key, value string) (string, any) {
 			key = strings.TrimPrefix(key, EnvPrefix)
-			if key == "CONFIG" { // DEBRID_CONFIG selects the file; not a config key
+			switch key {
+			case "CONFIG", "API_KEY", "SERVER":
+				// DEBRID_CONFIG selects the file; DEBRID_API_KEY / DEBRID_SERVER are
+				// CLI client settings (which server to talk to), not server config.
 				return "", nil
 			}
 			key = strings.ToLower(strings.ReplaceAll(key, "__", delim))

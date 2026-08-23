@@ -1,0 +1,53 @@
+version: 2
+project_name: debrid
+before:
+  hooks:
+    - go mod verify
+builds:
+  - id: debrid
+    main: ./cmd/debrid
+    binary: debrid
+    env: [CGO_ENABLED=0]
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w
+      - -X github.com/NathanBhanji/debrid-client/internal/buildinfo.Version={{.Version}}
+      - -X github.com/NathanBhanji/debrid-client/internal/buildinfo.Commit={{.ShortCommit}}
+      - -X github.com/NathanBhanji/debrid-client/internal/buildinfo.Date={{.Date}}
+archives:
+  - id: default
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files: [LICENSE, README.md]
+checksum:
+  name_template: checksums.txt
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude: ["^docs:", "^chore:", "^test:"]
+dockers_v2:
+  - id: image
+    ids: [debrid]
+    images:
+      - ghcr.io/nathanbhanji/debrid-client
+    tags:
+      - "{{ .Version }}"
+      - "{{ if not .Prerelease }}latest{{ end }}"
+    dockerfile: Dockerfile
+    platforms: [linux/amd64, linux/arm64]
+    labels:
+      org.opencontainers.image.title: debrid-client
+      org.opencontainers.image.source: https://github.com/NathanBhanji/debrid-client
+      org.opencontainers.image.version: "{{ .Version }}"
+      org.opencontainers.image.licenses: MIT
+release:
+  github:
+    owner: NathanBhanji
+    name: debrid-client
+  draft: false
