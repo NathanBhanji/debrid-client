@@ -33,7 +33,7 @@ func AccountFromRow(r sqlcgen.ProviderAccount) (domain.ProviderAccount, error) {
 
 // AccountInsertParams builds the insert params for an account.
 func AccountInsertParams(a domain.ProviderAccount) (sqlcgen.InsertProviderAccountParams, error) {
-	creds, err := json.Marshal(a.Credentials)
+	creds, err := json.Marshal(utcCreds(a.Credentials))
 	if err != nil {
 		return sqlcgen.InsertProviderAccountParams{}, err
 	}
@@ -46,7 +46,7 @@ func AccountInsertParams(a domain.ProviderAccount) (sqlcgen.InsertProviderAccoun
 
 // AccountUpdateParams builds the update params for an account (name/credentials/enabled).
 func AccountUpdateParams(a domain.ProviderAccount) (sqlcgen.UpdateProviderAccountParams, error) {
-	creds, err := json.Marshal(a.Credentials)
+	creds, err := json.Marshal(utcCreds(a.Credentials))
 	if err != nil {
 		return sqlcgen.UpdateProviderAccountParams{}, err
 	}
@@ -61,9 +61,14 @@ func TorrentFromRow(r sqlcgen.Torrent) (domain.Torrent, error) {
 	if err := json.Unmarshal([]byte(r.Files), &files); err != nil {
 		return domain.Torrent{}, fmt.Errorf("torrent %s files: %w", r.ID, err)
 	}
-	var settings domain.TorrentSettings
+	// Start from defaults so rows with partial/empty settings JSON ({} is the
+	// column default) don't silently mean "never retry, never unpack".
+	settings := domain.DefaultTorrentSettings()
 	if err := json.Unmarshal([]byte(r.Settings), &settings); err != nil {
 		return domain.Torrent{}, fmt.Errorf("torrent %s settings: %w", r.ID, err)
+	}
+	if settings.FinishedAction == "" {
+		settings.FinishedAction = domain.FinishedKeep
 	}
 	t := domain.Torrent{
 		ID: r.ID, AccountID: r.AccountID, Hash: r.Hash, Name: r.Name, Category: r.Category,
@@ -102,6 +107,9 @@ func TorrentInsertParams(t domain.Torrent) (sqlcgen.InsertTorrentParams, error) 
 	files, settings, err := torrentJSON(t)
 	if err != nil {
 		return sqlcgen.InsertTorrentParams{}, err
+	}
+	if t.Payload == nil {
+		t.Payload = []byte{} // column is NOT NULL; an empty payload is a caller bug but shouldn't fail the insert
 	}
 	return sqlcgen.InsertTorrentParams{
 		ID: t.ID, AccountID: t.AccountID, Hash: t.Hash, Name: t.Name, Category: t.Category,
@@ -200,6 +208,15 @@ func DownloadUpdateParams(d domain.Download) sqlcgen.UpdateDownloadParams {
 		UnpackStartedAt: NullTime(d.UnpackStartedAt), UnpackFinishedAt: NullTime(d.UnpackFinishedAt),
 		CompletedAt: NullTime(d.CompletedAt), UpdatedAt: FormatTime(d.UpdatedAt), ID: d.ID,
 	}
+}
+
+// utcCreds normalises the optional expiry to UTC like every other stored timestamp.
+func utcCreds(c domain.Credentials) domain.Credentials {
+	if c.ExpiresAt != nil {
+		u := c.ExpiresAt.UTC()
+		c.ExpiresAt = &u
+	}
+	return c
 }
 
 func b2i(b bool) int64 {

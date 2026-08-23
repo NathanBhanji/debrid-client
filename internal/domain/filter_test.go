@@ -11,6 +11,7 @@ var sample = []File{
 	{ID: "3", Path: "Show/Sample/sample.mkv", Size: 50_000_000},
 	{ID: "4", Path: "Show/Show.nfo", Size: 2_000},
 	{ID: "5", Path: "/Show/Subs/Show.S01E01.srt", Size: 60_000},
+	{ID: "6", Path: "zero-size-unknown.mkv", Size: 0},
 }
 
 func ids(fs []File) []string {
@@ -40,16 +41,17 @@ func TestSelectFiles(t *testing.T) {
 		want    []string
 		wantErr error
 	}{
-		{"no filters keeps all", TorrentSettings{}, []string{"1", "2", "3", "4", "5"}, nil},
-		{"min size", TorrentSettings{MinFileSize: 100_000_000}, []string{"1", "2"}, nil},
-		{"exclude regex (case-insensitive)", TorrentSettings{ExcludeRegex: `SAMPLE|\.nfo$`}, []string{"1", "2", "5"}, nil},
-		{"include regex wins over exclude", TorrentSettings{IncludeRegex: `\.mkv$`, ExcludeRegex: `sample`}, []string{"1", "2", "3"}, nil},
-		{"include + min size", TorrentSettings{IncludeRegex: `\.mkv$`, MinFileSize: 100_000_000}, []string{"1", "2"}, nil},
+		{"no filters keeps all", TorrentSettings{}, []string{"1", "2", "3", "4", "5", "6"}, nil},
+		{"min size", TorrentSettings{MinFileSize: 100_000_000}, []string{"1", "2", "6"}, nil},
+		{"exclude regex (case-insensitive)", TorrentSettings{ExcludeRegex: `SAMPLE|\.nfo$|zero`}, []string{"1", "2", "5"}, nil},
+		{"include regex wins over exclude", TorrentSettings{IncludeRegex: `S01E0\d\.mkv$|sample`, ExcludeRegex: `sample`}, []string{"1", "2", "3"}, nil},
+		{"include + min size", TorrentSettings{IncludeRegex: `S01E0\d\.mkv$`, MinFileSize: 100_000_000}, []string{"1", "2"}, nil},
 		{"leading slash normalised", TorrentSettings{IncludeRegex: `^Show/Subs/`}, []string{"5"}, nil},
 		{"manual wins over everything", TorrentSettings{ManualFiles: []string{"4", "3"}, IncludeRegex: `\.mkv$`, MinFileSize: 1 << 40}, []string{"3", "4"}, nil},
 		{"manual none match", TorrentSettings{ManualFiles: []string{"99"}}, nil, ErrNoFilesSelected},
-		{"all excluded", TorrentSettings{MinFileSize: 1 << 40}, nil, ErrNoFilesSelected},
+		{"all excluded", TorrentSettings{MinFileSize: 1 << 40, ExcludeRegex: `zero`}, nil, ErrNoFilesSelected},
 		{"bad regex", TorrentSettings{IncludeRegex: `(`}, nil, nil},
+		{"unknown size kept by min size", TorrentSettings{MinFileSize: 100, IncludeRegex: `^zero`}, []string{"6"}, nil},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -100,7 +100,8 @@ func (s TorrentStatus) AtProvider() bool {
 var ErrInvalidTransition = errors.New("invalid state transition")
 
 var torrentTransitions = map[TorrentStatus][]TorrentStatus{
-	TorrentQueued:           {TorrentAdding, TorrentError},
+	// queued → provider states directly covers "adopted an existing provider torrent" (dedupe by hash).
+	TorrentQueued:           {TorrentAdding, TorrentProcessing, TorrentWaitingSelection, TorrentDownloading, TorrentUploading, TorrentFinished, TorrentError},
 	TorrentAdding:           {TorrentQueued, TorrentProcessing, TorrentWaitingSelection, TorrentDownloading, TorrentUploading, TorrentFinished, TorrentError},
 	TorrentProcessing:       {TorrentWaitingSelection, TorrentDownloading, TorrentUploading, TorrentFinished, TorrentError},
 	TorrentWaitingSelection: {TorrentProcessing, TorrentDownloading, TorrentUploading, TorrentFinished, TorrentError},
@@ -108,7 +109,7 @@ var torrentTransitions = map[TorrentStatus][]TorrentStatus{
 	TorrentUploading:        {TorrentDownloading, TorrentFinished, TorrentError},
 	TorrentFinished:         {TorrentCompleted, TorrentError},
 	TorrentCompleted:        {TorrentQueued},
-	TorrentError:            {TorrentQueued},
+	TorrentError:            {TorrentQueued, TorrentFinished}, // finished: resume local work after a download-level error
 }
 
 // CanTransition reports whether a torrent may move from one status to another.

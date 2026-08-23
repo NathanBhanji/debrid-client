@@ -15,7 +15,7 @@ var ErrNoFilesSelected = errors.New("no files selected")
 //   - ManualFiles, when set, wins outright (by provider file ID).
 //   - IncludeRegex, when set, keeps only matching paths and ignores ExcludeRegex.
 //   - Otherwise ExcludeRegex drops matching paths.
-//   - MinFileSize then drops small files.
+//   - MinFileSize then drops small files (files of unknown size, 0, are kept).
 //
 // Regexes are matched case-insensitively against the "/"-joined path.
 // Returns ErrNoFilesSelected if nothing survives.
@@ -58,7 +58,7 @@ func SelectFiles(files []File, s TorrentSettings) ([]File, error) {
 		if exclude != nil && exclude.MatchString(p) {
 			continue
 		}
-		if s.MinFileSize > 0 && f.Size < s.MinFileSize {
+		if s.MinFileSize > 0 && f.Size > 0 && f.Size < s.MinFileSize {
 			continue
 		}
 		out = append(out, f)

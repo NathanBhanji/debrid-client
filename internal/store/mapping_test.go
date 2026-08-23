@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/NathanBhanji/debrid-client/internal/domain"
+	"github.com/NathanBhanji/debrid-client/internal/store/sqlcgen"
 )
 
 func ts(s string) time.Time  { t, _ := time.Parse(time.RFC3339Nano, s); return t.UTC() }
@@ -117,6 +118,26 @@ func TestRoundTripThroughDB(t *testing.T) {
 	gotDl, _ = DownloadFromRow(drow)
 	if !reflect.DeepEqual(gotDl, dl) {
 		t.Fatalf("download update mismatch:\n got %+v\nwant %+v", gotDl, dl)
+	}
+}
+
+func TestEmptySettingsDecodeToDefaults(t *testing.T) {
+	s := open(t)
+	ctx := context.Background()
+	_ = s.InsertProviderAccount(ctx, sqlcgen.InsertProviderAccountParams{ID: "a", Kind: "torbox", Name: "n", Credentials: "{}", Enabled: 1, CreatedAt: now(), UpdatedAt: now()})
+	_ = s.InsertTorrent(ctx, sqlcgen.InsertTorrentParams{ID: "t", AccountID: "a", Hash: "h", Status: "queued", Files: "[]", Settings: "{}", PayloadKind: "magnet", Payload: []byte("m"), AddedAt: now(), UpdatedAt: now()})
+	row, _ := s.GetTorrent(ctx, "t")
+	tor, err := TorrentFromRow(row)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tor.Settings != domain.DefaultTorrentSettings() {
+		t.Fatalf("empty settings should decode to defaults, got %+v", tor.Settings)
+	}
+	// nil payload is coerced rather than failing NOT NULL.
+	p, _ := TorrentInsertParams(domain.Torrent{ID: "t2", AccountID: "a", Hash: "h2", Status: domain.TorrentQueued, PayloadKind: domain.PayloadMagnet, AddedAt: ts("2026-01-01T00:00:00Z"), UpdatedAt: ts("2026-01-01T00:00:00Z")})
+	if err := s.InsertTorrent(ctx, p); err != nil {
+		t.Fatalf("nil payload insert: %v", err)
 	}
 }
 

@@ -18,6 +18,8 @@ func TestTorrentTransitions(t *testing.T) {
 		{TorrentFinished, TorrentCompleted},
 		{TorrentFinished, TorrentError},
 		{TorrentError, TorrentQueued},     // retry
+		{TorrentError, TorrentFinished},   // retry a single download
+		{TorrentQueued, TorrentFinished},  // adopted an already-cached provider torrent
 		{TorrentCompleted, TorrentQueued}, // explicit re-download
 		{TorrentDownloading, TorrentDownloading},
 	}
@@ -27,7 +29,6 @@ func TestTorrentTransitions(t *testing.T) {
 		}
 	}
 	bad := [][2]TorrentStatus{
-		{TorrentQueued, TorrentFinished},
 		{TorrentQueued, TorrentCompleted},
 		{TorrentCompleted, TorrentFinished},
 		{TorrentError, TorrentDownloading},
