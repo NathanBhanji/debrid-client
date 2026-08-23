@@ -11,6 +11,7 @@ import (
 	"github.com/NathanBhanji/debrid-client/internal/provider"
 	"github.com/NathanBhanji/debrid-client/internal/service"
 	"github.com/NathanBhanji/debrid-client/internal/store"
+	"github.com/NathanBhanji/debrid-client/internal/store/sqlcgen"
 )
 
 // tick is one scheduling pass. It never blocks on provider or disk I/O:
@@ -36,7 +37,7 @@ func (e *Engine) tick(ctx context.Context) error {
 		case domain.TorrentCompleted:
 			err = e.tickCompleted(ctx, t, now)
 		case domain.TorrentError:
-			err = e.tickError(ctx, t, now)
+			e.tickError(ctx, t, now)
 		}
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
@@ -54,7 +55,7 @@ func (e *Engine) tickQueued(ctx context.Context, t *domain.Torrent, now time.Tim
 	if t.RetryAt != nil && now.Before(*t.RetryAt) {
 		return nil
 	}
-	if e.hasJob("add:" + t.ID) {
+	if !e.canRun("add:"+t.ID, now) {
 		return nil
 	}
 	prov, acc, err := e.svc.Providers().For(ctx, t.AccountID)
@@ -71,24 +72,23 @@ func (e *Engine) tickQueued(ctx context.Context, t *domain.Torrent, now time.Tim
 
 	// Dedupe against the last provider listing: if the hash is already there
 	// (previous timed-out add, or added via the provider UI), adopt it.
-	e.mu.Lock()
-	snap, ok := e.lastList[t.AccountID]
-	e.mu.Unlock()
-	if ok {
-		if pt, found := snap.byHash[t.Hash]; found {
-			if pt.Status != domain.TorrentError {
-				return e.adopt(ctx, t, pt, prov.Caps())
-			}
-			// A dead copy is sitting at the provider; clear it so the add is clean.
-			e.forgetProviderTorrent(t.AccountID, pt.ID)
-			tt := *t
-			e.startJob(ctx, "add:"+t.ID, t.ID, jobAdd, func(jctx context.Context) {
-				if err := prov.Delete(jctx, pt.ID); err != nil && provider.KindOf(err) != provider.ErrNotFound {
-					e.log.Warn("delete dead provider torrent before add", "id", tt.ID, "err", err)
-				}
-			})
-			return nil
+	if pt, found := e.lookupHash(t.AccountID, t.Hash); found {
+		if pt.Status != domain.TorrentError {
+			return e.adopt(ctx, t, pt, prov.Caps())
 		}
+		// A dead copy is sitting at the provider; clear it so the add is clean.
+		// The listing entry is forgotten only once the delete went through.
+		accountID, key := t.AccountID, "add:"+t.ID
+		e.startJob(ctx, key, t.ID, jobAdd, func(jctx context.Context) {
+			err := prov.Delete(jctx, pt.ID)
+			if err != nil && provider.KindOf(err) != provider.ErrNotFound {
+				e.log.Warn("delete dead provider torrent before add", "provider_id", pt.ID, "err", err)
+				e.deferKey(key, e.now().Add(e.backoff(0)))
+				return
+			}
+			e.forgetProviderTorrent(accountID, pt.ID)
+		})
+		return nil
 	}
 
 	tt, err := e.mutate(ctx, t.ID, func(t *domain.Torrent) error {
@@ -128,6 +128,16 @@ func (e *Engine) adopt(ctx context.Context, t *domain.Torrent, pt provider.Torre
 	return e.applyProviderState(ctx, t, pt, caps)
 }
 
+// maxAddFailures bounds consecutive transient add failures before giving up.
+const maxAddFailures = 10
+
+func (e *Engine) bumpAddFails(id string) int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.addFails[id]++
+	return e.addFails[id]
+}
+
 // runAdd performs the provider add call (in a job goroutine).
 func (e *Engine) runAdd(ctx context.Context, t domain.Torrent, prov provider.Provider) {
 	actx, cancel := context.WithTimeout(ctx, e.cfg.AddTimeout)
@@ -149,12 +159,13 @@ func (e *Engine) runAdd(ctx context.Context, t domain.Torrent, prov provider.Pro
 				return store.ErrSkip // deleted/retried concurrently
 			}
 			switch {
-			case errors.Is(err, context.DeadlineExceeded) || (kind == provider.ErrTransient && strings.Contains(err.Error(), "deadline")):
-				// Unknown outcome: re-queue; dedupe-by-hash adopts it if it went through.
+			case errors.Is(err, context.DeadlineExceeded), errors.Is(err, context.Canceled), ctx.Err() != nil:
+				// Unknown outcome (timeout or shutdown): re-queue without penalty;
+				// dedupe-by-hash adopts it if it went through.
 				at := e.now().Add(e.cfg.PollInterval + 5*time.Second)
 				tt.RetryAt = &at
-				_ = tt.Transition(domain.TorrentQueued, "add timed out; reconciling with provider")
-				e.log.Warn("add timed out", "id", t.ID)
+				_ = tt.Transition(domain.TorrentQueued, "add interrupted; reconciling with provider")
+				e.log.Warn("add interrupted", "id", t.ID, "err", err)
 			case kind == provider.ErrPermanent || kind == provider.ErrAuth:
 				failMsg = "provider rejected torrent: " + err.Error()
 				return store.ErrSkip
@@ -167,8 +178,14 @@ func (e *Engine) runAdd(ctx context.Context, t domain.Torrent, prov provider.Pro
 				tt.RetryAt = &at
 				_ = tt.Transition(domain.TorrentQueued, "provider limit reached; retrying at "+at.Format(time.Kitchen)+": "+err.Error())
 			default:
-				tt.RetryCount++
-				at := e.now().Add(e.backoff(tt.RetryCount - 1))
+				// Transient: exponential backoff on an in-memory counter (the
+				// persisted RetryCount is the provider-side retry budget).
+				n := e.bumpAddFails(t.ID)
+				if n > maxAddFailures {
+					failMsg = "provider add keeps failing: " + err.Error()
+					return store.ErrSkip
+				}
+				at := e.now().Add(e.backoff(n - 1))
 				tt.RetryAt = &at
 				_ = tt.Transition(domain.TorrentQueued, "add failed, retrying: "+err.Error())
 			}
@@ -188,6 +205,9 @@ func (e *Engine) runAdd(ctx context.Context, t domain.Torrent, prov provider.Pro
 	if res.Hash != "" && res.Hash != t.Hash {
 		e.log.Warn("provider hash differs", "local", t.Hash, "provider", res.Hash)
 	}
+	e.mu.Lock()
+	delete(e.addFails, t.ID)
+	e.mu.Unlock()
 	tt, merr := e.mutate(sctx, t.ID, func(tt *domain.Torrent) error {
 		if tt.Status != domain.TorrentAdding {
 			return store.ErrSkip
@@ -232,32 +252,39 @@ func (e *Engine) tickAtProvider(ctx context.Context, t *domain.Torrent, now time
 	if !prov.Caps().SelectFiles {
 		return nil
 	}
-	if e.hasJob("select:" + t.ID) {
+	key := "select:" + t.ID
+	if !e.canRun(key, now) {
 		return nil
 	}
 	tt := *t
-	e.startJob(ctx, "select:"+t.ID, t.ID, jobAdd, func(jctx context.Context) { e.runSelect(jctx, tt, prov) })
+	e.startJob(ctx, key, t.ID, jobAdd, func(jctx context.Context) {
+		if !e.runSelect(jctx, tt, prov) {
+			e.deferKey(key, e.now().Add(e.cfg.PollInterval)) // not ready / transient: try again next poll
+		}
+	})
 	return nil
 }
 
-// runSelect fetches files if needed, applies filters and selects at the provider.
-func (e *Engine) runSelect(ctx context.Context, t domain.Torrent, prov provider.Provider) {
+// runSelect fetches files if needed, applies filters and selects at the
+// provider. Returns false when nothing could be decided yet (metadata not
+// ready, transient error) so the caller throttles the next attempt.
+func (e *Engine) runSelect(ctx context.Context, t domain.Torrent, prov provider.Provider) bool {
 	sctx := context.WithoutCancel(ctx)
 	if len(t.Files) == 0 {
 		pt, err := prov.GetTorrent(ctx, t.ProviderID)
 		if err != nil {
 			e.log.Warn("select: get torrent", "id", t.ID, "err", err)
-			return
+			return false
 		}
 		t.Files = pt.Files
 		if len(t.Files) == 0 {
-			return // metadata not ready yet; try again next tick
+			return false // metadata not ready yet
 		}
 	}
 	selected, err := domain.SelectFiles(t.Files, t.Settings)
 	if err != nil {
 		_ = e.fail(sctx, &t, err.Error())
-		return
+		return true
 	}
 	ids := make([]string, len(selected))
 	sel := map[string]bool{}
@@ -268,10 +295,10 @@ func (e *Engine) runSelect(ctx context.Context, t domain.Torrent, prov provider.
 	if err := prov.SelectFiles(ctx, t.ProviderID, ids); err != nil {
 		if !provider.IsRetryable(err) {
 			_ = e.fail(sctx, &t, "select files: "+err.Error())
-		} else {
-			e.log.Warn("select files", "id", t.ID, "err", err)
+			return true
 		}
-		return
+		e.log.Warn("select files", "id", t.ID, "err", err)
+		return false
 	}
 	files := t.Files
 	_, _ = e.mutate(sctx, t.ID, func(t *domain.Torrent) error {
@@ -286,6 +313,7 @@ func (e *Engine) runSelect(ctx context.Context, t domain.Torrent, prov provider.
 		t.StatusReason = "files selected"
 		return nil
 	})
+	return true
 }
 
 // tickFinished creates downloads once links are available, starts downloads
@@ -296,19 +324,37 @@ func (e *Engine) tickFinished(ctx context.Context, t *domain.Torrent, now time.T
 		return err
 	}
 	if len(downloads) == 0 {
-		if e.hasJob("links:" + t.ID) {
-			return nil
-		}
-		if t.ProviderEndedAt != nil && now.Sub(*t.ProviderEndedAt) > e.cfg.LinksTimeout && t.StatusReason == "waiting for download links" {
+		if since := e.waitingSince(t.ID, now); now.Sub(since) > e.cfg.LinksTimeout {
 			return e.fail(ctx, t, "no download links from provider after "+e.cfg.LinksTimeout.String())
+		}
+		key := "links:" + t.ID
+		if !e.canRun(key, now) {
+			return nil
 		}
 		prov, _, err := e.svc.Providers().For(ctx, t.AccountID)
 		if err != nil {
 			return err
 		}
 		tt := *t
-		e.startJob(ctx, "links:"+t.ID, t.ID, jobAdd, func(jctx context.Context) { e.runCreateDownloads(jctx, tt, prov) })
+		e.startJob(ctx, key, t.ID, jobAdd, func(jctx context.Context) {
+			if !e.runCreateDownloads(jctx, tt, prov) {
+				e.deferKey(key, e.now().Add(e.cfg.PollInterval)) // links not ready / transient: next poll
+			}
+		})
 		return nil
+	}
+	e.mu.Lock()
+	delete(e.waitSince, t.ID)
+	e.mu.Unlock()
+
+	// Archives may span several downloads (.part1.rar + .part2.rar …); only
+	// start unpacking once no download of this torrent is still in flight.
+	var inflight int
+	for i := range downloads {
+		switch downloads[i].State {
+		case domain.DownloadPending, domain.DownloadUnrestricting, domain.DownloadDownloading:
+			inflight++
+		}
 	}
 
 	var pending, active, done, failed int
@@ -344,7 +390,7 @@ func (e *Engine) tickFinished(ctx context.Context, t *domain.Torrent, now time.T
 				done++
 				continue
 			}
-			if e.hasJob(d.ID) || e.countJobs(jobUnpack) >= e.cfg.UnpackLimit {
+			if inflight > 0 || e.hasJob(d.ID) || e.countJobs(jobUnpack) >= e.cfg.UnpackLimit {
 				active++
 				continue
 			}
@@ -385,14 +431,16 @@ func (e *Engine) tickFinished(ctx context.Context, t *domain.Torrent, now time.T
 	return nil
 }
 
-// runCreateDownloads fetches links for a finished torrent and inserts download rows.
-func (e *Engine) runCreateDownloads(ctx context.Context, t domain.Torrent, prov provider.Provider) {
+// runCreateDownloads fetches links for a finished torrent and inserts download
+// rows (atomically, skipping links that already have a row). Returns false when
+// links weren't available yet or a transient error occurred.
+func (e *Engine) runCreateDownloads(ctx context.Context, t domain.Torrent, prov provider.Provider) bool {
 	sctx := context.WithoutCancel(ctx)
 	if len(t.Files) == 0 {
 		pt, err := prov.GetTorrent(ctx, t.ProviderID)
 		if err != nil {
 			e.log.Warn("create downloads: get torrent", "id", t.ID, "err", err)
-			return
+			return false
 		}
 		t.Files = pt.Files
 	}
@@ -400,16 +448,16 @@ func (e *Engine) runCreateDownloads(ctx context.Context, t domain.Torrent, prov 
 	if err != nil {
 		if provider.KindOf(err) == provider.ErrNotFound {
 			_ = e.fail(sctx, &t, "torrent disappeared at provider before links were fetched")
-		} else {
-			e.log.Warn("links", "id", t.ID, "err", err)
+			return true
 		}
-		return
+		e.log.Warn("links", "id", t.ID, "err", err)
+		return false
 	}
 	if len(links) == 0 {
 		if t.StatusReason != "waiting for download links" {
 			_, _ = e.mutate(sctx, t.ID, func(t *domain.Torrent) error { t.StatusReason = "waiting for download links"; return nil })
 		}
-		return
+		return false
 	}
 	// Decide which files to download. Providers that track selection already
 	// restricted the links; otherwise apply our filters now.
@@ -428,7 +476,7 @@ func (e *Engine) runCreateDownloads(ctx context.Context, t domain.Torrent, prov 
 		selected, err := domain.SelectFiles(linkFiles(links, t.Files), t.Settings)
 		if err != nil {
 			_ = e.fail(sctx, &t, err.Error())
-			return
+			return true
 		}
 		wanted = map[string]bool{}
 		for _, f := range selected {
@@ -436,25 +484,32 @@ func (e *Engine) runCreateDownloads(ctx context.Context, t domain.Torrent, prov 
 		}
 	}
 	now := e.now()
-	n := 0
+	var rows []domain.Download
 	for _, l := range links {
 		if wanted != nil && !wanted[l.FileID] {
 			continue
 		}
 		rel := relPath(t.Name, l.Path)
-		d := domain.Download{
+		rows = append(rows, domain.Download{
 			ID: newID(), TorrentID: t.ID, FileID: l.FileID, ProviderLink: l.URL, RelPath: rel, Filename: path.Base(rel),
 			Size: l.Size, State: domain.DownloadPending, QueuedAt: now, UpdatedAt: now,
-		}
-		if _, err := e.store.InsertDownload(sctx, downloadInsert(d)); err != nil {
-			e.log.Error("insert download", "err", err)
-			return
-		}
-		n++
+		})
 	}
-	if n == 0 {
+	if len(rows) == 0 {
 		_ = e.fail(sctx, &t, "no files matched the filters")
-		return
+		return true
+	}
+	err = e.store.WithTx(sctx, func(q *sqlcgen.Queries) error {
+		for _, d := range rows {
+			if _, err := q.InsertDownload(sctx, downloadInsert(d)); err != nil { // ON CONFLICT DO NOTHING → idempotent
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		e.log.Error("insert downloads", "id", t.ID, "err", err)
+		return false
 	}
 	_, _ = e.mutate(sctx, t.ID, func(t *domain.Torrent) error {
 		if t.FilesSelectedAt == nil {
@@ -463,6 +518,7 @@ func (e *Engine) runCreateDownloads(ctx context.Context, t domain.Torrent, prov 
 		t.StatusReason = "downloading"
 		return nil
 	})
+	return true
 }
 
 // linkFiles builds domain.Files for filtering from provider links, using the
@@ -515,7 +571,8 @@ func (e *Engine) tickCompleted(ctx context.Context, t *domain.Torrent, now time.
 	if now.Before(t.CompletedAt.Add(t.Settings.FinishedDelay)) {
 		return nil
 	}
-	if e.hasJob("finish:" + t.ID) {
+	key := "finish:" + t.ID
+	if !e.canRun(key, now) {
 		return nil
 	}
 	prov, _, err := e.svc.Providers().For(ctx, t.AccountID)
@@ -523,10 +580,11 @@ func (e *Engine) tickCompleted(ctx context.Context, t *domain.Torrent, now time.
 		return err
 	}
 	tt := *t
-	e.startJob(ctx, "finish:"+t.ID, t.ID, jobAdd, func(jctx context.Context) {
+	e.startJob(ctx, key, t.ID, jobAdd, func(jctx context.Context) {
 		err := prov.Delete(jctx, tt.ProviderID)
 		if err != nil && provider.KindOf(err) != provider.ErrNotFound {
 			e.log.Warn("finished action: delete at provider", "id", tt.ID, "err", err)
+			e.deferKey(key, e.now().Add(e.backoff(1)))
 			return
 		}
 		_, _ = e.mutate(context.WithoutCancel(jctx), tt.ID, func(t *domain.Torrent) error {
@@ -538,11 +596,31 @@ func (e *Engine) tickCompleted(ctx context.Context, t *domain.Torrent, now time.
 	return nil
 }
 
-// tickError applies delete-on-error.
-func (e *Engine) tickError(ctx context.Context, t *domain.Torrent, now time.Time) error {
+// tickError applies delete-on-error (in a job: it talks to the provider).
+func (e *Engine) tickError(ctx context.Context, t *domain.Torrent, now time.Time) {
 	if t.Settings.DeleteOnError <= 0 || t.CompletedAt == nil || now.Before(t.CompletedAt.Add(t.Settings.DeleteOnError)) {
-		return nil
+		return
 	}
-	e.log.Info("delete-on-error", "id", t.ID, "name", t.Name)
-	return e.svc.DeleteTorrent(ctx, t.ID, service.DeleteOptions{DeleteFiles: true, DeleteFromProvider: true})
+	key := "delete:" + t.ID
+	if !e.canRun(key, now) {
+		return
+	}
+	// Not a registered job: DeleteTorrent calls CancelTorrent, which waits for
+	// this torrent's jobs and would wait on itself. Guard re-entry with the
+	// throttle key instead.
+	e.deferKey(key, now.Add(time.Hour))
+	id, name := t.ID, t.Name
+	e.wg.Add(1)
+	go func() {
+		defer e.wg.Done()
+		e.log.Info("delete-on-error", "id", id, "name", name)
+		if err := e.svc.DeleteTorrent(context.WithoutCancel(ctx), id, service.DeleteOptions{DeleteFiles: true, DeleteFromProvider: true}); err != nil {
+			e.log.Warn("delete-on-error failed", "id", id, "err", err)
+			e.deferKey(key, e.now().Add(e.backoff(2)))
+			return
+		}
+		e.mu.Lock()
+		delete(e.nextAttempt, key)
+		e.mu.Unlock()
+	}()
 }

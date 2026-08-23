@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -71,6 +72,17 @@ type Engine struct {
 	mu       sync.Mutex
 	jobs     map[string]*job // by download id (or "add:"+torrent id)
 	lastList map[string]listSnapshot
+	// nextAttempt throttles jobs that finished without making progress
+	// (links not ready, metadata not ready, transient provider errors): a job
+	// key may not be relaunched before its time. Without this the scheduler
+	// would relaunch such jobs at provider-latency rate, not once per tick.
+	nextAttempt map[string]time.Time
+	// waitSince records when a finished torrent first waited for links, so
+	// LinksTimeout measures our wait rather than the provider's EndedAt.
+	waitSince map[string]time.Time
+	// addFails counts consecutive transient add failures per torrent (not
+	// persisted; provider-side retries use Torrent.RetryCount instead).
+	addFails map[string]int
 	wg       sync.WaitGroup
 }
 
@@ -124,10 +136,13 @@ func New(cfg Config, st *store.Store, svc *service.Service, bus *events.Bus, log
 	e := &Engine{
 		cfg: cfg, store: st, svc: svc, events: bus, log: log,
 		fetcher: fetch.Download, unpacker: unpack.Extract,
-		backoff:  defaultBackoff,
-		wake:     make(chan struct{}, 1),
-		jobs:     map[string]*job{},
-		lastList: map[string]listSnapshot{},
+		backoff:     defaultBackoff,
+		wake:        make(chan struct{}, 1),
+		jobs:        map[string]*job{},
+		lastList:    map[string]listSnapshot{},
+		nextAttempt: map[string]time.Time{},
+		waitSince:   map[string]time.Time{},
+		addFails:    map[string]int{},
 	}
 	if cfg.MaxSpeed > 0 {
 		e.limiter = rate.NewLimiter(rate.Limit(cfg.MaxSpeed), int(min(cfg.MaxSpeed, 4<<20)))
@@ -153,14 +168,26 @@ func (e *Engine) Wake() {
 	}
 }
 
-// CancelTorrent implements service.Engine: stop and wait for the torrent's jobs.
+// CancelTorrent implements service.Engine: stop and wait for the torrent's
+// jobs, and drop the torrent's provider entry from the cached listing so a
+// delete-and-re-add doesn't adopt a torrent that is about to vanish.
 func (e *Engine) CancelTorrent(ctx context.Context, torrentID string) error {
+	if row, err := e.store.GetTorrent(ctx, torrentID); err == nil && row.ProviderID != "" {
+		e.forgetProviderTorrent(row.AccountID, row.ProviderID)
+	}
 	e.mu.Lock()
 	var waiting []*job
 	for _, j := range e.jobs {
 		if j.torrentID == torrentID {
 			j.cancel()
 			waiting = append(waiting, j)
+		}
+	}
+	delete(e.waitSince, torrentID)
+	delete(e.addFails, torrentID)
+	for k := range e.nextAttempt {
+		if strings.HasSuffix(k, ":"+torrentID) {
+			delete(e.nextAttempt, k)
 		}
 	}
 	e.mu.Unlock()
@@ -216,9 +243,12 @@ func (e *Engine) recover(ctx context.Context) error {
 	}
 	for _, r := range rows {
 		// We don't know whether the add went through; re-queue and let the
-		// dedupe-by-hash path adopt it from the next provider listing.
+		// dedupe-by-hash path adopt it from the next provider listing — so
+		// hold the add until a listing has had time to arrive.
 		if _, err := e.store.MutateTorrent(ctx, r.ID, func(t *domain.Torrent) error {
 			_ = t.Transition(domain.TorrentQueued, "restarted during add; will reconcile with provider")
+			at := now.Add(e.cfg.PollInterval + 5*time.Second)
+			t.RetryAt = &at
 			t.UpdatedAt = now
 			return nil
 		}); err != nil {
@@ -264,6 +294,41 @@ func (e *Engine) startJob(ctx context.Context, key, torrentID string, kind jobKi
 		}()
 		fn(jctx)
 	}()
+}
+
+// defer records that key must not run again before when.
+func (e *Engine) deferKey(key string, when time.Time) {
+	e.mu.Lock()
+	e.nextAttempt[key] = when
+	e.mu.Unlock()
+}
+
+// canRun reports whether a job key is neither running nor deferred.
+func (e *Engine) canRun(key string, now time.Time) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if _, running := e.jobs[key]; running {
+		return false
+	}
+	if at, ok := e.nextAttempt[key]; ok {
+		if now.Before(at) {
+			return false
+		}
+		delete(e.nextAttempt, key)
+	}
+	return true
+}
+
+// waitingSince returns when the torrent started waiting for links (first call
+// records now).
+func (e *Engine) waitingSince(id string, now time.Time) time.Time {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if at, ok := e.waitSince[id]; ok {
+		return at
+	}
+	e.waitSince[id] = now
+	return now
 }
 
 func (e *Engine) hasJob(key string) bool {

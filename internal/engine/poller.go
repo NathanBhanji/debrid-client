@@ -217,7 +217,9 @@ func (e *Engine) applyProviderState(ctx context.Context, t *domain.Torrent, pt p
 }
 
 // forgetProviderTorrent drops a provider torrent from the cached listing so
-// the dedupe path doesn't adopt something we just deleted.
+// the dedupe path doesn't adopt something we just deleted. Snapshots are
+// immutable once stored (copy-on-write here), so readers holding an older
+// snapshot never race with this.
 func (e *Engine) forgetProviderTorrent(accountID, providerID string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -225,10 +227,34 @@ func (e *Engine) forgetProviderTorrent(accountID, providerID string) {
 	if !ok {
 		return
 	}
-	if pt, ok := snap.byID[providerID]; ok {
-		delete(snap.byHash, pt.Hash)
-		delete(snap.byID, providerID)
+	pt, ok := snap.byID[providerID]
+	if !ok {
+		return
 	}
+	next := listSnapshot{at: snap.at, byHash: make(map[string]provider.Torrent, len(snap.byHash)), byID: make(map[string]provider.Torrent, len(snap.byID))}
+	for k, v := range snap.byID {
+		if k != providerID {
+			next.byID[k] = v
+		}
+	}
+	for k, v := range snap.byHash {
+		if k != pt.Hash {
+			next.byHash[k] = v
+		}
+	}
+	e.lastList[accountID] = next
+}
+
+// lookupHash finds a provider torrent by hash in the last listing for the account.
+func (e *Engine) lookupHash(accountID, hash string) (provider.Torrent, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	snap, ok := e.lastList[accountID]
+	if !ok {
+		return provider.Torrent{}, false
+	}
+	pt, ok := snap.byHash[hash]
+	return pt, ok
 }
 
 // requeueForRetry deletes the torrent at the provider and queues it again.

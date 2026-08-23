@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/NathanBhanji/debrid-client/internal/service"
 	"github.com/NathanBhanji/debrid-client/internal/store"
 	"github.com/NathanBhanji/debrid-client/internal/store/sqlcgen"
+	"github.com/NathanBhanji/debrid-client/internal/unpack"
 )
 
 const magnet = "magnet:?xt=urn:btih:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb&dn=Show.S01"
@@ -558,3 +560,115 @@ func TestDirNameFrozenAndServiceEditsSurvive(t *testing.T) {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+func TestNoHotLoopWhenLinksNotReady(t *testing.T) {
+	h := newHarness(t, func(c *Config) { c.PollInterval = 200 * time.Millisecond; c.LinksTimeout = 10 * time.Second })
+	tor := h.add(nil)
+	pid := h.waitProviderID(tor.ID)
+	h.fake.SetFiles(pid, []domain.File{{ID: "1", Path: "a.mkv", Size: 1}})
+	h.fake.Finish(pid, nil) // finished, but no links yet
+	h.waitStatus(tor.ID, domain.TorrentFinished)
+	before := h.fake.Calls("Links")
+	time.Sleep(600 * time.Millisecond)
+	calls := h.fake.Calls("Links") - before
+	if calls > 5 { // ~one per poll interval, never per job completion
+		t.Fatalf("links job relaunched %d times in 600ms (hot loop)", calls)
+	}
+	// Once links appear the torrent completes.
+	h.fetch.mu.Lock()
+	h.fetch.content["http://cdn/a.mkv"] = []byte("a")
+	h.fetch.mu.Unlock()
+	h.fake.Finish(pid, []provider.Link{{FileID: "1", Path: "a.mkv", Size: 1, URL: "http://cdn/a.mkv"}})
+	h.waitStatus(tor.ID, domain.TorrentCompleted)
+}
+
+func TestLinksTimeoutOnTransientErrors(t *testing.T) {
+	h := newHarness(t, func(c *Config) { c.PollInterval = 20 * time.Millisecond; c.LinksTimeout = 150 * time.Millisecond })
+	tor := h.add(nil)
+	pid := h.waitProviderID(tor.ID)
+	h.fake.SetFiles(pid, []domain.File{{ID: "1", Path: "a.mkv", Size: 1}})
+	h.fake.Finish(pid, nil) // finished, links not yet available
+	h.waitStatus(tor.ID, domain.TorrentFinished)
+	// From now on every provider call fails transiently; the links wait must
+	// still be bounded by LinksTimeout (no magic status-string dependency).
+	h.fake.SetErr(provider.Errorf(provider.ErrTransient, "", "flaky"))
+	got := h.waitStatus(tor.ID, domain.TorrentError)
+	if !strings.Contains(got.Error, "no download links") {
+		t.Fatalf("error %q", got.Error)
+	}
+}
+
+func TestDeleteThenReAddDoesNotAdoptStaleEntry(t *testing.T) {
+	h := newHarness(t, func(c *Config) { c.PollInterval = 10 * time.Second }) // listing won't refresh during the test
+	tor := h.add(nil)
+	pid := h.waitProviderID(tor.ID)
+	h.waitStatus(tor.ID, domain.TorrentProcessing)
+	// Force a listing snapshot that contains the torrent, then delete it (provider too).
+	_ = h.eng.pollAccount(context.Background(), tor.AccountID)
+	if err := h.svc.DeleteTorrent(context.Background(), tor.ID, service.DeleteOptions{DeleteFromProvider: true}); err != nil {
+		t.Fatal(err)
+	}
+	if len(h.fake.IDs()) != 0 {
+		t.Fatal("provider copy should be gone")
+	}
+	tor2 := h.add(nil)
+	pid2 := h.waitProviderID(tor2.ID)
+	if pid2 == pid {
+		t.Fatalf("re-add adopted the deleted provider entry %s", pid)
+	}
+	h.waitStatus(tor2.ID, domain.TorrentProcessing)
+}
+
+func TestMultiPartArchiveUnpacksAfterAllVolumes(t *testing.T) {
+	h := newHarness(t, func(c *Config) { c.DownloadLimit = 1 })
+	var extractCalls int32
+	var unpackedWithPending int32
+	h.eng.SetUnpacker(func(ctx context.Context, archive, dest string, o unpack.Options) (unpack.Result, error) {
+		atomic.AddInt32(&extractCalls, 1)
+		// Both volumes must exist on disk when extraction starts.
+		if _, err := os.Stat(filepath.Join(dest, "Show.part2.rar")); err != nil {
+			atomic.AddInt32(&unpackedWithPending, 1)
+		}
+		_ = os.Remove(archive)
+		_ = os.Remove(filepath.Join(dest, "Show.part2.rar"))
+		return unpack.Result{Files: []string{"show.mkv"}}, os.WriteFile(filepath.Join(dest, "show.mkv"), []byte("v"), 0o644)
+	})
+	h.fetch.delay = 50 * time.Millisecond
+	tor := h.add(nil)
+	pid := h.waitProviderID(tor.ID)
+	h.finishAtProvider(pid, map[string][]byte{"Show.part1.rar": []byte("r1"), "Show.part2.rar": []byte("r2")})
+	h.waitStatus(tor.ID, domain.TorrentCompleted)
+	if atomic.LoadInt32(&extractCalls) != 1 || atomic.LoadInt32(&unpackedWithPending) != 0 {
+		t.Fatalf("extract calls=%d, started before all volumes=%d", extractCalls, unpackedWithPending)
+	}
+}
+
+func TestShutdownLeavesDownloadResumable(t *testing.T) {
+	h := newHarness(t, nil)
+	h.fetch.delay = 5 * time.Second
+	tor := h.add(nil)
+	pid := h.waitProviderID(tor.ID)
+	h.finishAtProvider(pid, map[string][]byte{"a.mkv": []byte("a")})
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		d, _ := h.svc.GetTorrent(context.Background(), tor.ID)
+		if len(d.Downloads) > 0 && d.Downloads[0].State == domain.DownloadDownloading {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	start := time.Now()
+	h.cancel()
+	select {
+	case <-h.done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Run did not return after cancel")
+	}
+	if time.Since(start) > 2*time.Second {
+		t.Fatal("shutdown should not wait for the slow fetch to finish")
+	}
+	d, _ := h.svc.GetTorrent(context.Background(), tor.ID)
+	if d.Downloads[0].State != domain.DownloadPending {
+		t.Fatalf("interrupted download should be pending for resume, got %s", d.Downloads[0].State)
+	}
+}
