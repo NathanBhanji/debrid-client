@@ -306,3 +306,260 @@ body {
 .strip .bad {
   color: #c23a1c;
 }
+
+/* --- torrent rack ------------------------------------------- */
+.rack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mod {
+  background: linear-gradient(#f2f1ec, #e6e4de);
+  border: 1px solid var(--edge);
+  border-radius: var(--r-mod);
+  box-shadow:
+    0 2px 0 #fff inset,
+    0 3px 6px -3px #00000026;
+  overflow: hidden;
+}
+.modhead {
+  display: grid;
+  grid-template-columns: 52px 1fr 240px 110px 30px;
+  gap: 14px;
+  align-items: center;
+  padding: 13px 16px;
+  cursor: pointer;
+  transition: background 0.1s;
+  width: 100%;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: var(--ink);
+}
+.modhead:hover {
+  background: #eceae4;
+}
+.led {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  font-family: var(--disp);
+  font-weight: 700;
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  color: #fff;
+  text-shadow: 0 1px 2px #0006;
+  box-shadow:
+    inset 0 -3px 6px #0003,
+    0 1px 0 #fff;
+}
+.led.dl {
+  background: linear-gradient(var(--led-dl-a), var(--led-dl-b));
+}
+.led.prov {
+  background: linear-gradient(var(--led-rem-a), var(--led-rem-b));
+  color: #4a3200;
+  text-shadow: none;
+}
+.led.done {
+  background: linear-gradient(var(--led-ok-a), var(--led-ok-b));
+}
+.led.q {
+  background: linear-gradient(var(--led-off-a), var(--led-off-b));
+  color: #55534b;
+  text-shadow: none;
+}
+.led.err {
+  background: linear-gradient(var(--led-err-a), var(--led-err-b));
+}
+.mod .name {
+  font-family: var(--disp);
+  font-weight: 600;
+  font-size: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mod .meta {
+  color: var(--mut);
+  font-size: 11.5px;
+  margin-top: 2px;
+}
+.seg {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+}
+.seg i {
+  width: 13px;
+  height: 17px;
+  border-radius: 3px;
+  background: #cfccc3;
+  box-shadow: inset 0 1px 2px #00000021;
+}
+.seg i.on {
+  background: linear-gradient(#5ad0ff, #189fe0);
+  box-shadow: inset 0 -2px 3px #0003;
+}
+.seg i.amb {
+  background: linear-gradient(#ffd166, #eda400);
+}
+.seg i.grn {
+  background: linear-gradient(#6fe392, #2cab52);
+}
+.seg i.red {
+  background: linear-gradient(#ff8f77, #e23b1b);
+}
+.seg .pc {
+  font-family: var(--disp);
+  font-weight: 700;
+  font-size: 13px;
+  margin-left: 8px;
+  min-width: 42px;
+  text-align: right;
+}
+.seg i.blink {
+  animation: seg-blink 0.8s steps(2) infinite;
+}
+@keyframes seg-blink {
+  50% {
+    opacity: 0.35;
+  }
+}
+.mod .stats {
+  justify-self: end;
+  text-align: right;
+}
+.mod .stats .s1 {
+  font-family: var(--disp);
+  font-weight: 600;
+  font-size: 13.5px;
+}
+.mod .stats .s2 {
+  color: var(--mut);
+  font-size: 11px;
+}
+.chev {
+  color: var(--mut);
+  font-size: 11px;
+  transition: transform 0.2s;
+}
+.mod.open .chev {
+  transform: rotate(90deg);
+}
+
+/* --- detail bay --------------------------------------------- */
+.bay {
+  border-top: 1px solid var(--edge);
+  background: #e2e0d9;
+  padding: 16px 18px 18px;
+}
+.bay .cols {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 20px;
+}
+.filelist {
+  background: var(--lcd);
+  border-radius: var(--r-lcd);
+  box-shadow: inset 0 3px 10px #000c;
+  padding: 12px 14px;
+  color: var(--lcd-txt);
+  font-size: 12px;
+  position: relative;
+  overflow: hidden;
+}
+.filelist::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    #ffffff05 0 1px,
+    transparent 1px 3px
+  );
+  pointer-events: none;
+}
+.filelist .hd {
+  color: var(--lcd-dim);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  margin-bottom: 8px;
+}
+.frow {
+  display: flex;
+  gap: 10px;
+  padding: 3px 0;
+  font-variant-numeric: tabular-nums;
+}
+.frow .fp {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.frow .fs {
+  color: var(--lcd-dim);
+}
+.frow .fst {
+  min-width: 52px;
+  text-align: right;
+}
+.frow .fst.ok {
+  color: var(--lcd-txt);
+}
+.frow .fst.run {
+  color: var(--lcd-cyan);
+}
+.frow .fst.wait {
+  color: var(--lcd-dim);
+}
+.frow .fst.bad {
+  color: var(--lcd-red);
+}
+.bayside {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11.5px;
+  padding: 3px 2px;
+  color: var(--mut);
+}
+.kv b {
+  color: var(--ink);
+  font-weight: 500;
+  font-family: var(--mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --- rack empty state --------------------------------------- */
+.rack-empty {
+  text-align: center;
+  padding: 34px 0 30px;
+}
+.rack-empty .big {
+  letter-spacing: 0.12em;
+}
+
+@media (max-width: 820px) {
+  .modhead {
+    grid-template-columns: 44px 1fr 90px;
+  }
+  .seg,
+  .chev {
+    display: none;
+  }
+  .bay .cols {
+    grid-template-columns: 1fr;
+  }
+}

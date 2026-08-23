@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 
-import { ApiError, api, getApiKey, setApiKey } from '#/lib/api'
+import { ApiError, api, openEvents, setApiKey } from '#/lib/api'
+import { Rack } from '#/components/rack'
 import type { Status } from '#/lib/api'
 
 export const Route = createFileRoute('/')({ component: Home })
@@ -32,6 +33,52 @@ function Home() {
       })
   }
   useEffect(load, [])
+
+  // One SSE connection per page; every notification bumps the tick, which
+  // re-fetches the status LCDs here and the torrent list in <Rack>. Keyed on
+  // needsKey so a rotated key closes the stream and reconnects with the new
+  // one once the user re-authorizes.
+  const [tick, setTick] = useState(0)
+  const authed = status !== null
+  useEffect(() => {
+    if (!authed || needsKey) return
+    let disposed = false
+    let close: (() => void) | undefined
+    let retryTimer: ReturnType<typeof setTimeout>
+    const connect = () => {
+      close = openEvents(
+        (type) => {
+          if (type !== 'heartbeat') setTick((n) => n + 1)
+        },
+        () => {
+          // Fatal close (e.g. key rejected): surface auth state via a normal
+          // load, then retry the stream — a 401 flips needsKey and stops us.
+          close?.()
+          load()
+          if (!disposed) retryTimer = setTimeout(connect, 5000)
+        },
+      )
+    }
+    connect()
+    return () => {
+      disposed = true
+      clearTimeout(retryTimer)
+      close?.()
+    }
+  }, [authed, needsKey])
+  const lastLoad = useRef(0)
+  useEffect(() => {
+    if (tick === 0) return
+    const starved = Date.now() - lastLoad.current > 2000
+    const timer = setTimeout(
+      () => {
+        lastLoad.current = Date.now()
+        load()
+      },
+      starved ? 0 : 300,
+    )
+    return () => clearTimeout(timer)
+  }, [tick])
 
   if (needsKey) {
     return (
@@ -100,11 +147,7 @@ function Home() {
           </div>
         </div>
       </div>
-      <p style={{ color: 'var(--mut)', fontSize: 12 }}>
-        Torrent rack lands in the next PR — this scaffold proves the embedded
-        SPA, design tokens, typed API client and auth flow.
-        {getApiKey() ? '' : ' No API key set yet.'}
-      </p>
+      {authed && <Rack refreshTick={tick} />}
     </section>
   )
 }
