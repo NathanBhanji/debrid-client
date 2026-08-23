@@ -2,7 +2,7 @@ version: 2
 project_name: debrid
 before:
   hooks:
-    - go mod tidy
+    - go mod verify
 builds:
   - id: debrid
     main: ./cmd/debrid

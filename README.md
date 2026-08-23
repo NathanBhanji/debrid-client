@@ -12,7 +12,7 @@ Download a release from the [Releases page](https://github.com/NathanBhanji/debr
 go install github.com/NathanBhanji/debrid-client/cmd/debrid@latest
 ```
 
-Docker (`ghcr.io/nathanbhanji/debrid-client`): see [`docker-compose.yml`](docker-compose.yml). The container runs as the uid you give it, stores its database in `/data` and writes files to `/downloads`.
+Docker (`ghcr.io/nathanbhanji/debrid-client`): see [`docker-compose.yml`](docker-compose.yml). The image runs as an unprivileged user (uid 65532), stores its database in `/data` and writes files to `/downloads`. With a named volume it works out of the box; if you bind-mount host directories or set `user:`, create those directories first, owned by that uid.
 
 ## Quick start
 
