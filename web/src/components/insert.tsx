@@ -30,9 +30,9 @@ export function InsertWell({ onAdded }: { onAdded: () => void }) {
     if (!m || busy) return
     run(api.torrents.addMagnet(m))
   }
-  const addFile = (file: File | undefined) => {
-    if (!file || busy) return
-    run(api.torrents.addFile(file))
+  const addFiles = (list: FileList | null | undefined) => {
+    if (!list || list.length === 0 || busy) return
+    run(Promise.all([...list].map((f) => api.torrents.addFile(f))))
   }
 
   return (
@@ -42,6 +42,8 @@ export function InsertWell({ onAdded }: { onAdded: () => void }) {
           className={`well${drag ? ' drag' : ''}`}
           style={{ flex: 1 }}
           onDragOver={(e) => {
+            // Only advertise a drop target for actual files, not text drags.
+            if (!e.dataTransfer.types.includes('Files')) return
             e.preventDefault()
             setDrag(true)
           }}
@@ -49,7 +51,7 @@ export function InsertWell({ onAdded }: { onAdded: () => void }) {
           onDrop={(e) => {
             e.preventDefault()
             setDrag(false)
-            addFile(e.dataTransfer.files[0])
+            addFiles(e.dataTransfer.files)
           }}
         >
           <input
@@ -57,7 +59,7 @@ export function InsertWell({ onAdded }: { onAdded: () => void }) {
             value={magnet}
             onChange={(e) => setMagnet(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') addMagnet()
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing) addMagnet()
             }}
             disabled={busy}
           />
@@ -79,10 +81,11 @@ export function InsertWell({ onAdded }: { onAdded: () => void }) {
         <input
           ref={fileInput}
           type="file"
+          multiple
           accept=".torrent,application/x-bittorrent"
           style={{ display: 'none' }}
           onChange={(e) => {
-            addFile(e.target.files?.[0])
+            addFiles(e.target.files)
             e.target.value = ''
           }}
         />

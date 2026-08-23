@@ -227,18 +227,34 @@ function Bay({ t }: { t: Torrent }) {
   const [wipeProvider, setWipeProvider] = useState(false)
 
   // Actions rely on SSE to refresh the list; Bay only tracks in-flight state.
-  const run = (p: Promise<unknown>) => {
+  // latch keeps busy set after success for actions whose success removes this
+  // component (eject) — otherwise the button re-enables for a beat before the
+  // refresh lands and a second click 404s.
+  const run = (p: Promise<unknown>, latch = false) => {
     setBusy(true)
     setActErr(null)
-    p.catch((e: unknown) =>
-      setActErr(e instanceof Error ? e.message : String(e)),
-    ).finally(() => setBusy(false))
+    p.then(
+      () => {
+        if (!latch) setBusy(false)
+      },
+      (e: unknown) => {
+        setActErr(e instanceof Error ? e.message : String(e))
+        setBusy(false)
+      },
+    )
   }
 
   return (
     <div className="bay">
       <div className="cols">
-        <FilePanel t={t} busy={busy} run={run} />
+        {/* Remount on entering/leaving selection so `picked` re-initializes
+            from the server's current selected flags. */}
+        <FilePanel
+          key={String(t.status === 'waiting_selection')}
+          t={t}
+          busy={busy}
+          run={run}
+        />
         <div className="bayside">
           <div>
             <div className="kv">
@@ -332,6 +348,7 @@ function Bay({ t }: { t: Torrent }) {
                           files: wipeFiles,
                           provider: wipeProvider,
                         }),
+                        true,
                       )
                     }
                   >
