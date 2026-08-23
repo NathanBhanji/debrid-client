@@ -92,7 +92,7 @@ function Home() {
               : 'INSERT API KEY TO CONTINUE'}
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <div className="well" style={{ flex: 1 }}>
             <input
               placeholder="API KEY — printed by `debrid serve` on first start"

@@ -208,6 +208,9 @@ body {
   .lcd-row {
     grid-template-columns: 1fr 1fr;
   }
+  .lcd-row .wide {
+    grid-column: 1 / -1;
+  }
 }
 
 /* --- keys --------------------------------------------------- */
@@ -771,12 +774,6 @@ body {
   .tab {
     padding: 8px 12px;
     font-size: 11px;
-  }
-  .lcd-row {
-    grid-template-columns: 1fr 1fr;
-  }
-  .lcd-row .wide {
-    grid-column: 1 / -1;
   }
   .modhead {
     padding: 11px 12px;
