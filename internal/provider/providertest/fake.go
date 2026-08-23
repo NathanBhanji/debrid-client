@@ -7,6 +7,7 @@ import (
 	"crypto/sha1" //nolint:gosec // info hashes are SHA-1 by spec
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 
@@ -188,7 +189,11 @@ func (f *Fake) add(src, hash string) (provider.AddResult, error) {
 	if f.caps.SelectFiles {
 		status = domain.TorrentWaitingSelection
 	}
-	f.torrents[id] = &provider.Torrent{ID: id, Hash: hash, Name: "torrent-" + hash[:8], Status: status, RawStatus: string(status)}
+	name := nameFromMagnet(src)
+	if name == "" {
+		name = "torrent-" + hash[:8]
+	}
+	f.torrents[id] = &provider.Torrent{ID: id, Hash: hash, Name: name, Status: status, RawStatus: string(status)}
 	return provider.AddResult{ID: id, Hash: hash}, nil
 }
 
@@ -330,6 +335,17 @@ func (f *Fake) IDs() []string {
 		out = append(out, id)
 	}
 	return out
+}
+
+func nameFromMagnet(m string) string {
+	if !strings.HasPrefix(strings.ToLower(m), "magnet:?") {
+		return ""
+	}
+	u, err := url.Parse(m)
+	if err != nil {
+		return ""
+	}
+	return u.Query().Get("dn")
 }
 
 func hashFromMagnet(m string) string {
