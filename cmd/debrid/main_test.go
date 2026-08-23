@@ -50,3 +50,16 @@ func TestConfigInitAndShow(t *testing.T) {
 		t.Fatalf("flag not reflected in show output:\n%s", out.String())
 	}
 }
+
+func TestOpenAPICommand(t *testing.T) {
+	var out bytes.Buffer
+	root := newRootCmd()
+	root.SetOut(&out)
+	root.SetArgs([]string{"openapi"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("openapi: %v", err)
+	}
+	if !strings.Contains(out.String(), `"/api/v1/torrents"`) {
+		t.Fatalf("spec missing paths: %.200s", out.String())
+	}
+}
