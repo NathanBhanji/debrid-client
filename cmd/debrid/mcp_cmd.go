@@ -1,6 +1,9 @@
 package main
 
 import (
+	"context"
+	"errors"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 
@@ -25,7 +28,10 @@ Example client config:
 			if err != nil {
 				return err
 			}
-			return mcpserver.New(cl).Run(cmd.Context(), &mcp.StdioTransport{})
+			if err := mcpserver.New(cl).Run(cmd.Context(), &mcp.StdioTransport{}); err != nil && !errors.Is(err, context.Canceled) {
+				return err
+			}
+			return nil
 		},
 	}
 }

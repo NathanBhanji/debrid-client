@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -82,4 +83,46 @@ func TestRunServesAndShutsDownPromptlyWithSSEClient(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = a2.Close()
+}
+
+func TestMCPMountedInProcess(t *testing.T) {
+	dir := t.TempDir()
+	cfg := config.Default().Derived()
+	cfg.DataDir = dir
+	cfg.DownloadDir = filepath.Join(dir, "dl")
+	cfg.Server.Listen = freePort(t)
+	cfg.Server.APIKey = "k"
+	cfg.Server.BasePath = "/debrid"
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	a, err := New(ctx, cfg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = a.Close() }()
+	srv := httptest.NewServer(a.Mux)
+	defer srv.Close()
+
+	// Unauthenticated → 401; wrong method → 405; authenticated tools/list works.
+	resp, _ := http.Post(srv.URL+"/debrid/mcp", "application/json", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`))
+	if resp.StatusCode != 401 {
+		t.Fatalf("no key: %d", resp.StatusCode)
+	}
+	req, _ := http.NewRequest("GET", srv.URL+"/debrid/mcp", nil)
+	req.Header.Set("Authorization", "Bearer k")
+	if resp, _ = http.DefaultClient.Do(req); resp.StatusCode != 405 {
+		t.Fatalf("GET should be 405 in stateless mode: %d", resp.StatusCode)
+	}
+	req, _ = http.NewRequest("POST", srv.URL+"/debrid/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"system_status","arguments":{}}}`))
+	req.Header.Set("Authorization", "Bearer k")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 || !strings.Contains(string(body), `"download_dir"`) || strings.Contains(string(body), "$schema") {
+		t.Fatalf("tools/call over in-process mount: %d %s", resp.StatusCode, body)
+	}
 }

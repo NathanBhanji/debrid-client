@@ -73,7 +73,7 @@ func New(ctx context.Context, cfg config.Config, log *slog.Logger) (*App, error)
 	h := api.New(svc, api.Options{APIKey: key, BasePath: cfg.Server.BasePath, Logger: log})
 
 	// MCP over Streamable HTTP at <base>/mcp, driving the API in-process.
-	cl, err := apiclient.NewClientWithResponses("http://debrid.local"+strings.TrimSuffix(cfg.Server.BasePath, "/"),
+	cl, err := apiclient.NewClientWithResponses("http://127.0.0.1"+strings.TrimSuffix(cfg.Server.BasePath, "/"),
 		apiclient.WithHTTPClient(&http.Client{Transport: api.InProcessTransport{Handler: h}}),
 		apiclient.WithRequestEditorFn(func(_ context.Context, r *http.Request) error {
 			r.Header.Set("Authorization", "Bearer "+key)

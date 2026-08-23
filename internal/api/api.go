@@ -142,10 +142,7 @@ func RequireAPIKey(key string, next http.Handler) http.Handler {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if !ok {
-			token = r.URL.Query().Get("api_key")
-		}
+		token, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if subtle.ConstantTimeCompare([]byte(token), []byte(key)) != 1 {
 			w.Header().Set("WWW-Authenticate", `Bearer realm="debrid"`)
 			http.Error(w, "missing or invalid API key", http.StatusUnauthorized)
@@ -162,6 +159,9 @@ type InProcessTransport struct{ Handler http.Handler }
 
 // RoundTrip implements http.RoundTripper.
 func (t InProcessTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Body != nil {
+		defer func() { _ = req.Body.Close() }()
+	}
 	rec := httptest.NewRecorder()
 	t.Handler.ServeHTTP(rec, req)
 	resp := rec.Result()

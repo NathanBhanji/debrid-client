@@ -420,3 +420,42 @@ func TestInternalErrorsAreOpaque(t *testing.T) {
 	}
 	_ = c
 }
+
+func TestRequireAPIKeyAndInProcessTransport(t *testing.T) {
+	h := RequireAPIKey("k", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Echo", r.Header.Get("X-In"))
+		w.WriteHeader(202)
+		b, _ := io.ReadAll(r.Body)
+		_, _ = w.Write(append([]byte("got:"), b...))
+	}))
+	cl := &http.Client{Transport: InProcessTransport{Handler: h}}
+	// No key → 401 even with ?api_key (not accepted outside SSE).
+	resp, err := cl.Get("http://x/mcp?api_key=k")
+	if err != nil || resp.StatusCode != 401 || resp.Header.Get("WWW-Authenticate") == "" {
+		t.Fatalf("expected 401: %v %v", err, resp)
+	}
+	req, _ := http.NewRequest("POST", "http://x/mcp", strings.NewReader("body"))
+	req.Header.Set("Authorization", "Bearer k")
+	req.Header.Set("X-In", "hello")
+	resp, err = cl.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 202 || resp.Header.Get("X-Echo") != "hello" || string(b) != "got:body" || resp.Request == nil {
+		t.Fatalf("in-process transport: %d %q %q", resp.StatusCode, resp.Header.Get("X-Echo"), b)
+	}
+	// Context propagates.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	h2 := InProcessTransport{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Context().Err() == nil {
+			t.Error("context should be cancelled")
+		}
+		w.WriteHeader(200)
+	})}
+	req2, _ := http.NewRequestWithContext(ctx, "GET", "http://x/", nil)
+	if _, err := h2.RoundTrip(req2); err != nil {
+		t.Fatal(err)
+	}
+}

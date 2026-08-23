@@ -154,11 +154,16 @@ func TestToolFlow(t *testing.T) {
 	if r.IsError || out["torrent_defaults"] == nil {
 		t.Fatalf("get_settings: %s", text(r))
 	}
-	settings := out
-	settings["categories"] = []string{"tv", "movies"}
-	r, out = call(t, cs, "update_settings", map[string]any{"settings": settings})
+	r, out = call(t, cs, "update_settings", map[string]any{"categories": []string{"tv", "movies"}})
 	if r.IsError || len(out["categories"].([]any)) != 2 {
 		t.Fatalf("update_settings: %s %v", text(r), out)
+	}
+	// Partial update must not reset other settings.
+	if td := out["torrent_defaults"].(map[string]any); td["download_retries"] != float64(3) {
+		t.Fatalf("partial update clobbered defaults: %v", td)
+	}
+	if _, has := out["$schema"]; has {
+		t.Fatal("$schema must be stripped from tool results")
 	}
 	r, out = call(t, cs, "delete_torrent", map[string]any{"id": id, "delete_files": true})
 	if r.IsError || out["ok"] != true {
@@ -192,5 +197,74 @@ func TestHTTPHandlerMounts(t *testing.T) {
 	r, out := call(t, cs, "system_status", nil)
 	if r.IsError || out["version"] == nil {
 		t.Fatalf("status over http: %s %v", text(r), out)
+	}
+}
+
+func TestNonJSON200IsToolErrorNotPanic(t *testing.T) {
+	html := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte("<html>portal</html>"))
+	}))
+	defer html.Close()
+	cl, _ := apiclient.NewClientWithResponses(html.URL)
+	cs := session(t, cl)
+	r, _ := call(t, cs, "system_status", nil)
+	if !r.IsError || !strings.Contains(text(r), "non-JSON") {
+		t.Fatalf("expected a tool error for non-JSON 200, got isError=%v %s", r.IsError, text(r))
+	}
+	r, _ = call(t, cs, "list_torrents", nil)
+	if !r.IsError {
+		t.Fatal("list_torrents should error, not panic")
+	}
+}
+
+func TestToolSchemasHaveEnums(t *testing.T) {
+	cs := session(t, newAPIClient(t))
+	res, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tl := range res.Tools {
+		b, _ := json.Marshal(tl.InputSchema)
+		switch tl.Name {
+		case "list_torrents":
+			if !strings.Contains(string(b), `"enum":["queued"`) {
+				t.Fatalf("list_torrents status lacks enum: %s", b)
+			}
+		case "add_account":
+			if !strings.Contains(string(b), `"enum":["torbox"`) {
+				t.Fatalf("add_account kind lacks enum: %s", b)
+			}
+		case "add_torrent":
+			if !strings.Contains(string(b), "finished_action") || !strings.Contains(string(b), "remove_from_provider") {
+				t.Fatalf("add_torrent settings lack documentation: %s", b)
+			}
+		}
+	}
+}
+
+func TestPanicInToolIsRecovered(t *testing.T) {
+	cl := newAPIClient(t)
+	srv := New(cl)
+	mcp.AddTool(srv, &mcp.Tool{Name: "boom", Description: "panics"}, func(context.Context, *mcp.CallToolRequest, struct{}) (*mcp.CallToolResult, okOut, error) {
+		panic("kaboom")
+	})
+	ctx := context.Background()
+	srvT, cliT := mcp.NewInMemoryTransports()
+	if _, err := srv.Connect(ctx, srvT, nil); err != nil {
+		t.Fatal(err)
+	}
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "t", Version: "0"}, nil).Connect(ctx, cliT, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cs.Close() }()
+	if _, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "boom", Arguments: map[string]any{}}); err == nil || !strings.Contains(err.Error(), "internal error") {
+		t.Fatalf("panic should surface as an error, got %v", err)
+	}
+	// Server still works afterwards.
+	r, _ := call(t, cs, "system_status", nil)
+	if r.IsError {
+		t.Fatalf("server unusable after panic: %s", text(r))
 	}
 }
