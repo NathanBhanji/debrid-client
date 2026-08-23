@@ -140,18 +140,21 @@ func (c *Client) call(ctx context.Context, req httpx.Request, out any) error {
 	return nil
 }
 
-// enrich replaces the raw body in httpx-classified errors with RD's error text.
+// enrich refines httpx-classified errors (401/403/404/429/5xx) using RD's
+// error body. RD uses 403 for many non-auth conditions (infringing file,
+// torrent too big, permission denied…), so the error_code wins over the HTTP
+// status except for genuine auth codes.
 func enrich(err error) error {
 	var pe *provider.Error
-	if !errors.As(err, &pe) || !strings.HasPrefix(strings.TrimSpace(pe.Message), "{") {
+	if !errors.As(err, &pe) || len(pe.Body) == 0 {
 		return err
 	}
 	var ae apiError
-	if json.Unmarshal([]byte(pe.Message), &ae) != nil || ae.Error == "" {
+	if json.Unmarshal(pe.Body, &ae) != nil || ae.Error == "" {
 		return err
 	}
 	m := mapCode(ae, pe.HTTPStatus)
-	if pe.Kind == provider.ErrAuth || pe.Kind == provider.ErrNotFound || pe.Kind == provider.ErrRateLimited {
+	if pe.Kind == provider.ErrRateLimited || (pe.Kind == provider.ErrNotFound && m.Kind == provider.ErrPermanent) {
 		m.Kind = pe.Kind
 	}
 	m.RetryAfter = pe.RetryAfter

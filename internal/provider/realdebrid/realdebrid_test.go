@@ -193,6 +193,8 @@ func TestErrorClassification(t *testing.T) {
 		{503, `{"error":"service_unavailable","error_code":25}`, provider.ErrTransient, "25"},
 		{400, `{"error":"torrent_too_big","error_code":29}`, provider.ErrLimit, "29"},
 		{400, `{"error":"infringing_file","error_code":35}`, provider.ErrPermanent, "35"},
+		{403, `{"error":"infringing_file","error_code":35}`, provider.ErrPermanent, "35"}, // RD uses 403 for non-auth errors
+		{403, `{"error":"torrent_too_big","error_code":29}`, provider.ErrLimit, "29"},
 		{400, `{"error":"fair_usage_limit","error_code":36}`, provider.ErrLimit, "36"},
 		{400, `{"error":"torrent_already_active","error_code":33}`, provider.ErrPermanent, "33"},
 		{400, `not json`, provider.ErrPermanent, ""},
