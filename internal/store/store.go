@@ -17,6 +17,7 @@ import (
 	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite" // database/sql driver "sqlite"
 
+	"github.com/NathanBhanji/debrid-client/internal/domain"
 	"github.com/NathanBhanji/debrid-client/internal/store/sqlcgen"
 )
 
@@ -113,6 +114,72 @@ func (s *Store) WithTx(ctx context.Context, fn func(q *sqlcgen.Queries) error) (
 	}
 	return tx.Commit()
 }
+
+// MutateTorrent atomically applies fn to the torrent row: it is read and
+// written back inside one transaction, so concurrent writers (engine vs
+// service) can't clobber each other's columns. fn may return ErrSkip to leave
+// the row untouched. Returns sql.ErrNoRows if the torrent doesn't exist.
+func (s *Store) MutateTorrent(ctx context.Context, id string, fn func(t *domain.Torrent) error) (domain.Torrent, error) {
+	var out domain.Torrent
+	err := s.WithTx(ctx, func(q *sqlcgen.Queries) error {
+		row, err := q.GetTorrent(ctx, id)
+		if err != nil {
+			return err
+		}
+		t, err := TorrentFromRow(row)
+		if err != nil {
+			return err
+		}
+		if err := fn(&t); err != nil {
+			if errors.Is(err, ErrSkip) {
+				out = t
+				return nil
+			}
+			return err
+		}
+		p, err := TorrentUpdateParams(t)
+		if err != nil {
+			return err
+		}
+		if err := q.UpdateTorrent(ctx, p); err != nil {
+			return err
+		}
+		out = t
+		return nil
+	})
+	return out, err
+}
+
+// MutateDownload is MutateTorrent for download rows.
+func (s *Store) MutateDownload(ctx context.Context, id string, fn func(d *domain.Download) error) (domain.Download, error) {
+	var out domain.Download
+	err := s.WithTx(ctx, func(q *sqlcgen.Queries) error {
+		row, err := q.GetDownload(ctx, id)
+		if err != nil {
+			return err
+		}
+		d, err := DownloadFromRow(row)
+		if err != nil {
+			return err
+		}
+		if err := fn(&d); err != nil {
+			if errors.Is(err, ErrSkip) {
+				out = d
+				return nil
+			}
+			return err
+		}
+		if err := q.UpdateDownload(ctx, DownloadUpdateParams(d)); err != nil {
+			return err
+		}
+		out = d
+		return nil
+	})
+	return out, err
+}
+
+// ErrSkip can be returned from a Mutate* callback to commit nothing.
+var ErrSkip = errors.New("store: skip update")
 
 // IsNotFound reports whether err means a row was not found.
 func IsNotFound(err error) bool { return errors.Is(err, sql.ErrNoRows) }

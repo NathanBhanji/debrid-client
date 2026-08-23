@@ -43,7 +43,7 @@ func New() *Bus { return &Bus{subs: map[int]chan Event{}} }
 // Publish delivers e to all subscribers without blocking.
 func (b *Bus) Publish(e Event) {
 	if e.At.IsZero() {
-		e.At = time.Now()
+		e.At = time.Now().UTC()
 	}
 	b.mu.RLock()
 	defer b.mu.RUnlock()

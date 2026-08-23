@@ -2,10 +2,13 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/NathanBhanji/debrid-client/internal/domain"
 	"github.com/NathanBhanji/debrid-client/internal/events"
@@ -113,8 +116,8 @@ func TestAccountsLifecycle(t *testing.T) {
 	if u, err := f.svc.TestAccount(ctx, "two"); err != nil || u.Username != "fake" {
 		t.Fatalf("test account: %v %+v", err, u)
 	}
-	if r := upd.Redact(); r.Credentials.APIKey != "" {
-		t.Fatal("redact")
+	if b, _ := json.Marshal(upd); strings.Contains(string(b), `"k"`) || !strings.Contains(string(b), `"has_credentials":true`) {
+		t.Fatalf("AccountView must never serialise secrets: %s", b)
 	}
 	// Delete default → other promoted.
 	if err := f.svc.DeleteAccount(ctx, "two", false); err != nil {
@@ -148,6 +151,9 @@ func TestAddTorrentValidationAndDuplicates(t *testing.T) {
 	if _, err := f.svc.AddTorrent(ctx, AddTorrentInput{Magnet: magnetA, Settings: &domain.TorrentSettings{IncludeRegex: "("}}); !errors.Is(err, ErrValidation) {
 		t.Fatal("bad regex")
 	}
+	if _, err := f.svc.AddTorrent(ctx, AddTorrentInput{Magnet: magnetA, Settings: &domain.TorrentSettings{DownloadRetries: -3}}); !errors.Is(err, ErrValidation) {
+		t.Fatal("negative retries")
+	}
 	d, err := f.svc.AddTorrent(ctx, AddTorrentInput{Magnet: magnetA, Category: "tv"})
 	if err != nil {
 		t.Fatal(err)
@@ -175,6 +181,50 @@ func TestAddTorrentValidationAndDuplicates(t *testing.T) {
 	}
 	if list, _ := f.svc.ListTorrents(ctx, ListFilter{Status: domain.TorrentError}); len(list) != 0 {
 		t.Fatal("status filter")
+	}
+}
+
+func TestDeleteFilesSkipsSharedDir(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	f.addAccount(t, "main")
+	d1, _ := f.svc.AddTorrent(ctx, AddTorrentInput{Magnet: magnetA})
+	// Complete it, then add the same hash again (allowed for terminal rows).
+	_, _ = f.store.MutateTorrent(ctx, d1.Torrent.ID, func(t *domain.Torrent) error { t.Status = domain.TorrentCompleted; return nil })
+	d2, err := f.svc.AddTorrent(ctx, AddTorrentInput{Magnet: magnetA})
+	if err != nil {
+		t.Fatalf("re-add of completed hash: %v", err)
+	}
+	dir := TorrentDir(f.svc.cfg.DownloadDir, d1.Torrent)
+	_ = os.MkdirAll(dir, 0o755)
+	_ = os.WriteFile(filepath.Join(dir, "a.mkv"), []byte("x"), 0o644)
+	if err := f.svc.DeleteTorrent(ctx, d2.Torrent.ID, DeleteOptions{DeleteFiles: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "a.mkv")); err != nil {
+		t.Fatal("files shared with another torrent must not be deleted")
+	}
+	if err := f.svc.DeleteTorrent(ctx, d1.Torrent.ID, DeleteOptions{DeleteFiles: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatal("last owner should delete the files")
+	}
+}
+
+func TestDuplicateGuardScansAllRows(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	f.addAccount(t, "main")
+	d1, _ := f.svc.AddTorrent(ctx, AddTorrentInput{Magnet: magnetA})
+	_, _ = f.store.MutateTorrent(ctx, d1.Torrent.ID, func(t *domain.Torrent) error { t.Status = domain.TorrentCompleted; return nil })
+	d2, _ := f.svc.AddTorrent(ctx, AddTorrentInput{Magnet: magnetA})
+	_, _ = f.store.MutateTorrent(ctx, d2.Torrent.ID, func(t *domain.Torrent) error { t.Status = domain.TorrentCompleted; return nil })
+	if _, err := f.svc.RetryTorrent(ctx, d1.Torrent.ID); err != nil { // older row active again
+		t.Fatal(err)
+	}
+	if _, err := f.svc.AddTorrent(ctx, AddTorrentInput{Magnet: magnetA}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("active older row must block a new add: %v", err)
 	}
 }
 
@@ -230,6 +280,9 @@ func TestRetryTorrentAndDownload(t *testing.T) {
 	tor.Error = "boom"
 	p, _ := store.TorrentUpdateParams(tor)
 	_ = f.store.UpdateTorrent(ctx, p)
+	tor.ProviderID = "p1"
+	p, _ = store.TorrentUpdateParams(tor)
+	_ = f.store.UpdateTorrent(ctx, p)
 	dl := domain.Download{ID: "d1", TorrentID: tor.ID, ProviderLink: "L", RelPath: "a", Filename: "a", State: domain.DownloadError, Error: "x", QueuedAt: tor.AddedAt, UpdatedAt: tor.AddedAt}
 	_, _ = f.store.InsertDownload(ctx, store.DownloadInsertParams(dl))
 
@@ -249,8 +302,8 @@ func TestRetryTorrentAndDownload(t *testing.T) {
 	p, _ = store.TorrentUpdateParams(tor)
 	_ = f.store.UpdateTorrent(ctx, p)
 	r, err := f.svc.RetryTorrent(ctx, tor.ID)
-	if err != nil || r.Torrent.Status != domain.TorrentQueued || r.Torrent.RetryCount != 1 || r.Torrent.Error != "" {
-		t.Fatalf("retry torrent: %v %+v", err, r.Torrent)
+	if err != nil || r.Torrent.Status != domain.TorrentQueued || r.Torrent.RetryCount != 1 || r.Torrent.Error != "" || r.Torrent.ProviderID != "" {
+		t.Fatalf("retry torrent should clear provider state: %v %+v", err, r.Torrent)
 	}
 	if dls, _ := f.store.ListDownloadsForTorrent(ctx, tor.ID); len(dls) != 0 {
 		t.Fatal("downloads should be cleared on torrent retry")
@@ -286,12 +339,20 @@ func TestUpdateTorrentAndSelectFiles(t *testing.T) {
 	if len(sel.Downloads) != 1 || sel.Downloads[0].FileID != "2" || sel.Torrent.Settings.ManualFiles[0] != "2" || sel.Torrent.FilesSelectedAt != nil {
 		t.Fatalf("select: %+v", sel)
 	}
-	// Once a download has started, the category is frozen.
-	dl := sel.Downloads[0]
-	dl.State = domain.DownloadDownloading
-	_ = f.store.UpdateDownload(ctx, store.DownloadUpdateParams(dl))
+	// Once the engine has frozen the directory (downloads started), the category is frozen.
+	_, _ = f.store.MutateTorrent(ctx, tor.ID, func(t *domain.Torrent) error { t.DirName = "Alpha"; return nil })
 	if _, err := f.svc.UpdateTorrent(ctx, tor.ID, UpdateTorrentInput{Category: ptr("other")}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("category change after start should conflict: %v", err)
+	}
+	// Settings update must not clobber the manual selection.
+	u2, err := f.svc.UpdateTorrent(ctx, tor.ID, UpdateTorrentInput{Settings: &domain.TorrentSettings{MinFileSize: 7}})
+	if err != nil || len(u2.Torrent.Settings.ManualFiles) != 1 || u2.Torrent.Settings.MinFileSize != 7 {
+		t.Fatalf("manual files clobbered: %v %+v", err, u2.Torrent.Settings)
+	}
+	// Selecting before the provider file list exists is a conflict.
+	d2, _ := f.svc.AddTorrent(ctx, AddTorrentInput{Magnet: strings.Replace(magnetA, "aaaa", "bbbb", 1)})
+	if _, err := f.svc.SelectFiles(ctx, d2.Torrent.ID, []string{"1"}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("select before provider files should conflict: %v", err)
 	}
 }
 
@@ -312,9 +373,25 @@ func TestSettingsAndStatus(t *testing.T) {
 	if again.TorrentDefaults.MinFileSize != 1024 {
 		t.Fatal("settings not persisted")
 	}
-	st.Categories = []string{"a/b"}
+	for _, bad := range []string{"a/b", "tv:", "x.", "CON", ".hidden"} {
+		st.Categories = []string{bad}
+		if _, err := f.svc.UpdateSettings(ctx, st); !errors.Is(err, ErrValidation) {
+			t.Fatalf("category %q should be rejected", bad)
+		}
+	}
+	st.Categories = nil
+	st.TorrentDefaults.FinishedAction = "bogus"
 	if _, err := f.svc.UpdateSettings(ctx, st); !errors.Is(err, ErrValidation) {
-		t.Fatal("bad category")
+		t.Fatal("bad finished_action")
+	}
+	st.TorrentDefaults.FinishedAction = domain.FinishedKeep
+	st.TorrentDefaults.Lifetime = -1
+	if _, err := f.svc.UpdateSettings(ctx, st); !errors.Is(err, ErrValidation) {
+		t.Fatal("negative duration")
+	}
+	st.TorrentDefaults.Lifetime = 0
+	if err := f.svc.SetRaw(ctx, "settings", "nope"); !errors.Is(err, ErrValidation) {
+		t.Fatal("reserved key")
 	}
 	st.Categories = nil
 	st.TorrentDefaults.ExcludeRegex = "["
@@ -347,6 +424,19 @@ func TestPathsAndProgress(t *testing.T) {
 	}
 	if got := TorrentDir("/dl", domain.Torrent{Hash: "abc"}); got != filepath.Join("/dl", "abc") {
 		t.Fatalf("empty name falls back to hash: %q", got)
+	}
+	if got := TorrentDir("/dl", domain.Torrent{Name: "new name", DirName: "frozen"}); got != filepath.Join("/dl", "frozen") {
+		t.Fatalf("frozen dir name must win: %q", got)
+	}
+	long := SanitizeName(strings.Repeat("日", 100))
+	if !utf8.ValidString(long) || len(long) > 200 {
+		t.Fatalf("rune-safe truncation: %d valid=%v", len(long), utf8.ValidString(long))
+	}
+	if SanitizeName(strings.Repeat("a", 199)+".x") == strings.Repeat("a", 199)+"." {
+		t.Fatal("trailing dot after truncation")
+	}
+	if SanitizeName("CON") != "_CON" || SanitizeName("nul.txt") != "_nul.txt" || SanitizeName("a\u202eb") != "ab" || SanitizeName("...") != "" {
+		t.Fatalf("reserved/bidi/dots: %q %q %q %q", SanitizeName("CON"), SanitizeName("nul.txt"), SanitizeName("a\u202eb"), SanitizeName("..."))
 	}
 	d := TorrentDetail{Downloads: []domain.Download{{Size: 100, BytesDone: 50}, {Size: 100, State: domain.DownloadDone}}}
 	if p := d.LocalProgress(); p != 0.75 {

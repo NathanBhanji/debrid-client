@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/NathanBhanji/debrid-client/internal/domain"
 	"github.com/NathanBhanji/debrid-client/internal/events"
@@ -23,16 +24,27 @@ type AddAccountInput struct {
 	SkipVerify bool
 }
 
-// AccountView is an account with secrets stripped plus live user info when known.
+// AccountView is the public shape of an account: never carries secrets, so it
+// is safe to serialise from any surface (API/CLI/MCP). Internal code that
+// needs credentials uses domain.ProviderAccount via account().
 type AccountView struct {
-	domain.ProviderAccount
-	User *provider.User `json:"user,omitempty"`
+	ID             string              `json:"id"`
+	Kind           domain.ProviderKind `json:"kind"`
+	Name           string              `json:"name"`
+	Enabled        bool                `json:"enabled"`
+	IsDefault      bool                `json:"is_default"`
+	HasCredentials bool                `json:"has_credentials"`
+	CreatedAt      time.Time           `json:"created_at"`
+	UpdatedAt      time.Time           `json:"updated_at"`
+	User           *provider.User      `json:"user,omitempty"`
 }
 
-// Redact removes secrets for display.
-func (a AccountView) Redact() AccountView {
-	a.Credentials = domain.Credentials{}
-	return a
+func viewOf(a domain.ProviderAccount) AccountView {
+	return AccountView{
+		ID: a.ID, Kind: a.Kind, Name: a.Name, Enabled: a.Enabled, IsDefault: a.IsDefault,
+		HasCredentials: a.Credentials.APIKey != "" || a.Credentials.AccessToken != "",
+		CreatedAt:      a.CreatedAt, UpdatedAt: a.UpdatedAt,
+	}
 }
 
 // AddAccount validates credentials against the provider and stores the account.
@@ -47,6 +59,9 @@ func (s *Service) AddAccount(ctx context.Context, in AddAccountInput) (AccountVi
 	}
 	if _, err := s.store.GetProviderAccountByName(ctx, in.Name); err == nil {
 		return AccountView{}, fmt.Errorf("%w: account name %q already exists", ErrConflict, in.Name)
+	}
+	if in.Credentials.APIKey == "" && in.Credentials.AccessToken == "" {
+		return AccountView{}, validationErr("credentials are required")
 	}
 	prov, err := s.providers.Build(in.Kind, in.Credentials)
 	if err != nil {
@@ -83,13 +98,23 @@ func (s *Service) AddAccount(ctx context.Context, in AddAccountInput) (AccountVi
 		return q.InsertProviderAccount(ctx, params)
 	})
 	if err != nil {
-		return AccountView{}, err
+		return AccountView{}, uniqueToConflict(err, "account name %q already exists", in.Name)
 	}
 	s.events.Publish(events.Event{Type: events.AccountChanged, AccountID: acc.ID})
-	return AccountView{ProviderAccount: acc, User: user}, nil
+	v := viewOf(acc)
+	v.User = user
+	return v, nil
 }
 
-// ListAccounts returns all accounts (secrets included; callers redact).
+// uniqueToConflict maps a SQLite UNIQUE violation (check-then-insert race) to ErrConflict.
+func uniqueToConflict(err error, format string, args ...any) error {
+	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
+		return fmt.Errorf("%w: %s", ErrConflict, fmt.Sprintf(format, args...))
+	}
+	return err
+}
+
+// ListAccounts returns all accounts (no secrets).
 func (s *Service) ListAccounts(ctx context.Context) ([]AccountView, error) {
 	rows, err := s.store.ListProviderAccounts(ctx)
 	if err != nil {
@@ -101,28 +126,33 @@ func (s *Service) ListAccounts(ctx context.Context) ([]AccountView, error) {
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, AccountView{ProviderAccount: a})
+		out = append(out, viewOf(a))
 	}
 	return out, nil
 }
 
-// GetAccount returns one account by id or name.
+// GetAccount returns one account by id or name (no secrets).
 func (s *Service) GetAccount(ctx context.Context, idOrName string) (AccountView, error) {
+	a, err := s.account(ctx, idOrName)
+	if err != nil {
+		return AccountView{}, err
+	}
+	return viewOf(a), nil
+}
+
+// account loads the full account (with credentials) by id or name.
+func (s *Service) account(ctx context.Context, idOrName string) (domain.ProviderAccount, error) {
 	row, err := s.store.GetProviderAccount(ctx, idOrName)
 	if store.IsNotFound(err) {
 		row, err = s.store.GetProviderAccountByName(ctx, idOrName)
 	}
 	if err != nil {
 		if store.IsNotFound(err) {
-			return AccountView{}, fmt.Errorf("%w: account %q", ErrNotFound, idOrName)
+			return domain.ProviderAccount{}, fmt.Errorf("%w: account %q", ErrNotFound, idOrName)
 		}
-		return AccountView{}, err
+		return domain.ProviderAccount{}, err
 	}
-	a, err := store.AccountFromRow(row)
-	if err != nil {
-		return AccountView{}, err
-	}
-	return AccountView{ProviderAccount: a}, nil
+	return store.AccountFromRow(row)
 }
 
 // DefaultAccount returns the default account, or ErrNotFound if none configured.
@@ -146,21 +176,28 @@ type UpdateAccountInput struct {
 	SkipVerify  bool
 }
 
-// UpdateAccount changes name/credentials/enabled/default.
+// UpdateAccount changes name/credentials/enabled/default. Credentials are
+// verified with the provider (unless SkipVerify) before the row is touched;
+// the read-modify-write itself happens inside one transaction.
 func (s *Service) UpdateAccount(ctx context.Context, idOrName string, in UpdateAccountInput) (AccountView, error) {
-	cur, err := s.GetAccount(ctx, idOrName)
+	cur, err := s.account(ctx, idOrName)
 	if err != nil {
 		return AccountView{}, err
 	}
-	acc := cur.ProviderAccount
-	if in.Name != nil && strings.TrimSpace(*in.Name) != "" && *in.Name != acc.Name {
-		if _, err := s.store.GetProviderAccountByName(ctx, *in.Name); err == nil {
-			return AccountView{}, fmt.Errorf("%w: account name %q already exists", ErrConflict, *in.Name)
+	var newName string
+	if in.Name != nil {
+		newName = strings.TrimSpace(*in.Name)
+		if newName != "" && newName != cur.Name {
+			if _, err := s.store.GetProviderAccountByName(ctx, newName); err == nil {
+				return AccountView{}, fmt.Errorf("%w: account name %q already exists", ErrConflict, newName)
+			}
 		}
-		acc.Name = strings.TrimSpace(*in.Name)
 	}
 	if in.Credentials != nil {
-		prov, err := s.providers.Build(acc.Kind, *in.Credentials)
+		if in.Credentials.APIKey == "" && in.Credentials.AccessToken == "" {
+			return AccountView{}, validationErr("credentials are required")
+		}
+		prov, err := s.providers.Build(cur.Kind, *in.Credentials)
 		if err != nil {
 			return AccountView{}, fmt.Errorf("%w: %w", ErrValidation, err)
 		}
@@ -169,17 +206,31 @@ func (s *Service) UpdateAccount(ctx context.Context, idOrName string, in UpdateA
 				return AccountView{}, fmt.Errorf("%w: provider rejected credentials: %w", ErrValidation, err)
 			}
 		}
-		acc.Credentials = *in.Credentials
 	}
-	if in.Enabled != nil {
-		acc.Enabled = *in.Enabled
-	}
-	acc.UpdatedAt = s.now()
-	params, err := store.AccountUpdateParams(acc)
-	if err != nil {
-		return AccountView{}, err
-	}
+	var acc domain.ProviderAccount
 	err = s.store.WithTx(ctx, func(q *sqlcgen.Queries) error {
+		row, err := q.GetProviderAccount(ctx, cur.ID)
+		if err != nil {
+			return err
+		}
+		acc, err = store.AccountFromRow(row)
+		if err != nil {
+			return err
+		}
+		if newName != "" {
+			acc.Name = newName
+		}
+		if in.Credentials != nil {
+			acc.Credentials = *in.Credentials
+		}
+		if in.Enabled != nil {
+			acc.Enabled = *in.Enabled
+		}
+		acc.UpdatedAt = s.now()
+		params, err := store.AccountUpdateParams(acc)
+		if err != nil {
+			return err
+		}
 		if err := q.UpdateProviderAccount(ctx, params); err != nil {
 			return err
 		}
@@ -196,18 +247,18 @@ func (s *Service) UpdateAccount(ctx context.Context, idOrName string, in UpdateA
 		return nil
 	})
 	if err != nil {
-		return AccountView{}, err
+		return AccountView{}, uniqueToConflict(err, "account name %q already exists", newName)
 	}
 	s.providers.Invalidate(acc.ID)
 	s.events.Publish(events.Event{Type: events.AccountChanged, AccountID: acc.ID})
-	return AccountView{ProviderAccount: acc}, nil
+	return viewOf(acc), nil
 }
 
 // DeleteAccount removes an account. Fails with ErrConflict while torrents
 // reference it unless force is set, in which case those torrents are deleted
 // locally (not at the provider).
 func (s *Service) DeleteAccount(ctx context.Context, idOrName string, force bool) error {
-	acc, err := s.GetAccount(ctx, idOrName)
+	acc, err := s.account(ctx, idOrName)
 	if err != nil {
 		return err
 	}
@@ -231,23 +282,31 @@ func (s *Service) DeleteAccount(ctx context.Context, idOrName string, force bool
 			s.events.Publish(events.Event{Type: events.TorrentDeleted, TorrentID: r.ID})
 		}
 	}
-	if err := s.store.DeleteProviderAccount(ctx, acc.ID); err != nil {
+	// Delete and, if it was the default, promote the oldest remaining account — atomically.
+	err = s.store.WithTx(ctx, func(q *sqlcgen.Queries) error {
+		if err := q.DeleteProviderAccount(ctx, acc.ID); err != nil {
+			return err
+		}
+		if !acc.IsDefault {
+			return nil
+		}
+		rest, err := q.ListProviderAccounts(ctx)
+		if err != nil || len(rest) == 0 {
+			return err
+		}
+		return q.SetDefaultProviderAccount(ctx, sqlcgen.SetDefaultProviderAccountParams{UpdatedAt: store.FormatTime(s.now()), ID: rest[0].ID})
+	})
+	if err != nil {
 		return err
 	}
 	s.providers.Invalidate(acc.ID)
-	// Promote another account to default if we removed the default.
-	if acc.IsDefault {
-		if rest, err := s.store.ListProviderAccounts(ctx); err == nil && len(rest) > 0 {
-			_ = s.store.SetDefaultProviderAccount(ctx, sqlcgen.SetDefaultProviderAccountParams{UpdatedAt: store.FormatTime(s.now()), ID: rest[0].ID})
-		}
-	}
 	s.events.Publish(events.Event{Type: events.AccountChanged, AccountID: acc.ID})
 	return nil
 }
 
 // TestAccount calls the provider and returns the live user info.
 func (s *Service) TestAccount(ctx context.Context, idOrName string) (provider.User, error) {
-	acc, err := s.GetAccount(ctx, idOrName)
+	acc, err := s.account(ctx, idOrName)
 	if err != nil {
 		return provider.User{}, err
 	}

@@ -52,7 +52,7 @@ func TestParseTorrentSingleAndMulti(t *testing.T) {
 		{Path: []string{"e01.mkv"}, Length: 10}, {Path: []string{"Subs", "e01.srt"}, Length: 5},
 	}})
 	m, err = ParseTorrent(multi)
-	if err != nil || m.Name != "Show" || m.Size != 15 || len(m.Files) != 2 || m.Files[1].Path != "Show/Subs/e01.srt" || m.Files[1].ID != "1" {
+	if err != nil || m.Name != "Show" || m.Size != 15 || len(m.Files) != 2 || m.Files[1].Path != "Show/Subs/e01.srt" || m.Files[1].ID != "" {
 		t.Fatalf("multi: %+v %v", m, err)
 	}
 	if _, err := ParseTorrent([]byte("garbage")); !errors.Is(err, ErrInvalid) {

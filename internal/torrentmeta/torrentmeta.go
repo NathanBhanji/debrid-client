@@ -18,7 +18,7 @@ type Meta struct {
 	Hash  string // lowercase hex v1 info hash
 	Name  string
 	Size  int64
-	Files []domain.File // empty for magnets (unknown until the provider reports)
+	Files []domain.File // empty for magnets; for .torrent files the paths/sizes, with no provider ids yet
 }
 
 // ErrInvalid is returned for unparsable input.
@@ -54,14 +54,17 @@ func ParseTorrent(data []byte) (Meta, error) {
 		return Meta{}, fmt.Errorf("%w: v2-only torrents are not supported by debrid providers", ErrInvalid)
 	}
 	out := Meta{Hash: mi.HashInfoBytes().HexString(), Name: info.BestName(), Size: info.TotalLength()}
-	for i, f := range info.UpvertedFiles() {
+	// The v1 file view is what debrid providers report (hybrid torrents' v2
+	// trees differ in order and naming). File IDs are deliberately left empty:
+	// they are provisional until the provider assigns its own ids.
+	for f := range info.UpvertedV1Files() {
 		p := strings.Join(f.BestPath(), "/")
 		if info.IsDir() {
 			p = info.BestName() + "/" + p
 		} else if p == "" {
 			p = info.BestName() // single-file torrent: the file is the torrent name
 		}
-		out.Files = append(out.Files, domain.File{ID: fmt.Sprint(i), Path: p, Size: f.Length})
+		out.Files = append(out.Files, domain.File{Path: p, Size: f.Length, Selected: true})
 	}
 	return out, nil
 }

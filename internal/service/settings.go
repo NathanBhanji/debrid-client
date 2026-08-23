@@ -49,13 +49,33 @@ func (s *Service) GetSettings(ctx context.Context) (Settings, error) {
 	return st, nil
 }
 
-// UpdateSettings validates and stores settings.
-func (s *Service) UpdateSettings(ctx context.Context, st Settings) (Settings, error) {
-	if err := domain.ValidateFilters(st.TorrentDefaults); err != nil {
-		return Settings{}, validationErr("%v", err)
+// ValidateTorrentSettings checks filters, enums, durations and counters.
+// Used for defaults, per-add overrides and per-torrent updates alike.
+func ValidateTorrentSettings(ts domain.TorrentSettings) error {
+	if err := domain.ValidateFilters(ts); err != nil {
+		return validationErr("%v", err)
 	}
-	if st.TorrentDefaults.DownloadRetries < 0 || st.TorrentDefaults.TorrentRetries < 0 {
-		return Settings{}, validationErr("retries must be >= 0")
+	if ts.DownloadRetries < 0 || ts.TorrentRetries < 0 {
+		return validationErr("retries must be >= 0")
+	}
+	switch ts.FinishedAction {
+	case "", domain.FinishedKeep, domain.FinishedRemoveFromProvider:
+	default:
+		return validationErr("finished_action %q must be keep or remove_from_provider", ts.FinishedAction)
+	}
+	if ts.FinishedDelay < 0 || ts.DeleteOnError < 0 || ts.Lifetime < 0 {
+		return validationErr("durations must be >= 0")
+	}
+	return nil
+}
+
+// UpdateSettings validates and stores settings (full replacement).
+func (s *Service) UpdateSettings(ctx context.Context, st Settings) (Settings, error) {
+	if err := ValidateTorrentSettings(st.TorrentDefaults); err != nil {
+		return Settings{}, err
+	}
+	if st.TorrentDefaults.FinishedAction == "" {
+		st.TorrentDefaults.FinishedAction = domain.FinishedKeep
 	}
 	if st.UnpackMaxDepth < 0 || st.UnpackMaxDepth > 5 {
 		return Settings{}, validationErr("unpack_max_depth must be between 0 and 5")
@@ -98,13 +118,18 @@ func (s *Service) GetRaw(ctx context.Context, key string) (string, bool, error) 
 	return v, true, nil
 }
 
-// SetRaw stores a raw setting.
+// SetRaw stores a raw setting. The key used for structured settings is reserved.
 func (s *Service) SetRaw(ctx context.Context, key, value string) error {
+	if key == settingsKey {
+		return validationErr("%q is a reserved setting key", key)
+	}
 	return s.store.UpsertSetting(ctx, sqlcgen.UpsertSettingParams{Key: key, Value: value, UpdatedAt: store.FormatTime(s.now())})
 }
 
+// validateCategory requires a plain folder name: what SanitizeName would
+// produce unchanged, not hidden, not a path.
 func validateCategory(c string) error {
-	if strings.ContainsAny(c, `/\`) || c == "." || c == ".." || strings.HasPrefix(c, ".") {
+	if c == "" || strings.HasPrefix(c, ".") || SanitizeName(c) != c {
 		return validationErr("invalid category %q: must be a plain folder name", c)
 	}
 	return nil

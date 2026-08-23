@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"time"
 
 	"github.com/google/uuid"
@@ -65,6 +66,9 @@ func New(st *store.Store, providers *Providers, eng Engine, bus *events.Bus, cfg
 	}
 	if log == nil {
 		log = slog.Default()
+	}
+	if abs, err := filepath.Abs(cfg.DownloadDir); err == nil {
+		cfg.DownloadDir = abs
 	}
 	return &Service{
 		store: st, providers: providers, engine: eng, events: bus, cfg: cfg, log: log,
