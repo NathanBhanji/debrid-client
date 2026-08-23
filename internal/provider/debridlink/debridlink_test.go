@@ -2,10 +2,14 @@ package debridlink
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/NathanBhanji/debrid-client/internal/domain"
 	"github.com/NathanBhanji/debrid-client/internal/provider"
@@ -42,7 +46,8 @@ const list = `[
  {"id":"B","name":"Movie","created":1700000000,"hashString":"111111","wait":false,"status":100,"totalSize":500,"downloadPercent":100,"files":[{"id":"B-0","name":"Movie/movie.mkv","size":500,"downloadUrl":"https://dl.dl/movie.mkv","downloadPercent":100}]},
  {"id":"C","name":"Wait","wait":true,"status":0,"totalSize":0,"downloadPercent":0,"files":[]},
  {"id":"D","name":"Seed","status":8,"totalSize":10,"downloadPercent":99.5,"files":[]},
- {"id":"E","name":"Queued","status":1,"totalSize":10,"downloadPercent":0,"files":[]}]`
+ {"id":"E","name":"Queued","status":1,"totalSize":10,"downloadPercent":0,"files":[]},
+ {"id":"Z","name":"ManyFiles","status":100,"totalSize":10,"downloadPercent":100,"isZip":true,"files":[{"id":"Z-zip","name":"ManyFiles.zip","size":10,"downloadUrl":"https://dl.dl/ManyFiles.zip","downloadPercent":100}]}]`
 
 func TestListPaginationAndStatus(t *testing.T) {
 	c := newClient(t, func(w http.ResponseWriter, r *http.Request) {
@@ -59,10 +64,15 @@ func TestListPaginationAndStatus(t *testing.T) {
 		}
 	})
 	ts, err := c.ListTorrents(context.Background())
-	if err != nil || len(ts) != 6 {
+	if err != nil || len(ts) != 7 {
 		t.Fatalf("list: %v %d", err, len(ts))
 	}
-	want := map[string]domain.TorrentStatus{"A": domain.TorrentDownloading, "B": domain.TorrentFinished, "C": domain.TorrentWaitingSelection, "D": domain.TorrentUploading, "E": domain.TorrentProcessing, "F": domain.TorrentFinished}
+	want := map[string]domain.TorrentStatus{"A": domain.TorrentDownloading, "B": domain.TorrentFinished, "C": domain.TorrentWaitingSelection, "D": domain.TorrentUploading, "E": domain.TorrentProcessing, "F": domain.TorrentFinished, "Z": domain.TorrentFinished}
+	for _, x := range ts {
+		if x.ID == "Z" && len(x.Files) != 0 {
+			t.Fatalf("zip-only listing must not report files: %+v", x.Files)
+		}
+	}
 	for _, x := range ts {
 		if x.Status != want[x.ID] {
 			t.Errorf("%s: %s want %s", x.ID, x.Status, want[x.ID])
@@ -146,6 +156,19 @@ func TestAuthAndFlood(t *testing.T) {
 	if provider.KindOf(err) != provider.ErrAuth {
 		t.Fatalf("auth: %v", err)
 	}
+	// Long descriptions on HTTP-classified statuses must still yield the DL code (parsed from Body, not the snippet).
+	long := strings.Repeat("Your server IP is not allowed; please whitelist it in your account settings. ", 5)
+	c2 := newClient(t, func(w http.ResponseWriter, _ *http.Request) { fail(w, 403, "serverNotAllowed", long) })
+	_, err = c2.User(context.Background())
+	var pe *provider.Error
+	if !errors.As(err, &pe) || pe.Code != "serverNotAllowed" || pe.Kind != provider.ErrAuth || !strings.Contains(pe.Message, "whitelist") {
+		t.Fatalf("enrich from body: %v", err)
+	}
+	c3 := newClient(t, func(w http.ResponseWriter, _ *http.Request) { fail(w, 429, "floodDetected", long) })
+	_, err = c3.User(context.Background())
+	if provider.KindOf(err) != provider.ErrRateLimited || provider.RetryAfter(err) != time.Hour {
+		t.Fatalf("flood via 429 should carry the 1h hint: %v", err)
+	}
 	fl := newClient(t, func(w http.ResponseWriter, _ *http.Request) { fail(w, 200, "floodDetected", "retry in 1h") })
 	_, err = fl.User(context.Background())
 	if provider.KindOf(err) != provider.ErrRateLimited || provider.RetryAfter(err) == 0 {
@@ -153,6 +176,18 @@ func TestAuthAndFlood(t *testing.T) {
 	}
 	if _, err := New(domain.Credentials{}, provider.Options{}); provider.KindOf(err) != provider.ErrAuth {
 		t.Fatal("key required")
+	}
+}
+
+func TestPaginationTerminatesOnNullNext(t *testing.T) {
+	var n int32
+	c := newClient(t, func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&n, 1)
+		ok(w, `[{"id":"X","name":"x","status":100,"downloadPercent":100,"files":[]}]`, `{"page":0,"pages":1,"next":null,"previous":-1}`)
+	})
+	ts, err := c.ListTorrents(context.Background())
+	if err != nil || len(ts) != 1 || atomic.LoadInt32(&n) != 1 {
+		t.Fatalf("pagination: %v %d requests=%d", err, len(ts), n)
 	}
 }
 

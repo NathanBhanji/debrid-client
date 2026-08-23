@@ -8,7 +8,12 @@
 //     /seedbox/add, DELETE /seedbox/:ids/remove. status: 0 paused, 1 queued,
 //     2 verification, 4 downloading, 8 seeding, 100 finished (bitmask-ish);
 //     a file is ready when files[].downloadPercent == 100.
-//   - Many-file torrents list only a zip unless fetched by id (?ids=).
+//   - Many-file torrents list only a zip unless fetched by id (?ids=); the
+//     listing reports no files for those (isZip) and GetTorrent/Links use ?ids=.
+//   - SelectFiles is a no-op (we add without wait=true). A torrent that was
+//     added elsewhere with wait=true stays paused at the provider.
+//   - Datacenter/VPN IPs are blocked by default (serverNotAllowed → auth
+//     error: whitelist the server's IP in the Debrid-Link account).
 package debridlink
 
 import (
@@ -136,18 +141,20 @@ func (c *Client) call(ctx context.Context, req httpx.Request, out any) error {
 // enrich pulls Debrid-Link's error code out of httpx-classified 4xx bodies.
 func enrich(err error) error {
 	var pe *provider.Error
-	if !errors.As(err, &pe) || !strings.HasPrefix(strings.TrimSpace(pe.Message), "{") {
+	if !errors.As(err, &pe) || len(pe.Body) == 0 {
 		return err
 	}
 	var env envelope
-	if json.Unmarshal([]byte(pe.Message), &env) != nil || env.Error == "" {
+	if json.Unmarshal(pe.Body, &env) != nil || env.Error == "" {
 		return err
 	}
 	m := mapError(env.Error, env.ErrorDescription, pe.HTTPStatus)
 	if pe.Kind == provider.ErrAuth || pe.Kind == provider.ErrNotFound || pe.Kind == provider.ErrRateLimited {
 		m.Kind = pe.Kind
 	}
-	m.RetryAfter = pe.RetryAfter
+	if pe.RetryAfter > 0 { // header wins; else keep the code-derived hint (floodDetected → 1h)
+		m.RetryAfter = pe.RetryAfter
+	}
 	return m
 }
 
@@ -184,7 +191,12 @@ func mapStatus(t torrent) (domain.TorrentStatus, string) {
 		return domain.TorrentDownloading, ""
 	case t.Status&2 != 0:
 		return domain.TorrentProcessing, "verification"
-	case t.Status&1 != 0, t.Status == 0:
+	case t.Status == 0:
+		if t.SrvMaint {
+			return domain.TorrentProcessing, "server maintenance"
+		}
+		return domain.TorrentProcessing, "paused at provider"
+	case t.Status&1 != 0:
 		if t.SrvMaint {
 			return domain.TorrentProcessing, "server maintenance"
 		}
@@ -202,6 +214,12 @@ func mapTorrent(t torrent) provider.Torrent {
 	if t.Created > 0 {
 		ts := time.Unix(t.Created, 0).UTC()
 		out.AddedAt = &ts
+	}
+	// The plain listing collapses many-file torrents into a single ZIP entry
+	// (isZip); only the by-id fetch returns the real files. Report no files in
+	// that case so the engine keeps/fetches the full list instead of a zip stub.
+	if t.IsZip {
+		return out
 	}
 	for _, f := range t.Files {
 		out.Files = append(out.Files, domain.File{ID: f.ID, Path: strings.TrimPrefix(f.Name, "/"), Size: f.Size, Selected: true, Link: f.DownloadURL})
@@ -239,7 +257,9 @@ func (c *Client) ListTorrents(ctx context.Context) ([]provider.Torrent, error) {
 		var env struct {
 			envelope
 			Pagination *struct {
-				Next int `json:"next"`
+				Page  int  `json:"page"`
+				Pages int  `json:"pages"`
+				Next  *int `json:"next"`
 			} `json:"pagination"`
 		}
 		if err := resp.JSON(&env); err != nil {
@@ -257,7 +277,8 @@ func (c *Client) ListTorrents(ctx context.Context) ([]provider.Torrent, error) {
 		for _, t := range list {
 			out = append(out, mapTorrent(t))
 		}
-		if env.Pagination == nil || env.Pagination.Next < 0 || len(list) == 0 {
+		p := env.Pagination
+		if p == nil || len(list) == 0 || p.Next == nil || *p.Next <= page || (p.Pages > 0 && p.Page+1 >= p.Pages) || page > 1000 {
 			break
 		}
 	}
