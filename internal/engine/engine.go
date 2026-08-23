@@ -197,17 +197,15 @@ func (e *Engine) recover(ctx context.Context) error {
 			return err
 		}
 		for _, r := range rows {
-			d, err := store.DownloadFromRow(r)
-			if err != nil {
-				return err
-			}
-			if st == domain.DownloadUnpacking {
-				d.State = domain.DownloadDownloaded // re-run unpack
-			} else {
-				d.State = domain.DownloadPending // fetch resumes from .part
-			}
-			d.UpdatedAt = now
-			if err := e.store.UpdateDownload(ctx, store.DownloadUpdateParams(d)); err != nil {
+			if _, err := e.store.MutateDownload(ctx, r.ID, func(d *domain.Download) error {
+				if d.State == domain.DownloadUnpacking {
+					d.State = domain.DownloadDownloaded // re-run unpack
+				} else {
+					d.State = domain.DownloadPending // fetch resumes from .part
+				}
+				d.UpdatedAt = now
+				return nil
+			}); err != nil {
 				return err
 			}
 		}
@@ -217,18 +215,14 @@ func (e *Engine) recover(ctx context.Context) error {
 		return err
 	}
 	for _, r := range rows {
-		t, err := store.TorrentFromRow(r)
-		if err != nil {
-			return err
-		}
 		// We don't know whether the add went through; re-queue and let the
 		// dedupe-by-hash path adopt it from the next provider listing.
-		_ = t.Transition(domain.TorrentQueued, "restarted during add; will reconcile with provider")
-		t.UpdatedAt = now
-		if p, err := store.TorrentUpdateParams(t); err == nil {
-			if err := e.store.UpdateTorrent(ctx, p); err != nil {
-				return err
-			}
+		if _, err := e.store.MutateTorrent(ctx, r.ID, func(t *domain.Torrent) error {
+			_ = t.Transition(domain.TorrentQueued, "restarted during add; will reconcile with provider")
+			t.UpdatedAt = now
+			return nil
+		}); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -291,41 +285,63 @@ func (e *Engine) countJobs(kind jobKind) int {
 	return n
 }
 
-// saveTorrent persists t and publishes an update event.
-func (e *Engine) saveTorrent(ctx context.Context, t *domain.Torrent) error {
-	t.UpdatedAt = e.now()
-	p, err := store.TorrentUpdateParams(*t)
+// mutate applies fn to the torrent row atomically (read-modify-write in one
+// transaction, see store.MutateTorrent) and publishes an update event. The
+// engine never writes back a stale in-memory copy: every change is expressed
+// as a closure over the freshly loaded row so it can't clobber concurrent
+// edits by the service (category, settings, manual file selection…).
+// Returning store.ErrSkip from fn commits nothing.
+func (e *Engine) mutate(ctx context.Context, id string, fn func(t *domain.Torrent) error) (domain.Torrent, error) {
+	t, err := e.store.MutateTorrent(ctx, id, func(t *domain.Torrent) error {
+		if err := fn(t); err != nil {
+			return err
+		}
+		t.UpdatedAt = e.now()
+		return nil
+	})
 	if err != nil {
-		return err
+		return t, err
 	}
-	if err := e.store.UpdateTorrent(ctx, p); err != nil {
-		return err
-	}
-	e.events.Publish(events.Event{Type: events.TorrentUpdated, TorrentID: t.ID})
-	return nil
+	e.events.Publish(events.Event{Type: events.TorrentUpdated, TorrentID: id})
+	return t, nil
 }
 
-// saveDownload persists d and publishes an update event.
-func (e *Engine) saveDownload(ctx context.Context, d *domain.Download) error {
-	d.UpdatedAt = e.now()
-	if err := e.store.UpdateDownload(ctx, store.DownloadUpdateParams(*d)); err != nil {
-		return err
+// mutateDL is mutate for download rows.
+func (e *Engine) mutateDL(ctx context.Context, id string, fn func(d *domain.Download) error) (domain.Download, error) {
+	d, err := e.store.MutateDownload(ctx, id, func(d *domain.Download) error {
+		if err := fn(d); err != nil {
+			return err
+		}
+		d.UpdatedAt = e.now()
+		return nil
+	})
+	if err != nil {
+		return d, err
 	}
-	e.events.Publish(events.Event{Type: events.DownloadUpdated, TorrentID: d.TorrentID, DownloadID: d.ID})
-	return nil
+	e.events.Publish(events.Event{Type: events.DownloadUpdated, TorrentID: d.TorrentID, DownloadID: id})
+	return d, nil
 }
 
 // fail moves a torrent to error with a message.
 func (e *Engine) fail(ctx context.Context, t *domain.Torrent, msg string) error {
-	if err := t.Transition(domain.TorrentError, msg); err != nil {
-		t.Status = domain.TorrentError // force: error is always reachable
-		t.StatusReason = msg
-	}
-	t.Error = msg
-	now := e.now()
-	t.CompletedAt = &now
 	e.log.Warn("torrent failed", "id", t.ID, "name", t.Name, "reason", msg)
-	return e.saveTorrent(ctx, t)
+	nt, err := e.mutate(ctx, t.ID, func(t *domain.Torrent) error {
+		if t.Status.IsTerminal() && t.Error == msg {
+			return store.ErrSkip
+		}
+		if err := t.Transition(domain.TorrentError, msg); err != nil {
+			t.Status = domain.TorrentError // force: error is always reachable
+			t.StatusReason = msg
+		}
+		t.Error = msg
+		now := e.now()
+		t.CompletedAt = &now
+		return nil
+	})
+	if err == nil {
+		*t = nt
+	}
+	return err
 }
 
 func (e *Engine) loadTorrents(ctx context.Context) ([]domain.Torrent, error) {

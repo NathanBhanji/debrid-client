@@ -238,7 +238,7 @@ func TestAddTransientThenPermanentErrors(t *testing.T) {
 	h := newHarness(t, nil)
 	var n int
 	var mu sync.Mutex
-	h.fake.OnAdd = func(string) error {
+	h.fake.SetHooks(providertest.Hooks{OnAdd: func(string) error {
 		mu.Lock()
 		defer mu.Unlock()
 		n++
@@ -246,7 +246,7 @@ func TestAddTransientThenPermanentErrors(t *testing.T) {
 			return provider.Errorf(provider.ErrTransient, "", "blip")
 		}
 		return nil
-	}
+	}})
 	tor := h.add(nil)
 	h.waitProviderID(tor.ID)
 	mu.Lock()
@@ -256,7 +256,7 @@ func TestAddTransientThenPermanentErrors(t *testing.T) {
 		t.Fatalf("expected 2 add calls, got %d", calls)
 	}
 
-	h.fake.OnAdd = func(string) error { return provider.Errorf(provider.ErrPermanent, "BOZO_TORRENT", "bad torrent") }
+	h.fake.SetHooks(providertest.Hooks{OnAdd: func(string) error { return provider.Errorf(provider.ErrPermanent, "BOZO_TORRENT", "bad torrent") }})
 	tor2, _ := h.svc.AddTorrent(context.Background(), service.AddTorrentInput{Magnet: strings.Replace(magnet, "bbbb", "dddd", 1)})
 	got := h.waitStatus(tor2.Torrent.ID, domain.TorrentError)
 	if !strings.Contains(got.Error, "rejected") {
@@ -267,10 +267,10 @@ func TestAddTransientThenPermanentErrors(t *testing.T) {
 func TestAddTimeoutIsReconciledByHash(t *testing.T) {
 	h := newHarness(t, func(c *Config) { c.AddTimeout = 50 * time.Millisecond })
 	// The add "succeeds" server-side but the response never arrives in time.
-	h.fake.OnAdd = func(m string) error {
+	h.fake.SetHooks(providertest.Hooks{OnAdd: func(string) error {
 		time.Sleep(120 * time.Millisecond)
 		return nil
-	}
+	}})
 	tor := h.add(nil)
 	// Eventually the poller lists the provider torrent and the queued torrent adopts it.
 	pid := h.waitProviderID(tor.ID)
@@ -459,7 +459,7 @@ func TestRecoverResetsInFlightRows(t *testing.T) {
 	_ = st.InsertTorrent(context.Background(), p)
 	for i, s := range []domain.DownloadState{domain.DownloadDownloading, domain.DownloadUnpacking, domain.DownloadDone} {
 		d := domain.Download{ID: string(rune('a' + i)), TorrentID: "t", ProviderLink: string(rune('a' + i)), RelPath: "f", Filename: "f", State: s, QueuedAt: now, UpdatedAt: now}
-		_ = st.InsertDownload(context.Background(), store.DownloadInsertParams(d))
+		_, _ = st.InsertDownload(context.Background(), store.DownloadInsertParams(d))
 	}
 	svc := service.New(st, service.NewProviders(st, nil, provider.Options{}), nil, nil, service.Config{}, nil)
 	e := New(Config{}, st, svc, events.New(), nil)
@@ -501,3 +501,61 @@ func mustAcc(now time.Time) (p sqlcgen.InsertProviderAccountParams) {
 	p, _ = store.AccountInsertParams(acc)
 	return p
 }
+
+
+func TestRelinkWhenProviderIDChanges(t *testing.T) {
+	h := newHarness(t, func(c *Config) { c.PollInterval = 10 * time.Millisecond })
+	tor := h.add(nil)
+	pid := h.waitProviderID(tor.ID)
+	h.waitStatus(tor.ID, domain.TorrentProcessing)
+	// Provider re-homes the torrent under a new id (e.g. TorBox queue → mylist).
+	h.fake.Remove(pid)
+	res, _ := h.fake.AddMagnet(context.Background(), magnet)
+	if res.ID == pid {
+		t.Skip("fake reused id")
+	}
+	h.eng.setClock(func() time.Time { return time.Now().UTC().Add(time.Hour) }) // past the grace period
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		d, _ := h.svc.GetTorrent(context.Background(), tor.ID)
+		if d.Torrent.ProviderID == res.ID && d.Torrent.Status != domain.TorrentError {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	d, _ := h.svc.GetTorrent(context.Background(), tor.ID)
+	t.Fatalf("torrent should relink to the new provider id, got %+v", d.Torrent)
+}
+
+func TestDirNameFrozenAndServiceEditsSurvive(t *testing.T) {
+	h := newHarness(t, nil)
+	h.fetch.delay = 300 * time.Millisecond
+	tor := h.add(nil)
+	pid := h.waitProviderID(tor.ID)
+	h.finishAtProvider(pid, map[string][]byte{"a.mkv": []byte("a")})
+	// Wait until the download is running, then change settings via the service.
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		d, _ := h.svc.GetTorrent(context.Background(), tor.ID)
+		if len(d.Downloads) > 0 && d.Downloads[0].State == domain.DownloadDownloading {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := h.svc.UpdateTorrent(context.Background(), tor.ID, service.UpdateTorrentInput{Settings: &domain.TorrentSettings{MinFileSize: 42, DownloadRetries: 1, FinishedAction: domain.FinishedKeep, Unpack: true}}); err != nil {
+		t.Fatal(err)
+	}
+	got := h.waitStatus(tor.ID, domain.TorrentCompleted)
+	if got.Settings.MinFileSize != 42 {
+		t.Fatalf("engine write clobbered a concurrent service edit: %+v", got.Settings)
+	}
+	if got.DirName == "" {
+		t.Fatal("dir name should be frozen once downloads start")
+	}
+	// Category can no longer change.
+	if _, err := h.svc.UpdateTorrent(context.Background(), tor.ID, service.UpdateTorrentInput{Category: ptr("x")}); err == nil {
+		t.Fatal("category should be frozen")
+	}
+}
+
+func ptr[T any](v T) *T { return &v }

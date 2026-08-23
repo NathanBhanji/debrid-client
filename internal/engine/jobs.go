@@ -21,38 +21,51 @@ import (
 
 func newID() string { return uuid.Must(uuid.NewV7()).String() }
 
-func downloadInsert(d domain.Download) sqlcgen.InsertDownloadParams {
-	return store.DownloadInsertParams(d)
-}
+func downloadInsert(d domain.Download) sqlcgen.InsertDownloadParams { return store.DownloadInsertParams(d) }
 
 func isArchive(name string) bool { return unpack.IsArchive(name) }
 
-// startDownload claims the download (pending → unrestricting) and launches its job.
+// startDownload freezes the torrent's directory name (first local download),
+// claims the download (pending → unrestricting) and launches its job.
 func (e *Engine) startDownload(ctx context.Context, t *domain.Torrent, d *domain.Download) error {
 	prov, _, err := e.svc.Providers().For(ctx, t.AccountID)
 	if err != nil {
 		return err
 	}
-	if err := d.Transition(domain.DownloadUnrestricting); err != nil {
+	if t.DirName == "" {
+		nt, err := e.mutate(ctx, t.ID, func(t *domain.Torrent) error {
+			if t.DirName != "" {
+				return store.ErrSkip
+			}
+			t.DirName = service.DirNameFor(*t)
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		*t = nt
+	}
+	nd, err := e.mutateDL(ctx, d.ID, func(d *domain.Download) error {
+		if d.State != domain.DownloadPending {
+			return store.ErrSkip // someone else moved it
+		}
+		if err := d.Transition(domain.DownloadUnrestricting); err != nil {
+			return err
+		}
+		d.Error = ""
+		return nil
+	})
+	if err != nil || nd.State != domain.DownloadUnrestricting {
 		return err
 	}
-	d.Error = ""
-	if err := e.saveDownload(ctx, d); err != nil {
-		return err
-	}
-	tt, dd := *t, *d
-	e.startJob(ctx, d.ID, t.ID, jobDownload, func(jctx context.Context) { e.runDownload(jctx, tt, dd, prov) })
+	tt := *t
+	e.startJob(ctx, d.ID, t.ID, jobDownload, func(jctx context.Context) { e.runDownload(jctx, tt, nd, prov) })
 	return nil
 }
 
 // runDownload unrestricts the link (if needed), fetches the file and records the outcome.
 func (e *Engine) runDownload(ctx context.Context, t domain.Torrent, d domain.Download, prov provider.Provider) {
 	sctx := context.WithoutCancel(ctx)
-	finish := func(d *domain.Download) {
-		if err := e.saveDownload(sctx, d); err != nil {
-			e.log.Error("save download", "id", d.ID, "err", err)
-		}
-	}
 
 	// 1. Resolve a direct URL.
 	if d.DirectURL == "" {
@@ -61,7 +74,7 @@ func (e *Engine) runDownload(ctx context.Context, t domain.Torrent, d domain.Dow
 		} else {
 			direct, err := prov.Unrestrict(ctx, d.ProviderLink)
 			if err != nil {
-				e.downloadFailed(sctx, &d, fmt.Errorf("unrestrict: %w", err), provider.IsRetryable(err))
+				e.downloadFailed(sctx, d.ID, fmt.Errorf("unrestrict: %w", err), provider.IsRetryable(err), false)
 				return
 			}
 			d.DirectURL = direct.URL
@@ -73,13 +86,23 @@ func (e *Engine) runDownload(ctx context.Context, t domain.Torrent, d domain.Dow
 			}
 		}
 	}
-	if err := d.Transition(domain.DownloadDownloading); err != nil {
-		e.log.Error("download transition", "err", err)
+	directURL, size, filename := d.DirectURL, d.Size, d.Filename
+	nd, err := e.mutateDL(sctx, d.ID, func(d *domain.Download) error {
+		if d.State != domain.DownloadUnrestricting {
+			return store.ErrSkip
+		}
+		if err := d.Transition(domain.DownloadDownloading); err != nil {
+			return err
+		}
+		d.DirectURL, d.Size, d.Filename = directURL, size, filename
+		now := e.now()
+		d.StartedAt = &now
+		return nil
+	})
+	if err != nil || nd.State != domain.DownloadDownloading {
 		return
 	}
-	now := e.now()
-	d.StartedAt = &now
-	finish(&d)
+	d = nd
 
 	// 2. Fetch.
 	dest := filepath.Join(service.TorrentDir(e.cfg.DownloadDir, t), filepath.FromSlash(d.RelPath))
@@ -90,9 +113,8 @@ func (e *Engine) runDownload(ctx context.Context, t domain.Torrent, d domain.Dow
 	lastSave := time.Now()
 	opts := fetch.Options{
 		Connections: conns, Retries: 3, Limiter: e.limiter, ExpectedSize: d.Size,
-		ProgressInterval: time.Second,
+		ProgressInterval: time.Second, RequestTimeout: 2 * time.Minute,
 		Progress: func(done, _ int64) {
-			d.BytesDone = done
 			if time.Since(lastSave) < 2*time.Second {
 				return
 			}
@@ -103,72 +125,100 @@ func (e *Engine) runDownload(ctx context.Context, t domain.Torrent, d domain.Dow
 	res, err := e.fetcher(ctx, d.DirectURL, dest, opts)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
-			// Cancelled (delete/shutdown): leave the row for recovery; .part stays for resume.
-			d.State = domain.DownloadPending
-			d.StartedAt = nil
-			finish(&d)
+			// Cancelled (delete/shutdown): back to pending; .part stays for resume.
+			_, _ = e.mutateDL(sctx, d.ID, func(d *domain.Download) error {
+				if d.State != domain.DownloadDownloading {
+					return store.ErrSkip
+				}
+				d.State = domain.DownloadPending
+				d.StartedAt = nil
+				return nil
+			})
 			return
 		}
 		var he *fetch.HTTPError
 		if errors.As(err, &he) && he.LinkExpired() {
 			// Direct URL went stale: drop it so the next attempt re-unrestricts.
-			d.DirectURL = ""
-			e.downloadFailed(sctx, &d, fmt.Errorf("link expired (%w)", err), true)
+			e.downloadFailed(sctx, d.ID, fmt.Errorf("link expired (%w)", err), true, true)
 			return
 		}
-		e.downloadFailed(sctx, &d, err, !errors.Is(err, fetch.ErrSizeMismatch) || d.RetryCount == 0)
+		e.downloadFailed(sctx, d.ID, err, !errors.Is(err, fetch.ErrSizeMismatch) || d.RetryCount == 0, false)
 		return
 	}
-	d.BytesDone = res.Size
-	if d.Size == 0 {
-		d.Size = res.Size
-	}
-	now = e.now()
-	d.FinishedAt = &now
-	if err := d.Transition(domain.DownloadDownloaded); err != nil {
-		e.log.Error("download transition", "err", err)
-	}
-	finish(&d)
+	_, _ = e.mutateDL(sctx, d.ID, func(d *domain.Download) error {
+		if d.State != domain.DownloadDownloading {
+			return store.ErrSkip
+		}
+		d.BytesDone = res.Size
+		if d.Size == 0 {
+			d.Size = res.Size
+		}
+		now := e.now()
+		d.FinishedAt = &now
+		return d.Transition(domain.DownloadDownloaded)
+	})
 }
 
 // downloadFailed records an error, re-queuing with backoff while retries remain.
-func (e *Engine) downloadFailed(ctx context.Context, d *domain.Download, err error, retryable bool) {
-	d.Error = err.Error()
-	t, terr := e.svc.GetTorrent(ctx, d.TorrentID)
+func (e *Engine) downloadFailed(ctx context.Context, id string, cause error, retryable, clearURL bool) {
+	// Look up the torrent's retry budget BEFORE opening the transaction: the
+	// store has a single connection, so querying inside MutateDownload deadlocks.
 	maxRetries := domain.DefaultTorrentSettings().DownloadRetries
-	if terr == nil {
-		maxRetries = t.Torrent.Settings.DownloadRetries
+	if row, err := e.store.GetDownload(ctx, id); err == nil {
+		if t, terr := e.svc.GetTorrent(ctx, row.TorrentID); terr == nil {
+			maxRetries = t.Torrent.Settings.DownloadRetries
+		}
 	}
-	if retryable && d.RetryCount < maxRetries {
-		d.RetryCount++
-		d.State = domain.DownloadPending
-		d.StartedAt = nil
-		e.log.Warn("download failed, will retry", "id", d.ID, "attempt", d.RetryCount, "err", err)
+	d, err := e.mutateDL(ctx, id, func(d *domain.Download) error {
+		if d.State != domain.DownloadUnrestricting && d.State != domain.DownloadDownloading {
+			return store.ErrSkip
+		}
+		d.Error = cause.Error()
+		if clearURL {
+			d.DirectURL = ""
+		}
+		if retryable && d.RetryCount < maxRetries {
+			d.RetryCount++
+			d.State = domain.DownloadPending
+			d.StartedAt = nil
+		} else {
+			d.State = domain.DownloadError
+		}
+		return nil
+	})
+	if err != nil {
+		e.log.Error("save download failure", "id", id, "err", err)
+		return
+	}
+	if d.State == domain.DownloadPending {
+		e.log.Warn("download failed, will retry", "id", id, "attempt", d.RetryCount, "err", cause)
 	} else {
-		d.State = domain.DownloadError
-		e.log.Warn("download failed", "id", d.ID, "err", err)
-	}
-	if serr := e.saveDownload(ctx, d); serr != nil {
-		e.log.Error("save download", "err", serr)
+		e.log.Warn("download failed", "id", id, "err", cause)
 	}
 }
 
 // startUnpack claims the download (downloaded → unpacking) and launches extraction.
 func (e *Engine) startUnpack(ctx context.Context, t *domain.Torrent, d *domain.Download) error {
-	if err := d.Transition(domain.DownloadUnpacking); err != nil {
-		return err
-	}
-	now := e.now()
-	d.UnpackStartedAt = &now
-	if err := e.saveDownload(ctx, d); err != nil {
-		return err
-	}
 	settings, err := e.svc.GetSettings(ctx)
 	if err != nil {
 		return err
 	}
-	tt, dd := *t, *d
-	e.startJob(ctx, d.ID, t.ID, jobUnpack, func(jctx context.Context) { e.runUnpack(jctx, tt, dd, settings.UnpackMaxDepth) })
+	nd, err := e.mutateDL(ctx, d.ID, func(d *domain.Download) error {
+		if d.State != domain.DownloadDownloaded {
+			return store.ErrSkip
+		}
+		if err := d.Transition(domain.DownloadUnpacking); err != nil {
+			return err
+		}
+		now := e.now()
+		d.UnpackStartedAt = &now
+		return nil
+	})
+	if err != nil || nd.State != domain.DownloadUnpacking {
+		return err
+	}
+	tt := *t
+	e.startJob(ctx, d.ID, t.ID, jobUnpack, func(jctx context.Context) { e.runUnpack(jctx, tt, nd, settings.UnpackMaxDepth) })
 	return nil
 }
 
@@ -179,31 +229,26 @@ func (e *Engine) runUnpack(ctx context.Context, t domain.Torrent, d domain.Downl
 	dest := filepath.Dir(archive)
 	res, err := e.unpacker(ctx, archive, dest, unpack.Options{MaxDepth: maxDepth, DeleteArchives: true, Overwrite: true})
 	now := e.now()
-	if err != nil {
-		if errors.Is(err, context.Canceled) {
-			d.State = domain.DownloadDownloaded
-			d.UnpackStartedAt = nil
-			_ = e.saveDownload(sctx, &d)
-			return
+	_, _ = e.mutateDL(sctx, d.ID, func(d *domain.Download) error {
+		if d.State != domain.DownloadUnpacking {
+			return store.ErrSkip
 		}
-		if errors.Is(err, unpack.ErrNotArchive) {
+		switch {
+		case err == nil:
+			e.log.Info("unpacked", "id", d.ID, "files", len(res.Files), "bytes", res.Bytes)
+			d.UnpackFinishedAt, d.CompletedAt, d.State = &now, &now, domain.DownloadDone
+		case errors.Is(err, context.Canceled):
+			d.State, d.UnpackStartedAt = domain.DownloadDownloaded, nil
+		case errors.Is(err, unpack.ErrNotArchive):
 			// Looked like an archive by name but isn't: keep the file as-is.
-			d.UnpackFinishedAt = &now
-			d.CompletedAt = &now
-			d.State = domain.DownloadDone
-			_ = e.saveDownload(sctx, &d)
-			return
+			d.UnpackFinishedAt, d.CompletedAt, d.State = &now, &now, domain.DownloadDone
+		default:
+			e.log.Warn("unpack failed", "id", d.ID, "err", err)
+			d.Error, d.State = "unpack: "+err.Error(), domain.DownloadError
 		}
-		d.Error = "unpack: " + err.Error()
-		d.State = domain.DownloadError
-		e.log.Warn("unpack failed", "id", d.ID, "err", err)
-		_ = e.saveDownload(sctx, &d)
-		return
+		return nil
+	})
+	if err == nil {
+		_ = os.Remove(archive + ".part") // belt and braces
 	}
-	e.log.Info("unpacked", "id", d.ID, "files", len(res.Files), "bytes", res.Bytes)
-	d.UnpackFinishedAt = &now
-	d.CompletedAt = &now
-	d.State = domain.DownloadDone
-	_ = e.saveDownload(sctx, &d)
-	_ = os.Remove(archive + ".part") // belt and braces
 }

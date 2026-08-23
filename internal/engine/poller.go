@@ -117,6 +117,18 @@ func (e *Engine) pollAccount(ctx context.Context, accountID string) error {
 		}
 		pt, ok := snap.byID[t.ProviderID]
 		if !ok {
+			// The provider id changed but the hash is still there (e.g. TorBox
+			// moving a queued entry into mylist under a new id): relink.
+			if other, found := snap.byHash[t.Hash]; found && t.Hash != "" {
+				e.log.Info("relinking torrent to new provider id", "id", t.ID, "old", t.ProviderID, "new", other.ID)
+				if _, err := e.mutate(ctx, t.ID, func(tt *domain.Torrent) error { tt.ProviderID = other.ID; return nil }); err != nil {
+					return err
+				}
+				t.ProviderID = other.ID
+				pt, ok = other, true
+			}
+		}
+		if !ok {
 			// Gone at the provider. Give a freshly added torrent a grace period
 			// (list caches lag), then fail it.
 			if t.ProviderAddedAt != nil && e.now().Sub(*t.ProviderAddedAt) < 2*e.cfg.PollInterval+30*time.Second {
@@ -139,59 +151,69 @@ func (e *Engine) pollAccount(ctx context.Context, accountID string) error {
 }
 
 // applyProviderState merges a provider torrent into the local record and
-// handles provider-side errors (with torrent-level retries).
+// handles provider-side errors (with torrent-level retries). t is refreshed
+// with the committed row.
 func (e *Engine) applyProviderState(ctx context.Context, t *domain.Torrent, pt provider.Torrent, caps provider.Caps) error {
-	changed := false
-	set := func(cond bool, f func()) {
-		if cond {
-			f()
-			changed = true
-		}
-	}
-	set(pt.Name != "" && pt.Name != t.Name, func() { t.Name = pt.Name })
-	set(pt.Size > 0 && pt.Size != t.Size, func() { t.Size = pt.Size })
-	set(pt.Progress != t.Progress, func() { t.Progress = pt.Progress })
-	set(pt.Speed != t.Speed, func() { t.Speed = pt.Speed })
-	set(pt.Seeders != t.Seeders, func() { t.Seeders = pt.Seeders })
-	set(pt.RawStatus != t.ProviderStatus, func() { t.ProviderStatus = pt.RawStatus })
-	set(pt.EndedAt != nil && t.ProviderEndedAt == nil, func() { t.ProviderEndedAt = pt.EndedAt })
-	if len(pt.Files) > 0 && !sameFiles(t.Files, pt.Files) {
-		t.Files = mergeFiles(t.Files, pt.Files, caps.SelectFiles)
-		changed = true
-	}
-
-	switch pt.Status {
-	case domain.TorrentError:
+	if pt.Status == domain.TorrentError {
 		// Provider gave up. Retry the whole torrent if allowed, else fail.
 		msg := "provider error: " + firstNonEmpty(pt.Message, pt.RawStatus)
 		if t.RetryCount < t.Settings.TorrentRetries {
 			return e.requeueForRetry(ctx, t, msg)
 		}
 		return e.fail(ctx, t, msg)
-	case domain.TorrentFinished:
-		if t.Status != domain.TorrentFinished {
-			if err := t.Transition(domain.TorrentFinished, "available at provider"); err == nil {
+	}
+	nt, err := e.mutate(ctx, t.ID, func(t *domain.Torrent) error {
+		if t.Status.IsTerminal() || t.Status == domain.TorrentQueued {
+			return store.ErrSkip // a concurrent retry/delete changed the picture; let the next poll decide
+		}
+		changed := false
+		set := func(cond bool, f func()) {
+			if cond {
+				f()
 				changed = true
-				if t.ProviderEndedAt == nil {
-					now := e.now()
-					t.ProviderEndedAt = &now
-				}
 			}
 		}
-	case domain.TorrentProcessing, domain.TorrentWaitingSelection, domain.TorrentDownloading, domain.TorrentUploading:
-		if t.Status != pt.Status && t.Status.CanTransition(pt.Status) {
-			reason := firstNonEmpty(pt.Message, "provider: "+pt.RawStatus)
-			_ = t.Transition(pt.Status, reason)
-			changed = true
-		} else if pt.Message != "" && pt.Message != t.StatusReason {
-			t.StatusReason = pt.Message
+		set(pt.Name != "" && pt.Name != t.Name, func() { t.Name = pt.Name })
+		set(pt.Size > 0 && pt.Size != t.Size, func() { t.Size = pt.Size })
+		set(pt.Progress != t.Progress, func() { t.Progress = pt.Progress })
+		set(pt.Speed != t.Speed, func() { t.Speed = pt.Speed })
+		set(pt.Seeders != t.Seeders, func() { t.Seeders = pt.Seeders })
+		set(pt.RawStatus != t.ProviderStatus, func() { t.ProviderStatus = pt.RawStatus })
+		set(pt.EndedAt != nil && t.ProviderEndedAt == nil, func() { t.ProviderEndedAt = pt.EndedAt })
+		if len(pt.Files) > 0 && !sameFiles(t.Files, pt.Files) {
+			t.Files = mergeFiles(t.Files, pt.Files, caps.SelectFiles)
 			changed = true
 		}
-	}
-	if !changed {
+		switch pt.Status {
+		case domain.TorrentFinished:
+			if t.Status != domain.TorrentFinished {
+				if err := t.Transition(domain.TorrentFinished, "available at provider"); err == nil {
+					changed = true
+					if t.ProviderEndedAt == nil {
+						now := e.now()
+						t.ProviderEndedAt = &now
+					}
+				}
+			}
+		case domain.TorrentProcessing, domain.TorrentWaitingSelection, domain.TorrentDownloading, domain.TorrentUploading:
+			if t.Status != pt.Status && t.Status.CanTransition(pt.Status) {
+				_ = t.Transition(pt.Status, firstNonEmpty(pt.Message, "provider: "+pt.RawStatus))
+				changed = true
+			} else if pt.Message != "" && pt.Message != t.StatusReason {
+				t.StatusReason = pt.Message
+				changed = true
+			}
+		}
+		if !changed {
+			return store.ErrSkip
+		}
 		return nil
+	})
+	if err != nil {
+		return err
 	}
-	return e.saveTorrent(ctx, t)
+	*t = nt
+	return nil
 }
 
 // forgetProviderTorrent drops a provider torrent from the cached listing so
@@ -217,21 +239,28 @@ func (e *Engine) requeueForRetry(ctx context.Context, t *domain.Torrent, why str
 		}
 		e.forgetProviderTorrent(t.AccountID, t.ProviderID)
 	}
-	t.RetryCount++
-	t.ProviderID = ""
-	t.ProviderStatus = ""
-	t.Progress = 0
-	t.FilesSelectedAt = nil
-	t.ProviderAddedAt = nil
-	t.ProviderEndedAt = nil
-	at := e.now().Add(e.backoff(t.RetryCount - 1))
-	t.RetryAt = &at
 	if err := e.store.DeleteDownloadsForTorrent(ctx, t.ID); err != nil {
 		return err
 	}
-	t.Status = domain.TorrentQueued // forced: retry path is always allowed
-	t.StatusReason = why + "; retrying (" + strconv.Itoa(t.RetryCount) + "/" + strconv.Itoa(t.Settings.TorrentRetries) + ")"
-	return e.saveTorrent(ctx, t)
+	nt, err := e.mutate(ctx, t.ID, func(t *domain.Torrent) error {
+		t.RetryCount++
+		t.ProviderID = ""
+		t.ProviderStatus = ""
+		t.Progress = 0
+		t.FilesSelectedAt = nil
+		t.ProviderAddedAt = nil
+		t.ProviderEndedAt = nil
+		at := e.now().Add(e.backoff(t.RetryCount - 1))
+		t.RetryAt = &at
+		t.Status = domain.TorrentQueued // forced: retry path is always allowed
+		t.StatusReason = why + "; retrying (" + strconv.Itoa(t.RetryCount) + "/" + strconv.Itoa(t.Settings.TorrentRetries) + ")"
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	*t = nt
+	return nil
 }
 
 func sameFiles(a, b []domain.File) bool {

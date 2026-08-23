@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/NathanBhanji/debrid-client/internal/domain"
-	"github.com/NathanBhanji/debrid-client/internal/events"
 	"github.com/NathanBhanji/debrid-client/internal/provider"
 	"github.com/NathanBhanji/debrid-client/internal/service"
+	"github.com/NathanBhanji/debrid-client/internal/store"
 )
 
 // tick is one scheduling pass. It never blocks on provider or disk I/O:
@@ -62,8 +62,11 @@ func (e *Engine) tickQueued(ctx context.Context, t *domain.Torrent, now time.Tim
 		return e.fail(ctx, t, "provider unavailable: "+err.Error())
 	}
 	if !acc.Enabled {
-		t.StatusReason = "account disabled"
-		return e.saveTorrent(ctx, t)
+		if t.StatusReason != "account disabled" {
+			_, err := e.mutate(ctx, t.ID, func(t *domain.Torrent) error { t.StatusReason = "account disabled"; return nil })
+			return err
+		}
+		return nil
 	}
 
 	// Dedupe against the last provider listing: if the hash is already there
@@ -88,30 +91,40 @@ func (e *Engine) tickQueued(ctx context.Context, t *domain.Torrent, now time.Tim
 		}
 	}
 
-	if err := t.Transition(domain.TorrentAdding, "submitting to provider"); err != nil {
+	tt, err := e.mutate(ctx, t.ID, func(t *domain.Torrent) error {
+		if t.Status != domain.TorrentQueued {
+			return store.ErrSkip // changed under us
+		}
+		if err := t.Transition(domain.TorrentAdding, "submitting to provider"); err != nil {
+			return err
+		}
+		t.RetryAt = nil
+		return nil
+	})
+	if err != nil || tt.Status != domain.TorrentAdding {
 		return err
 	}
-	t.RetryAt = nil
-	if err := e.saveTorrent(ctx, t); err != nil {
-		return err
-	}
-	tt := *t
 	e.startJob(ctx, "add:"+t.ID, t.ID, jobAdd, func(jctx context.Context) { e.runAdd(jctx, tt, prov) })
 	return nil
 }
 
 // adopt links a local torrent to an existing provider torrent.
 func (e *Engine) adopt(ctx context.Context, t *domain.Torrent, pt provider.Torrent, caps provider.Caps) error {
-	t.ProviderID = pt.ID
-	now := e.now()
-	t.ProviderAddedAt = &now
-	t.RetryAt = nil
-	// Move out of queued so applyProviderState can take it from here.
-	_ = t.Transition(domain.TorrentAdding, "found existing torrent at provider")
-	_ = t.Transition(domain.TorrentProcessing, "found existing torrent at provider")
-	if err := e.saveTorrent(ctx, t); err != nil {
+	nt, err := e.mutate(ctx, t.ID, func(t *domain.Torrent) error {
+		if t.Status != domain.TorrentQueued {
+			return store.ErrSkip
+		}
+		t.ProviderID = pt.ID
+		now := e.now()
+		t.ProviderAddedAt = &now
+		t.RetryAt = nil
+		// Move out of queued so applyProviderState can take it from here.
+		return t.Transition(domain.TorrentProcessing, "found existing torrent at provider")
+	})
+	if err != nil {
 		return err
 	}
+	*t = nt
 	return e.applyProviderState(ctx, t, pt, caps)
 }
 
@@ -127,60 +140,74 @@ func (e *Engine) runAdd(ctx context.Context, t domain.Torrent, prov provider.Pro
 	default:
 		res, err = prov.AddTorrentFile(actx, t.Payload)
 	}
-	// Re-load: the torrent may have been deleted meanwhile.
-	cur, lerr := e.svc.GetTorrent(context.WithoutCancel(ctx), t.ID)
-	if lerr != nil {
-		if res.ID != "" && !service.IsNotFound(lerr) {
-			e.log.Warn("add: torrent vanished after provider add", "id", t.ID)
-		}
-		return
-	}
-	tt := cur.Torrent
-	if tt.Status != domain.TorrentAdding {
-		return // deleted/retried concurrently
-	}
 	sctx := context.WithoutCancel(ctx)
 	if err != nil {
 		kind := provider.KindOf(err)
-		switch {
-		case errors.Is(err, context.DeadlineExceeded) || (kind == provider.ErrTransient && strings.Contains(err.Error(), "deadline")):
-			// Unknown outcome: re-queue; dedupe-by-hash adopts it if it went through.
-			at := e.now().Add(e.cfg.PollInterval + 5*time.Second)
-			tt.RetryAt = &at
-			_ = tt.Transition(domain.TorrentQueued, "add timed out; reconciling with provider")
-			e.log.Warn("add timed out", "id", t.ID)
-		case kind == provider.ErrPermanent || kind == provider.ErrAuth:
-			_ = e.fail(sctx, &tt, "provider rejected torrent: "+err.Error())
-			return
-		case kind == provider.ErrLimit, kind == provider.ErrRateLimited:
-			wait := provider.RetryAfter(err)
-			if wait <= 0 {
-				wait = 5 * time.Minute
+		var failMsg string
+		tt, merr := e.mutate(sctx, t.ID, func(tt *domain.Torrent) error {
+			if tt.Status != domain.TorrentAdding {
+				return store.ErrSkip // deleted/retried concurrently
 			}
-			at := e.now().Add(wait)
-			tt.RetryAt = &at
-			_ = tt.Transition(domain.TorrentQueued, "provider limit reached; retrying at "+at.Format(time.Kitchen)+": "+err.Error())
-		default:
-			tt.RetryCount++
-			at := e.now().Add(e.backoff(tt.RetryCount - 1))
-			tt.RetryAt = &at
-			_ = tt.Transition(domain.TorrentQueued, "add failed, retrying: "+err.Error())
+			switch {
+			case errors.Is(err, context.DeadlineExceeded) || (kind == provider.ErrTransient && strings.Contains(err.Error(), "deadline")):
+				// Unknown outcome: re-queue; dedupe-by-hash adopts it if it went through.
+				at := e.now().Add(e.cfg.PollInterval + 5*time.Second)
+				tt.RetryAt = &at
+				_ = tt.Transition(domain.TorrentQueued, "add timed out; reconciling with provider")
+				e.log.Warn("add timed out", "id", t.ID)
+			case kind == provider.ErrPermanent || kind == provider.ErrAuth:
+				failMsg = "provider rejected torrent: " + err.Error()
+				return store.ErrSkip
+			case kind == provider.ErrLimit, kind == provider.ErrRateLimited:
+				wait := provider.RetryAfter(err)
+				if wait <= 0 {
+					wait = 5 * time.Minute
+				}
+				at := e.now().Add(wait)
+				tt.RetryAt = &at
+				_ = tt.Transition(domain.TorrentQueued, "provider limit reached; retrying at "+at.Format(time.Kitchen)+": "+err.Error())
+			default:
+				tt.RetryCount++
+				at := e.now().Add(e.backoff(tt.RetryCount - 1))
+				tt.RetryAt = &at
+				_ = tt.Transition(domain.TorrentQueued, "add failed, retrying: "+err.Error())
+			}
+			return nil
+		})
+		if merr != nil {
+			if !service.IsNotFound(merr) && !store.IsNotFound(merr) {
+				e.log.Error("save after add failure", "err", merr)
+			}
+			return
 		}
-		if err := e.saveTorrent(sctx, &tt); err != nil {
-			e.log.Error("save after add failure", "err", err)
+		if failMsg != "" && tt.Status == domain.TorrentAdding {
+			_ = e.fail(sctx, &tt, failMsg)
 		}
 		return
 	}
-	now := e.now()
-	tt.ProviderID = res.ID
-	tt.ProviderAddedAt = &now
-	tt.RetryAt = nil
-	if res.Hash != "" && res.Hash != tt.Hash {
-		e.log.Warn("provider hash differs", "local", tt.Hash, "provider", res.Hash)
+	if res.Hash != "" && res.Hash != t.Hash {
+		e.log.Warn("provider hash differs", "local", t.Hash, "provider", res.Hash)
 	}
-	_ = tt.Transition(domain.TorrentProcessing, "accepted by provider")
-	if err := e.saveTorrent(sctx, &tt); err != nil {
-		e.log.Error("save after add", "err", err)
+	tt, merr := e.mutate(sctx, t.ID, func(tt *domain.Torrent) error {
+		if tt.Status != domain.TorrentAdding {
+			return store.ErrSkip
+		}
+		now := e.now()
+		tt.ProviderID = res.ID
+		tt.ProviderAddedAt = &now
+		tt.RetryAt = nil
+		return tt.Transition(domain.TorrentProcessing, "accepted by provider")
+	})
+	if merr != nil {
+		if !store.IsNotFound(merr) {
+			e.log.Error("save after add", "err", merr)
+		} else if res.ID != "" {
+			e.log.Warn("add: torrent deleted locally while adding; it remains at the provider", "id", t.ID, "provider_id", res.ID)
+		}
+		return
+	}
+	if tt.Status != domain.TorrentProcessing {
+		return // changed under us
 	}
 	// Pull the full record right away so files/status are known without
 	// waiting for the next poll.
@@ -246,13 +273,19 @@ func (e *Engine) runSelect(ctx context.Context, t domain.Torrent, prov provider.
 		}
 		return
 	}
-	for i := range t.Files {
-		t.Files[i].Selected = sel[t.Files[i].ID]
-	}
-	now := e.now()
-	t.FilesSelectedAt = &now
-	t.StatusReason = "files selected"
-	_ = e.saveTorrent(sctx, &t)
+	files := t.Files
+	_, _ = e.mutate(sctx, t.ID, func(t *domain.Torrent) error {
+		if len(t.Files) == 0 {
+			t.Files = files
+		}
+		for i := range t.Files {
+			t.Files[i].Selected = sel[t.Files[i].ID]
+		}
+		now := e.now()
+		t.FilesSelectedAt = &now
+		t.StatusReason = "files selected"
+		return nil
+	})
 }
 
 // tickFinished creates downloads once links are available, starts downloads
@@ -299,13 +332,16 @@ func (e *Engine) tickFinished(ctx context.Context, t *domain.Torrent, now time.T
 			active++
 		case domain.DownloadDownloaded:
 			if !t.Settings.Unpack || e.cfg.UnpackLimit == 0 || !isArchive(d.Filename) {
-				if err := d.Transition(domain.DownloadDone); err == nil {
-					d.CompletedAt = &now
-					if err := e.saveDownload(ctx, d); err != nil {
-						return err
+				if _, err := e.mutateDL(ctx, d.ID, func(d *domain.Download) error {
+					if err := d.Transition(domain.DownloadDone); err != nil {
+						return store.ErrSkip
 					}
-					done++
+					d.CompletedAt = &now
+					return nil
+				}); err != nil {
+					return err
 				}
+				done++
 				continue
 			}
 			if e.hasJob(d.ID) || e.countJobs(jobUnpack) >= e.cfg.UnpackLimit {
@@ -326,8 +362,8 @@ func (e *Engine) tickFinished(ctx context.Context, t *domain.Torrent, now time.T
 	}
 	if pending > 0 || active > 0 {
 		if t.StatusReason != "downloading" {
-			t.StatusReason = "downloading"
-			return e.saveTorrent(ctx, t)
+			_, err := e.mutate(ctx, t.ID, func(t *domain.Torrent) error { t.StatusReason = "downloading"; return nil })
+			return err
 		}
 		return nil
 	}
@@ -335,13 +371,16 @@ func (e *Engine) tickFinished(ctx context.Context, t *domain.Torrent, now time.T
 		return e.fail(ctx, t, "one or more downloads failed")
 	}
 	if done == len(downloads) {
-		if err := t.Transition(domain.TorrentCompleted, "all downloads complete"); err != nil {
-			return err
-		}
-		t.CompletedAt = &now
-		t.Error = ""
 		e.log.Info("torrent completed", "id", t.ID, "name", t.Name)
-		return e.saveTorrent(ctx, t)
+		_, err := e.mutate(ctx, t.ID, func(t *domain.Torrent) error {
+			if err := t.Transition(domain.TorrentCompleted, "all downloads complete"); err != nil {
+				return store.ErrSkip
+			}
+			t.CompletedAt = &now
+			t.Error = ""
+			return nil
+		})
+		return err
 	}
 	return nil
 }
@@ -368,8 +407,7 @@ func (e *Engine) runCreateDownloads(ctx context.Context, t domain.Torrent, prov 
 	}
 	if len(links) == 0 {
 		if t.StatusReason != "waiting for download links" {
-			t.StatusReason = "waiting for download links"
-			_ = e.saveTorrent(sctx, &t)
+			_, _ = e.mutate(sctx, t.ID, func(t *domain.Torrent) error { t.StatusReason = "waiting for download links"; return nil })
 		}
 		return
 	}
@@ -408,7 +446,7 @@ func (e *Engine) runCreateDownloads(ctx context.Context, t domain.Torrent, prov 
 			ID: newID(), TorrentID: t.ID, FileID: l.FileID, ProviderLink: l.URL, RelPath: rel, Filename: path.Base(rel),
 			Size: l.Size, State: domain.DownloadPending, QueuedAt: now, UpdatedAt: now,
 		}
-		if err := e.store.InsertDownload(sctx, downloadInsert(d)); err != nil {
+		if _, err := e.store.InsertDownload(sctx, downloadInsert(d)); err != nil {
 			e.log.Error("insert download", "err", err)
 			return
 		}
@@ -418,12 +456,13 @@ func (e *Engine) runCreateDownloads(ctx context.Context, t domain.Torrent, prov 
 		_ = e.fail(sctx, &t, "no files matched the filters")
 		return
 	}
-	if t.FilesSelectedAt == nil {
-		t.FilesSelectedAt = &now
-	}
-	t.StatusReason = "downloading"
-	_ = e.saveTorrent(sctx, &t)
-	e.events.Publish(events.Event{Type: events.TorrentUpdated, TorrentID: t.ID})
+	_, _ = e.mutate(sctx, t.ID, func(t *domain.Torrent) error {
+		if t.FilesSelectedAt == nil {
+			t.FilesSelectedAt = &now
+		}
+		t.StatusReason = "downloading"
+		return nil
+	})
 }
 
 // linkFiles builds domain.Files for filtering from provider links, using the
@@ -490,15 +529,11 @@ func (e *Engine) tickCompleted(ctx context.Context, t *domain.Torrent, now time.
 			e.log.Warn("finished action: delete at provider", "id", tt.ID, "err", err)
 			return
 		}
-		sctx := context.WithoutCancel(jctx)
-		cur, err := e.svc.GetTorrent(sctx, tt.ID)
-		if err != nil {
-			return
-		}
-		c := cur.Torrent
-		c.ProviderID = ""
-		c.StatusReason = "removed from provider"
-		_ = e.saveTorrent(sctx, &c)
+		_, _ = e.mutate(context.WithoutCancel(jctx), tt.ID, func(t *domain.Torrent) error {
+			t.ProviderID = ""
+			t.StatusReason = "removed from provider"
+			return nil
+		})
 	})
 	return nil
 }
