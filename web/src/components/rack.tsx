@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { api } from '#/lib/api'
 import { formatBytes, formatSpeed, formatWhen } from '#/lib/format'
@@ -32,12 +32,21 @@ function ledFor(t: Torrent): {
       return { kind: 'done', label: 'OK', segClass: 'grn' }
     case 'error':
       return { kind: 'err', label: 'ERR', segClass: 'red' }
+    default: {
+      // Unknown status = version skew (old binary + new UI or vice versa).
+      // Render something neutral instead of crashing the whole app.
+      t.status satisfies never
+      return { kind: 'q', label: '?', segClass: 'amb' }
+    }
   }
 }
 
 function progressFor(t: Torrent): number {
   if (t.status === 'completed') return 1
   if (t.status === 'finished') return t.local_progress
+  // A local-phase error would otherwise show the provider's 100% in red,
+  // which reads as "done"; show how far the local downloads actually got.
+  if (t.status === 'error' && t.downloads.length > 0) return t.local_progress
   return t.provider_progress
 }
 
@@ -67,6 +76,10 @@ function statusLine(t: Torrent): string {
         : 'completed'
     case 'error':
       return t.error ?? 'error'
+    default: {
+      t.status satisfies never
+      return String(t.status)
+    }
   }
 }
 
@@ -76,7 +89,7 @@ function Segments({ t }: { t: Torrent }) {
   const lit = Math.round(p * SEGMENTS)
   const active = t.status !== 'completed' && t.status !== 'error'
   return (
-    <div className="seg">
+    <div className="seg" aria-hidden="true">
       {Array.from({ length: SEGMENTS }, (_, i) => (
         <i
           key={i}
@@ -202,7 +215,11 @@ function Mod({ t }: { t: Torrent }) {
   const led = ledFor(t)
   return (
     <div className={`mod${open ? ' open' : ''}`}>
-      <button className="modhead" onClick={() => setOpen((o) => !o)}>
+      <button
+        className="modhead"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+      >
         <div className={`led ${led.kind}`}>{led.label}</div>
         <div style={{ minWidth: 0 }}>
           <div className="name">{t.name}</div>
@@ -213,7 +230,9 @@ function Mod({ t }: { t: Torrent }) {
           <div className="s1">{formatBytes(t.size)}</div>
           <div className="s2">{t.status}</div>
         </div>
-        <span className="chev">▶</span>
+        <span className="chev" aria-hidden="true">
+          ▶
+        </span>
       </button>
       {open && <Bay t={t} />}
     </div>
@@ -221,55 +240,66 @@ function Mod({ t }: { t: Torrent }) {
 }
 
 // refreshTick bumps on every SSE notification; the list re-fetches shortly
-// after (debounced, since engine polls emit bursts).
+// after (debounced with a max wait, since engine polls emit bursts but a
+// sustained stream must not starve the refresh).
 export function Rack({ refreshTick }: { refreshTick: number }) {
   const [torrents, setTorrents] = useState<Array<Torrent> | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [retryTick, setRetryTick] = useState(0)
+  const lastFetch = useRef(0)
 
   useEffect(() => {
+    const starved = Date.now() - lastFetch.current > 2000
     const timer = setTimeout(
       () => {
+        lastFetch.current = Date.now()
         api.torrents
           .list()
           .then((list) => {
             setTorrents(list)
             setError(null)
           })
-          .catch((e: unknown) =>
-            setError(e instanceof Error ? e.message : String(e)),
-          )
+          .catch((e: unknown) => {
+            // Keep the stale list rendered; retry on our own if events go quiet.
+            setError(e instanceof Error ? e.message : String(e))
+            setTimeout(() => setRetryTick((n) => n + 1), 5000)
+          })
       },
-      refreshTick === 0 ? 0 : 300,
+      refreshTick === 0 || starved ? 0 : 300,
     )
     return () => clearTimeout(timer)
-  }, [refreshTick])
+  }, [refreshTick, retryTick])
 
-  if (error) {
-    return (
-      <div className="lcd rack-empty">
-        <div className="lbl">Torrents</div>
-        <div className="big" style={{ color: 'var(--lcd-red)', fontSize: 15 }}>
-          LIST UNAVAILABLE — {error}
-        </div>
+  const banner = error ? (
+    <div className="lcd rack-empty" style={{ marginBottom: 10 }}>
+      <div className="big" style={{ color: 'var(--lcd-red)', fontSize: 13 }}>
+        LIST STALE — {error}
       </div>
-    )
-  }
-  if (torrents === null) return null
+    </div>
+  ) : null
+
+  if (torrents === null) return banner
   if (torrents.length === 0) {
     return (
-      <div className="lcd rack-empty">
-        <div className="lbl">Torrents</div>
-        <div className="big" style={{ fontSize: 15 }}>
-          RACK EMPTY — INSERT A MAGNET TO BEGIN
+      <>
+        {banner}
+        <div className="lcd rack-empty">
+          <div className="lbl">Torrents</div>
+          <div className="big" style={{ fontSize: 15 }}>
+            RACK EMPTY — INSERT A MAGNET TO BEGIN
+          </div>
         </div>
-      </div>
+      </>
     )
   }
   return (
-    <div className="rack">
-      {torrents.map((t) => (
-        <Mod key={t.id} t={t} />
-      ))}
-    </div>
+    <>
+      {banner}
+      <div className="rack">
+        {torrents.map((t) => (
+          <Mod key={t.id} t={t} />
+        ))}
+      </div>
+    </>
   )
 }

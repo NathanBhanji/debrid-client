@@ -88,10 +88,16 @@ export const api = {
 // re-fetch the resource rather than reading event data.
 export function openEvents(
   onEvent: (type: string, data: unknown) => void,
+  onFatal?: () => void,
 ): () => void {
   const es = new EventSource(
     `/api/v1/events?api_key=${encodeURIComponent(getApiKey())}`,
   )
+  // EventSource retries transient drops itself; CLOSED means it gave up
+  // (e.g. the server rejected the key), so let the caller reconnect.
+  es.onerror = () => {
+    if (es.readyState === EventSource.CLOSED) onFatal?.()
+  }
   const types = [
     'torrent.added',
     'torrent.updated',

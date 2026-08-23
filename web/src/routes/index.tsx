@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 
 import { ApiError, api, openEvents, setApiKey } from '#/lib/api'
@@ -35,18 +35,48 @@ function Home() {
   useEffect(load, [])
 
   // One SSE connection per page; every notification bumps the tick, which
-  // re-fetches the status LCDs here and the torrent list in <Rack>.
+  // re-fetches the status LCDs here and the torrent list in <Rack>. Keyed on
+  // needsKey so a rotated key closes the stream and reconnects with the new
+  // one once the user re-authorizes.
   const [tick, setTick] = useState(0)
   const authed = status !== null
   useEffect(() => {
-    if (!authed) return
-    return openEvents((type) => {
-      if (type !== 'heartbeat') setTick((n) => n + 1)
-    })
-  }, [authed])
+    if (!authed || needsKey) return
+    let disposed = false
+    let close: (() => void) | undefined
+    let retryTimer: ReturnType<typeof setTimeout>
+    const connect = () => {
+      close = openEvents(
+        (type) => {
+          if (type !== 'heartbeat') setTick((n) => n + 1)
+        },
+        () => {
+          // Fatal close (e.g. key rejected): surface auth state via a normal
+          // load, then retry the stream — a 401 flips needsKey and stops us.
+          close?.()
+          load()
+          if (!disposed) retryTimer = setTimeout(connect, 5000)
+        },
+      )
+    }
+    connect()
+    return () => {
+      disposed = true
+      clearTimeout(retryTimer)
+      close?.()
+    }
+  }, [authed, needsKey])
+  const lastLoad = useRef(0)
   useEffect(() => {
     if (tick === 0) return
-    const timer = setTimeout(load, 300)
+    const starved = Date.now() - lastLoad.current > 2000
+    const timer = setTimeout(
+      () => {
+        lastLoad.current = Date.now()
+        load()
+      },
+      starved ? 0 : 300,
+    )
     return () => clearTimeout(timer)
   }, [tick])
 
