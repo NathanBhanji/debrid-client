@@ -18,13 +18,15 @@ func main() {
 }
 
 func newRootCmd() *cobra.Command {
+	g := &globalFlags{}
 	root := &cobra.Command{
 		Use:           "debrid",
 		Short:         "Debrid download manager: API server, CLI and MCP server",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.AddCommand(newVersionCmd())
+	root.PersistentFlags().StringVar(&g.configFile, "config", "", "config file (default: $XDG_CONFIG_HOME/debrid/config.yaml or $DEBRID_CONFIG)")
+	root.AddCommand(newVersionCmd(), newConfigCmd(g))
 	return root
 }
 
