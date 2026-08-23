@@ -25,7 +25,7 @@ func newRootCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.PersistentFlags().StringVar(&g.configFile, "config", "", "config file (default: $XDG_CONFIG_HOME/debrid/config.yaml or $DEBRID_CONFIG)")
+	root.PersistentFlags().StringVar(&g.configFile, "config", "", "config file (default: $DEBRID_CONFIG, else $XDG_CONFIG_HOME/debrid/config.yaml)")
 	root.AddCommand(newVersionCmd(), newConfigCmd(g))
 	return root
 }

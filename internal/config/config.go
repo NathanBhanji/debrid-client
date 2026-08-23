@@ -11,9 +11,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-viper/mapstructure/v2"
 	"github.com/knadh/koanf/parsers/yaml"
+	"github.com/knadh/koanf/providers/confmap"
 	"github.com/knadh/koanf/providers/env/v2"
-	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/providers/posflag"
 	"github.com/knadh/koanf/providers/structs"
 	"github.com/knadh/koanf/v2"
@@ -93,12 +94,49 @@ func Default() Config {
 	}
 }
 
-// DefaultConfigPath returns the default location of the YAML config file.
+// DefaultConfigPath returns the default location of the YAML config file:
+// $DEBRID_CONFIG if set, else $XDG_CONFIG_HOME/debrid/config.yaml
+// (~/.config/debrid/config.yaml).
 func DefaultConfigPath() string {
-	if p := os.Getenv(EnvPrefix + "CONFIG"); p != "" {
-		return p
+	p, _ := defaultConfigPath(os.Environ)
+	return p
+}
+
+// defaultConfigPath also reports whether the path was explicitly chosen via
+// DEBRID_CONFIG (in which case a missing file is an error).
+func defaultConfigPath(environ func() []string) (path string, explicit bool) {
+	if v := lookupEnv(environ, EnvPrefix+"CONFIG"); v != "" {
+		return v, true
 	}
-	return filepath.Join(userConfigDir(), "debrid", "config.yaml")
+	return filepath.Join(userConfigDir(), "debrid", "config.yaml"), false
+}
+
+func lookupEnv(environ func() []string, key string) string {
+	for _, kv := range environ() {
+		if k, v, ok := strings.Cut(kv, "="); ok && k == key {
+			return v
+		}
+	}
+	return ""
+}
+
+func (o Options) environ() func() []string {
+	if o.Environ != nil {
+		return o.Environ
+	}
+	return os.Environ
+}
+
+// stripNils removes nil-valued entries recursively.
+func stripNils(m map[string]any) {
+	for k, v := range m {
+		switch vv := v.(type) {
+		case nil:
+			delete(m, k)
+		case map[string]any:
+			stripNils(vv)
+		}
+	}
 }
 
 func defaultDataDir() string {
@@ -112,14 +150,17 @@ func defaultDataDir() string {
 	return filepath.Join(home, ".local", "share", "debrid")
 }
 
+// userConfigDir follows XDG on every platform (consistent with defaultDataDir),
+// so config and data live side by side under ~/.config and ~/.local/share.
 func userConfigDir() string {
 	if d := os.Getenv("XDG_CONFIG_HOME"); d != "" {
 		return d
 	}
-	if d, err := os.UserConfigDir(); err == nil && d != "" {
-		return d
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return "."
 	}
-	return "."
+	return filepath.Join(home, ".config")
 }
 
 // Options controls how Load resolves configuration.
@@ -145,22 +186,30 @@ func Load(opts Options) (Config, error) {
 	}
 
 	path := opts.File
+	explicit := opts.FileExplicit
 	if path == "" {
-		path = DefaultConfigPath()
+		path, explicit = defaultConfigPath(opts.environ())
 	}
-	if err := k.Load(file.Provider(path), yaml.Parser()); err != nil {
-		if !errors.Is(err, os.ErrNotExist) || opts.FileExplicit {
+	if raw, err := os.ReadFile(path); err != nil {
+		if !errors.Is(err, os.ErrNotExist) || explicit {
+			return Config{}, fmt.Errorf("config file %s: %w", path, err)
+		}
+	} else {
+		m, err := yaml.Parser().Unmarshal(raw)
+		if err != nil {
+			return Config{}, fmt.Errorf("config file %s: %w", path, err)
+		}
+		// A section left as `engine:` with all children commented out parses as
+		// nil; dropping nils keeps the defaults instead of wiping the section.
+		stripNils(m)
+		if err := k.Load(confmap.Provider(m, delim), nil); err != nil {
 			return Config{}, fmt.Errorf("config file %s: %w", path, err)
 		}
 	}
 
-	environ := opts.Environ
-	if environ == nil {
-		environ = os.Environ
-	}
 	if err := k.Load(env.Provider(delim, env.Opt{
 		Prefix:      EnvPrefix,
-		EnvironFunc: environ,
+		EnvironFunc: opts.environ(),
 		TransformFunc: func(key, value string) (string, any) {
 			key = strings.TrimPrefix(key, EnvPrefix)
 			if key == "CONFIG" { // DEBRID_CONFIG selects the file; not a config key
@@ -175,15 +224,29 @@ func Load(opts Options) (Config, error) {
 
 	if opts.Flags != nil {
 		if err := k.Load(posflag.ProviderWithFlag(opts.Flags, delim, k, func(f *pflag.Flag) (string, any) {
-			return strings.ReplaceAll(f.Name, "-", delim), posflag.FlagVal(opts.Flags, f)
+			key, ok := flagKeys[f.Name]
+			if !ok {
+				return "", nil // not a config flag (e.g. --config, --help)
+			}
+			return key, posflag.FlagVal(opts.Flags, f)
 		}), nil); err != nil {
 			return Config{}, fmt.Errorf("flags: %w", err)
 		}
 	}
 
 	var cfg Config
-	if err := k.Unmarshal("", &cfg); err != nil {
-		return Config{}, fmt.Errorf("unmarshal: %w", err)
+	if err := k.UnmarshalWithConf("", &cfg, koanf.UnmarshalConf{Tag: "koanf", DecoderConfig: &mapstructure.DecoderConfig{
+		DecodeHook: mapstructure.ComposeDecodeHookFunc(
+			mapstructure.StringToTimeDurationHookFunc(),
+			mapstructure.StringToSliceHookFunc(","),
+			mapstructure.TextUnmarshallerHookFunc(),
+		),
+		Metadata:         nil,
+		Result:           &cfg,
+		WeaklyTypedInput: true,
+		ErrorUnused:      true, // reject typos like dowload_limit or DEBRID_ENGINE__DOWNLOD_LIMIT
+	}}); err != nil {
+		return Config{}, fmt.Errorf("config: %w", err)
 	}
 	cfg = cfg.Derived()
 	if err := cfg.Validate(); err != nil {
@@ -206,9 +269,6 @@ func (c Config) Validate() error {
 	var errs []error
 	if c.DataDir == "" {
 		errs = append(errs, errors.New("data_dir must not be empty"))
-	}
-	if c.DownloadDir == "" {
-		errs = append(errs, errors.New("download_dir must not be empty"))
 	}
 	if c.Server.Listen == "" {
 		errs = append(errs, errors.New("server.listen must not be empty"))
@@ -255,8 +315,19 @@ func (c Config) Redacted() Config {
 	return c
 }
 
+// flagKeys maps command-line flag names to koanf keys. Only these flags are
+// read by Load; BindFlags registers exactly this set.
+var flagKeys = map[string]string{
+	"data-dir":         "data_dir",
+	"download-dir":     "download_dir",
+	"server-listen":    "server.listen",
+	"server-base-path": "server.base_path",
+	"log-level":        "log.level",
+	"log-format":       "log.format",
+}
+
 // BindFlags registers the subset of settings that make sense as command-line
-// flags. Names follow the koanf key with "." replaced by "-".
+// flags (see flagKeys).
 func BindFlags(fs *pflag.FlagSet) {
 	d := Default()
 	fs.String("data-dir", d.DataDir, "directory for the database and state")
@@ -269,7 +340,7 @@ func BindFlags(fs *pflag.FlagSet) {
 
 // WriteDefaultFile writes a commented default config to path, failing if it exists.
 func WriteDefaultFile(path string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
@@ -289,8 +360,8 @@ func defaultYAML() string {
 # Every key can also be set via environment variables: DEBRID_<SECTION>__<KEY>,
 # e.g. DEBRID_SERVER__LISTEN=0.0.0.0:8080, DEBRID_ENGINE__DOWNLOAD_LIMIT=4.
 
-# Directory for the SQLite database and state.
-data_dir: %q
+# Directory for the SQLite database and state (default: XDG data dir).
+# data_dir: %q
 # Directory for downloaded files (default: <data_dir>/downloads).
 # download_dir: %q
 

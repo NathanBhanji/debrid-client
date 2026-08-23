@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"testing"
 )
@@ -20,7 +21,13 @@ func TestVersionCommand(t *testing.T) {
 }
 
 func TestConfigInitAndShow(t *testing.T) {
-	t.Setenv("DEBRID_CONFIG", "")
+	// Isolate from any DEBRID_* variables on the developer's machine.
+	for _, kv := range os.Environ() {
+		if k, v, _ := strings.Cut(kv, "="); strings.HasPrefix(k, "DEBRID_") {
+			_ = os.Unsetenv(k)
+			t.Cleanup(func() { _ = os.Setenv(k, v) })
+		}
+	}
 	dir := t.TempDir()
 	cfgPath := dir + "/config.yaml"
 

@@ -60,7 +60,8 @@ engine:
 	}
 	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
 	BindFlags(fs)
-	if err := fs.Parse([]string{"--server-listen=flag:3"}); err != nil {
+	fs.String("config", "", "unrelated persistent flag must be ignored")
+	if err := fs.Parse([]string{"--server-listen=flag:3", "--config=/x.yaml"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -138,5 +139,74 @@ func TestRedacted(t *testing.T) {
 	c.Server.APIKey = "secret"
 	if r := c.Redacted(); r.Server.APIKey == "secret" || !strings.Contains(r.Server.APIKey, "*") {
 		t.Fatalf("api key not redacted: %q", r.Server.APIKey)
+	}
+}
+
+func TestEveryFlagLands(t *testing.T) {
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	BindFlags(fs)
+	args := []string{"--data-dir=/fd", "--download-dir=/fdl", "--server-listen=h:1", "--server-base-path=/bp", "--log-level=debug", "--log-format=json"}
+	if err := fs.Parse(args); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(Options{File: filepath.Join(t.TempDir(), "none.yaml"), Environ: noEnv, Flags: fs})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DataDir != "/fd" || cfg.DownloadDir != "/fdl" || cfg.Server.Listen != "h:1" || cfg.Server.BasePath != "/bp" || cfg.Log.Level != "debug" || cfg.Log.Format != "json" {
+		t.Fatalf("flags not applied: %+v", cfg)
+	}
+	// Every bound flag must be in the table and vice versa.
+	fs.VisitAll(func(f *pflag.Flag) {
+		if _, ok := flagKeys[f.Name]; !ok {
+			t.Errorf("flag %s not in flagKeys", f.Name)
+		}
+	})
+	for name := range flagKeys {
+		if fs.Lookup(name) == nil {
+			t.Errorf("flagKeys entry %s not bound", name)
+		}
+	}
+}
+
+func TestEmptySectionKeepsDefaults(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "c.yaml")
+	if err := os.WriteFile(path, []byte("engine:\n  # download_limit: 4\nserver:\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(Options{File: path, FileExplicit: true, Environ: noEnv})
+	if err != nil {
+		t.Fatalf("empty sections should not wipe defaults: %v", err)
+	}
+	if cfg.Engine.DownloadLimit != 2 || cfg.Server.Listen != Default().Server.Listen {
+		t.Fatalf("defaults lost: %+v", cfg)
+	}
+}
+
+func TestUnknownKeysRejected(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "c.yaml")
+	_ = os.WriteFile(path, []byte("engine:\n  dwnload_limit: 4\n"), 0o600)
+	if _, err := Load(Options{File: path, FileExplicit: true, Environ: noEnv}); err == nil || !strings.Contains(err.Error(), "dwnload_limit") {
+		t.Fatalf("typo in file should be rejected, got %v", err)
+	}
+	env := func() []string { return []string{"DEBRID_ENGINE__DOWNLOD_LIMIT=4"} }
+	if _, err := Load(Options{File: filepath.Join(t.TempDir(), "none.yaml"), Environ: env}); err == nil {
+		t.Fatal("typo in env should be rejected")
+	}
+}
+
+func TestEnvConfigPathIsExplicit(t *testing.T) {
+	env := func() []string { return []string{"DEBRID_CONFIG=/definitely/not/here.yaml"} }
+	if _, err := Load(Options{Environ: env}); err == nil {
+		t.Fatal("missing DEBRID_CONFIG file should be an error")
+	}
+	t.Setenv("DEBRID_CONFIG", "/from/env.yaml")
+	if DefaultConfigPath() != "/from/env.yaml" {
+		t.Fatal("DefaultConfigPath should honour DEBRID_CONFIG")
+	}
+	t.Setenv("DEBRID_CONFIG", "")
+	t.Setenv("XDG_CONFIG_HOME", "/xdg")
+	if DefaultConfigPath() != filepath.Join("/xdg", "debrid", "config.yaml") {
+		t.Fatalf("xdg path: %s", DefaultConfigPath())
 	}
 }
