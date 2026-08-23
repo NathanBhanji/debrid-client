@@ -1,1 +1,3 @@
 internal/store/sqlcgen/** linguist-generated=true
+internal/apiclient/client.gen.go linguist-generated=true
+internal/apiclient/openapi.yaml linguist-generated=true

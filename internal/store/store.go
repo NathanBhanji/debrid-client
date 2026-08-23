@@ -115,6 +115,24 @@ func (s *Store) WithTx(ctx context.Context, fn func(q *sqlcgen.Queries) error) (
 	return tx.Commit()
 }
 
+// ReadSettingReadOnly reads one settings value from the database file without
+// taking write locks or running migrations (safe for a CLI to call while the
+// server owns the database). Returns sql.ErrNoRows if the key is absent.
+func ReadSettingReadOnly(ctx context.Context, path, key string) (string, error) {
+	q := url.Values{}
+	q.Set("mode", "ro")
+	q.Add("_pragma", "busy_timeout(2000)")
+	q.Add("_pragma", "query_only(1)")
+	db, err := sql.Open("sqlite", "file:"+path+"?"+q.Encode())
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = db.Close() }()
+	var v string
+	err = db.QueryRowContext(ctx, "SELECT value FROM settings WHERE key = ?", key).Scan(&v)
+	return v, err
+}
+
 // MutateTorrent atomically applies fn to the torrent row: it is read and
 // written back inside one transaction, so concurrent writers (engine vs
 // service) can't clobber each other's columns. fn may return ErrSkip to leave

@@ -1,0 +1,1353 @@
+components:
+  schemas:
+    Account:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/Account.json
+          format: uri
+          readOnly: true
+          type: string
+        created_at:
+          format: date-time
+          type: string
+        enabled:
+          type: boolean
+        id:
+          description: Account id
+          type: string
+        is_default:
+          description: Used when a torrent is added without an account
+          type: boolean
+        kind:
+          description: Provider kind
+          enum:
+            - torbox
+            - realdebrid
+            - alldebrid
+            - premiumize
+            - debridlink
+          type: string
+        name:
+          description: Display name (unique)
+          type: string
+        updated_at:
+          format: date-time
+          type: string
+        user:
+          $ref: "#/components/schemas/User"
+          description: Live provider user info when available
+      required:
+        - id
+        - kind
+        - name
+        - enabled
+        - is_default
+        - created_at
+        - updated_at
+      type: object
+    AddAccountInBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/AddAccountInBody.json
+          format: uri
+          readOnly: true
+          type: string
+        credentials:
+          $ref: "#/components/schemas/Credentials"
+        kind:
+          enum:
+            - torbox
+            - realdebrid
+            - alldebrid
+            - premiumize
+            - debridlink
+          type: string
+        name:
+          description: Display name; defaults to the kind
+          type: string
+        set_default:
+          type: boolean
+      required:
+        - kind
+        - credentials
+      type: object
+    AddTorrentInBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/AddTorrentInBody.json
+          format: uri
+          readOnly: true
+          type: string
+        account:
+          description: Account id or name; default account when empty
+          type: string
+        category:
+          type: string
+        magnet:
+          description: Magnet URI
+          type: string
+        settings:
+          $ref: "#/components/schemas/TorrentSettings"
+          description: Full per-torrent settings replacing the configured defaults (not merged)
+      required:
+        - magnet
+      type: object
+    Credentials:
+      additionalProperties: false
+      properties:
+        api_key:
+          description: API key / token for the provider
+          type: string
+      type: object
+    Download:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/Download.json
+          format: uri
+          readOnly: true
+          type: string
+        bytes_done:
+          format: int64
+          type: integer
+        completed_at:
+          format: date-time
+          type: string
+        error:
+          type: string
+        file_id:
+          type: string
+        filename:
+          type: string
+        finished_at:
+          format: date-time
+          type: string
+        id:
+          type: string
+        path:
+          description: Path relative to the torrent directory
+          type: string
+        progress:
+          description: 0..1
+          format: double
+          type: number
+        queued_at:
+          format: date-time
+          type: string
+        retry_count:
+          format: int64
+          type: integer
+        size:
+          format: int64
+          type: integer
+        started_at:
+          format: date-time
+          type: string
+        state:
+          enum:
+            - pending
+            - unrestricting
+            - downloading
+            - downloaded
+            - unpacking
+            - done
+            - error
+          type: string
+        torrent_id:
+          type: string
+      required:
+        - id
+        - torrent_id
+        - path
+        - filename
+        - size
+        - bytes_done
+        - progress
+        - state
+        - retry_count
+        - queued_at
+      type: object
+    ErrorDetail:
+      additionalProperties: false
+      properties:
+        location:
+          description: Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id'
+          type: string
+        message:
+          description: Error message text
+          type: string
+        value:
+          description: The value at the given location
+      type: object
+    ErrorModel:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/ErrorModel.json
+          format: uri
+          readOnly: true
+          type: string
+        detail:
+          description: A human-readable explanation specific to this occurrence of the problem.
+          example: Property foo is required but is missing.
+          type: string
+        errors:
+          description: Optional list of individual error details
+          items:
+            $ref: "#/components/schemas/ErrorDetail"
+          type: array
+        instance:
+          description: A URI reference that identifies the specific occurrence of the problem.
+          example: https://example.com/error-log/abc123
+          format: uri
+          type: string
+        status:
+          description: HTTP status code
+          example: 400
+          format: int64
+          type: integer
+        title:
+          description: A short, human-readable summary of the problem type. This value should not change between occurrences of the error.
+          example: Bad Request
+          type: string
+        type:
+          default: about:blank
+          description: A URI reference to human-readable documentation for the error.
+          example: https://example.com/errors/example
+          format: uri
+          type: string
+      type: object
+    EvAccountChanged:
+      additionalProperties: false
+      properties:
+        account_id:
+          type: string
+        at:
+          format: date-time
+          type: string
+        download_id:
+          type: string
+        torrent_id:
+          type: string
+        type:
+          type: string
+      required:
+        - type
+        - at
+      type: object
+    EvDownloadUpdated:
+      additionalProperties: false
+      properties:
+        account_id:
+          type: string
+        at:
+          format: date-time
+          type: string
+        download_id:
+          type: string
+        torrent_id:
+          type: string
+        type:
+          type: string
+      required:
+        - type
+        - at
+      type: object
+    EvSettingsChanged:
+      additionalProperties: false
+      properties:
+        account_id:
+          type: string
+        at:
+          format: date-time
+          type: string
+        download_id:
+          type: string
+        torrent_id:
+          type: string
+        type:
+          type: string
+      required:
+        - type
+        - at
+      type: object
+    EvTorrentAdded:
+      additionalProperties: false
+      properties:
+        account_id:
+          type: string
+        at:
+          format: date-time
+          type: string
+        download_id:
+          type: string
+        torrent_id:
+          type: string
+        type:
+          type: string
+      required:
+        - type
+        - at
+      type: object
+    EvTorrentDeleted:
+      additionalProperties: false
+      properties:
+        account_id:
+          type: string
+        at:
+          format: date-time
+          type: string
+        download_id:
+          type: string
+        torrent_id:
+          type: string
+        type:
+          type: string
+      required:
+        - type
+        - at
+      type: object
+    EvTorrentUpdated:
+      additionalProperties: false
+      properties:
+        account_id:
+          type: string
+        at:
+          format: date-time
+          type: string
+        download_id:
+          type: string
+        torrent_id:
+          type: string
+        type:
+          type: string
+      required:
+        - type
+        - at
+      type: object
+    File:
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+        path:
+          type: string
+        selected:
+          type: boolean
+        size:
+          format: int64
+          type: integer
+      required:
+        - id
+        - path
+        - size
+        - selected
+      type: object
+    HealthOutBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/HealthOutBody.json
+          format: uri
+          readOnly: true
+          type: string
+        ok:
+          type: boolean
+        version:
+          type: string
+      required:
+        - ok
+        - version
+      type: object
+    Heartbeat:
+      additionalProperties: false
+      properties:
+        at:
+          format: date-time
+          type: string
+      required:
+        - at
+      type: object
+    SelectFilesInBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/SelectFilesInBody.json
+          format: uri
+          readOnly: true
+          type: string
+        file_ids:
+          items:
+            type: string
+          minItems: 1
+          type: array
+      required:
+        - file_ids
+      type: object
+    Settings:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/Settings.json
+          format: uri
+          readOnly: true
+          type: string
+        categories:
+          items:
+            type: string
+          type: array
+        torrent_defaults:
+          $ref: "#/components/schemas/TorrentSettings"
+        unpack_max_depth:
+          format: int64
+          maximum: 5
+          minimum: 0
+          type: integer
+      required:
+        - torrent_defaults
+      type: object
+    Status:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/Status.json
+          format: uri
+          readOnly: true
+          type: string
+        accounts:
+          format: int64
+          type: integer
+        disk_free_bytes:
+          format: int64
+          type: integer
+        disk_total_bytes:
+          format: int64
+          type: integer
+        download_dir:
+          type: string
+        downloads:
+          additionalProperties:
+            format: int64
+            type: integer
+          description: Count by download state
+          type: object
+        torrents:
+          additionalProperties:
+            format: int64
+            type: integer
+          description: Count by torrent status
+          type: object
+        version:
+          type: string
+      required:
+        - version
+        - download_dir
+        - accounts
+        - torrents
+        - downloads
+        - disk_free_bytes
+        - disk_total_bytes
+      type: object
+    Torrent:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/Torrent.json
+          format: uri
+          readOnly: true
+          type: string
+        account_id:
+          type: string
+        added_at:
+          format: date-time
+          type: string
+        category:
+          type: string
+        completed_at:
+          format: date-time
+          type: string
+        downloads:
+          items:
+            $ref: "#/components/schemas/Download"
+          type: array
+        error:
+          type: string
+        files:
+          items:
+            $ref: "#/components/schemas/File"
+          type: array
+        hash:
+          type: string
+        id:
+          type: string
+        local_progress:
+          description: 0..1 progress of local downloads
+          format: double
+          type: number
+        name:
+          type: string
+        provider_id:
+          type: string
+        provider_progress:
+          description: 0..1 progress at the debrid provider
+          format: double
+          type: number
+        provider_status:
+          description: Raw provider status string
+          type: string
+        retry_count:
+          format: int64
+          type: integer
+        seeders:
+          format: int64
+          type: integer
+        settings:
+          $ref: "#/components/schemas/TorrentSettings"
+        size:
+          format: int64
+          type: integer
+        speed:
+          description: Provider-side bytes/sec
+          format: int64
+          type: integer
+        status:
+          enum:
+            - queued
+            - adding
+            - processing
+            - waiting_selection
+            - downloading
+            - uploading
+            - finished
+            - completed
+            - error
+          type: string
+        status_reason:
+          description: Human-readable detail about the current state
+          type: string
+      required:
+        - id
+        - account_id
+        - hash
+        - name
+        - status
+        - provider_progress
+        - local_progress
+        - size
+        - speed
+        - seeders
+        - files
+        - settings
+        - retry_count
+        - added_at
+        - downloads
+      type: object
+    TorrentSettings:
+      additionalProperties: false
+      properties:
+        delete_on_error:
+          description: Remove the torrent (files, provider) this long after a terminal error, e.g. 24h; empty = never
+          type: string
+        download_retries:
+          description: Automatic retries per file
+          format: int64
+          minimum: 0
+          type: integer
+        exclude_regex:
+          description: Skip paths matching this (case-insensitive)
+          type: string
+        finished_action:
+          description: What to do at the provider after local completion
+          enum:
+            - keep
+            - remove_from_provider
+          type: string
+        finished_delay:
+          description: Delay before finished_action, e.g. 10m (Go duration)
+          type: string
+        include_regex:
+          description: Only download paths matching this (case-insensitive); overrides exclude
+          type: string
+        lifetime:
+          description: Fail if not finished at the provider within this long, e.g. 72h; empty = never
+          type: string
+        manual_files:
+          description: Download exactly these provider file ids
+          items:
+            type: string
+          type: array
+        min_file_size:
+          description: Skip files smaller than this many bytes
+          format: int64
+          minimum: 0
+          type: integer
+        torrent_retries:
+          description: Automatic re-adds after a provider error
+          format: int64
+          minimum: 0
+          type: integer
+        unpack:
+          description: Extract archives after download
+          type: boolean
+      type: object
+    UpdateAccountInBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/UpdateAccountInBody.json
+          format: uri
+          readOnly: true
+          type: string
+        credentials:
+          $ref: "#/components/schemas/Credentials"
+        enabled:
+          type: boolean
+        name:
+          type: string
+        set_default:
+          type: boolean
+      type: object
+    UpdateTorrentInBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/UpdateTorrentInBody.json
+          format: uri
+          readOnly: true
+          type: string
+        category:
+          type: string
+        settings:
+          $ref: "#/components/schemas/TorrentSettings"
+          description: Full replacement of the torrent's settings (manual file selection is preserved; use the files endpoint for that)
+      type: object
+    User:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/User.json
+          format: uri
+          readOnly: true
+          type: string
+        email:
+          type: string
+        expires_at:
+          format: date-time
+          type: string
+        plan:
+          type: string
+        premium:
+          type: boolean
+        username:
+          type: string
+      required:
+        - premium
+      type: object
+  securitySchemes:
+    bearer:
+      description: API key
+      scheme: bearer
+      type: http
+info:
+  description: Manage torrents on debrid providers and download their files locally.
+  title: debrid-client API
+  version: dev
+openapi: 3.0.3
+paths:
+  /api/v1/accounts:
+    get:
+      operationId: list-accounts
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: "#/components/schemas/Account"
+                type: array
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: List provider accounts
+      tags:
+        - accounts
+    post:
+      description: Credentials are verified against the provider before saving. The first account becomes the default.
+      operationId: add-account
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddAccountInBody"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Account"
+          description: Created
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Add a provider account
+      tags:
+        - accounts
+  /api/v1/accounts/{id}:
+    delete:
+      operationId: delete-account
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - description: Also delete the account's torrents (locally)
+          explode: false
+          in: query
+          name: force
+          schema:
+            description: Also delete the account's torrents (locally)
+            type: boolean
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Delete an account
+      tags:
+        - accounts
+    get:
+      operationId: get-account
+      parameters:
+        - description: Account id or name
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Account id or name
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Account"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get an account
+      tags:
+        - accounts
+    patch:
+      operationId: update-account
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAccountInBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Account"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Update an account
+      tags:
+        - accounts
+  /api/v1/accounts/{id}/test:
+    post:
+      operationId: test-account
+      parameters:
+        - description: Account id or name
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Account id or name
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Verify an account against its provider
+      tags:
+        - accounts
+  /api/v1/downloads/{id}/retry:
+    post:
+      operationId: retry-download
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Download"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Retry a failed download
+      tags:
+        - torrents
+  /api/v1/events:
+    get:
+      description: "Event names: torrent.added, torrent.updated, torrent.deleted, download.updated, account.changed, settings.changed, heartbeat (every 15s). Payloads are small notifications; re-fetch the resource. Slow consumers may miss events — re-sync on reconnect. Authenticate with the Bearer header or ?api_key= (EventSource cannot set headers)."
+      operationId: events
+      responses:
+        "200":
+          content:
+            text/event-stream:
+              schema:
+                description: Each oneOf object in the array represents one possible Server Sent Events (SSE) message, serialized as UTF-8 text according to the SSE specification.
+                items:
+                  oneOf:
+                    - properties:
+                        data:
+                          $ref: "#/components/schemas/EvAccountChanged"
+                        event:
+                          const: account.changed
+                          description: The event name.
+                          type: string
+                        id:
+                          description: The event ID.
+                          type: integer
+                        retry:
+                          description: The retry time in milliseconds.
+                          type: integer
+                      required:
+                        - data
+                        - event
+                      title: Event account.changed
+                      type: object
+                    - properties:
+                        data:
+                          $ref: "#/components/schemas/EvDownloadUpdated"
+                        event:
+                          const: download.updated
+                          description: The event name.
+                          type: string
+                        id:
+                          description: The event ID.
+                          type: integer
+                        retry:
+                          description: The retry time in milliseconds.
+                          type: integer
+                      required:
+                        - data
+                        - event
+                      title: Event download.updated
+                      type: object
+                    - properties:
+                        data:
+                          $ref: "#/components/schemas/Heartbeat"
+                        event:
+                          const: heartbeat
+                          description: The event name.
+                          type: string
+                        id:
+                          description: The event ID.
+                          type: integer
+                        retry:
+                          description: The retry time in milliseconds.
+                          type: integer
+                      required:
+                        - data
+                        - event
+                      title: Event heartbeat
+                      type: object
+                    - properties:
+                        data:
+                          $ref: "#/components/schemas/EvSettingsChanged"
+                        event:
+                          const: settings.changed
+                          description: The event name.
+                          type: string
+                        id:
+                          description: The event ID.
+                          type: integer
+                        retry:
+                          description: The retry time in milliseconds.
+                          type: integer
+                      required:
+                        - data
+                        - event
+                      title: Event settings.changed
+                      type: object
+                    - properties:
+                        data:
+                          $ref: "#/components/schemas/EvTorrentAdded"
+                        event:
+                          const: torrent.added
+                          description: The event name.
+                          type: string
+                        id:
+                          description: The event ID.
+                          type: integer
+                        retry:
+                          description: The retry time in milliseconds.
+                          type: integer
+                      required:
+                        - data
+                        - event
+                      title: Event torrent.added
+                      type: object
+                    - properties:
+                        data:
+                          $ref: "#/components/schemas/EvTorrentDeleted"
+                        event:
+                          const: torrent.deleted
+                          description: The event name.
+                          type: string
+                        id:
+                          description: The event ID.
+                          type: integer
+                        retry:
+                          description: The retry time in milliseconds.
+                          type: integer
+                      required:
+                        - data
+                        - event
+                      title: Event torrent.deleted
+                      type: object
+                    - properties:
+                        data:
+                          $ref: "#/components/schemas/EvTorrentUpdated"
+                        event:
+                          const: torrent.updated
+                          description: The event name.
+                          type: string
+                        id:
+                          description: The event ID.
+                          type: integer
+                        retry:
+                          description: The retry time in milliseconds.
+                          type: integer
+                      required:
+                        - data
+                        - event
+                      title: Event torrent.updated
+                      type: object
+                title: Server Sent Events
+                type: array
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Stream change events (Server-Sent Events)
+      tags:
+        - system
+  /api/v1/health:
+    get:
+      operationId: health
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthOutBody"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      security: []
+      summary: Health check
+      tags:
+        - system
+  /api/v1/settings:
+    get:
+      operationId: get-settings
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get runtime settings
+      tags:
+        - settings
+    put:
+      operationId: update-settings
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Settings"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Replace runtime settings
+      tags:
+        - settings
+  /api/v1/system/status:
+    get:
+      operationId: get-status
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Status"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: System status
+      tags:
+        - system
+  /api/v1/torrents:
+    get:
+      operationId: list-torrents
+      parameters:
+        - explode: false
+          in: query
+          name: status
+          schema:
+            enum:
+              - queued
+              - adding
+              - processing
+              - waiting_selection
+              - downloading
+              - uploading
+              - finished
+              - completed
+              - error
+            type: string
+        - description: Account id or name
+          explode: false
+          in: query
+          name: account
+          schema:
+            description: Account id or name
+            type: string
+        - explode: false
+          in: query
+          name: category
+          schema:
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: "#/components/schemas/Torrent"
+                type: array
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: List torrents
+      tags:
+        - torrents
+    post:
+      operationId: add-torrent
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddTorrentInBody"
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Torrent"
+          description: Created
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Add a torrent from a magnet link
+      tags:
+        - torrents
+  /api/v1/torrents/file:
+    post:
+      operationId: add-torrent-file
+      requestBody:
+        content:
+          multipart/form-data:
+            encoding:
+              account:
+                contentType: text/plain
+              category:
+                contentType: text/plain
+              file:
+                contentType: application/x-bittorrent,application/octet-stream
+            schema:
+              properties:
+                account:
+                  type: string
+                category:
+                  type: string
+                file:
+                  format: binary
+                  type: string
+                  x-contentEncoding: binary
+                  x-contentMediaType: application/octet-stream
+              required:
+                - file
+              type: object
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Torrent"
+          description: Created
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Add a torrent from a .torrent file (multipart)
+      tags:
+        - torrents
+  /api/v1/torrents/{id}:
+    delete:
+      operationId: delete-torrent
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - description: Delete downloaded files
+          explode: false
+          in: query
+          name: files
+          schema:
+            description: Delete downloaded files
+            type: boolean
+        - description: Delete at the debrid provider too
+          explode: false
+          in: query
+          name: provider
+          schema:
+            description: Delete at the debrid provider too
+            type: boolean
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Delete a torrent
+      tags:
+        - torrents
+    get:
+      operationId: get-torrent
+      parameters:
+        - description: Torrent id or info hash
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Torrent id or info hash
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Torrent"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Get a torrent
+      tags:
+        - torrents
+    patch:
+      operationId: update-torrent
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateTorrentInBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Torrent"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Update a torrent's category or settings
+      tags:
+        - torrents
+  /api/v1/torrents/{id}/files:
+    put:
+      operationId: select-files
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SelectFilesInBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Torrent"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Select which files to download
+      tags:
+        - torrents
+  /api/v1/torrents/{id}/retry:
+    post:
+      operationId: retry-torrent
+      parameters:
+        - description: Torrent id or info hash
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Torrent id or info hash
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Torrent"
+          description: OK
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Retry an errored or completed torrent from scratch
+      tags:
+        - torrents
+security:
+  - bearer: []

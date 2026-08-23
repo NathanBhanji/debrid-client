@@ -44,6 +44,12 @@ type Handler struct {
 	opts Options
 }
 
+func init() {
+	// Our DTOs always emit non-nil slices, so arrays are never null on the wire;
+	// this keeps generated clients free of *[]T pointers.
+	huma.DefaultArrayNullable = false
+}
+
 // New builds the API handler on a fresh ServeMux.
 func New(svc *service.Service, opts Options) *Handler {
 	mux := http.NewServeMux()

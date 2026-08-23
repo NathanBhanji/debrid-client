@@ -226,29 +226,40 @@ func (s *Service) GetTorrent(ctx context.Context, idOrHash string) (TorrentDetai
 	return TorrentDetail{Torrent: t, Downloads: dls}, nil
 }
 
-func (s *Service) loadTorrent(ctx context.Context, idOrHash string) (domain.Torrent, error) {
-	row, err := s.store.GetTorrent(ctx, idOrHash)
-	if store.IsNotFound(err) && len(idOrHash) == 40 {
-		// Fall back to hash lookup across accounts.
-		rows, lerr := s.store.ListTorrents(ctx)
-		if lerr != nil {
-			return domain.Torrent{}, lerr
-		}
-		h := strings.ToLower(idOrHash)
-		for _, r := range rows {
-			if r.Hash == h {
-				row, err = r, nil
-				break
-			}
-		}
+// loadTorrent resolves a torrent by exact id, exact hash, or a unique prefix
+// (≥ 6 chars) of either — so CLI users can type the short hash shown in lists.
+func (s *Service) loadTorrent(ctx context.Context, ref string) (domain.Torrent, error) {
+	ref = strings.TrimSpace(ref)
+	row, err := s.store.GetTorrent(ctx, ref)
+	if err == nil {
+		return store.TorrentFromRow(row)
 	}
-	if err != nil {
-		if store.IsNotFound(err) {
-			return domain.Torrent{}, fmt.Errorf("%w: torrent %q", ErrNotFound, idOrHash)
-		}
+	if !store.IsNotFound(err) {
 		return domain.Torrent{}, err
 	}
-	return store.TorrentFromRow(row)
+	rows, err := s.store.ListTorrents(ctx)
+	if err != nil {
+		return domain.Torrent{}, err
+	}
+	lref := strings.ToLower(ref)
+	var exact, prefixed []sqlcgen.Torrent
+	for _, r := range rows {
+		switch {
+		case r.Hash == lref:
+			exact = append(exact, r)
+		case len(ref) >= 6 && (strings.HasPrefix(r.Hash, lref) || strings.HasPrefix(r.ID, ref)):
+			prefixed = append(prefixed, r)
+		}
+	}
+	switch {
+	case len(exact) >= 1:
+		return store.TorrentFromRow(exact[0]) // newest first (ListTorrents order)
+	case len(prefixed) == 1:
+		return store.TorrentFromRow(prefixed[0])
+	case len(prefixed) > 1:
+		return domain.Torrent{}, fmt.Errorf("%w: %q matches %d torrents; use a longer prefix", ErrConflict, ref, len(prefixed))
+	}
+	return domain.Torrent{}, fmt.Errorf("%w: torrent %q", ErrNotFound, ref)
 }
 
 // DeleteOptions control what DeleteTorrent removes besides the local record.
