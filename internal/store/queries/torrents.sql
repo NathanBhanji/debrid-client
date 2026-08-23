@@ -12,7 +12,7 @@ SELECT * FROM torrents WHERE id = ?;
 SELECT * FROM torrents WHERE account_id = ? AND hash = ? ORDER BY added_at DESC LIMIT 1;
 
 -- name: GetTorrentByProviderID :one
-SELECT * FROM torrents WHERE account_id = ? AND provider_id = ?;
+SELECT * FROM torrents WHERE account_id = ? AND provider_id = ? ORDER BY added_at DESC LIMIT 1;
 
 -- name: ListTorrents :many
 SELECT * FROM torrents ORDER BY added_at DESC;

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -123,13 +124,13 @@ func TestTorrentForeignKeysAndCascade(t *testing.T) {
 		ID: "d1", TorrentID: "t1", ProviderLink: "link1", RelPath: "a/b.mkv", Filename: "b.mkv", State: "pending",
 		QueuedAt: now(), UpdatedAt: now(),
 	}
-	if err := s.InsertDownload(ctx, dl); err != nil {
-		t.Fatal(err)
+	if n, err := s.InsertDownload(ctx, dl); err != nil || n != 1 {
+		t.Fatalf("insert: n=%d err=%v", n, err)
 	}
-	// Same (torrent, link) again is a silent no-op (idempotent CreateDownloads).
+	// Same (torrent, link) again is a no-op (idempotent CreateDownloads) and reports 0 rows.
 	dl.ID = "d2"
-	if err := s.InsertDownload(ctx, dl); err != nil {
-		t.Fatal(err)
+	if n, err := s.InsertDownload(ctx, dl); err != nil || n != 0 {
+		t.Fatalf("duplicate insert: n=%d err=%v", n, err)
 	}
 	dls, err := s.ListDownloadsForTorrent(ctx, "t1")
 	if err != nil || len(dls) != 1 {
@@ -178,6 +179,68 @@ func TestWithTxRollsBackOnError(t *testing.T) {
 	}
 	if _, err := s.GetSetting(ctx, "k"); !IsNotFound(err) {
 		t.Fatalf("setting should have been rolled back, err=%v", err)
+	}
+}
+
+func TestTimeFormatSortsLexically(t *testing.T) {
+	base := time.Date(2026, 8, 23, 12, 34, 56, 0, time.UTC)
+	times := []time.Time{
+		base.Add(120 * time.Millisecond), base.Add(100 * time.Millisecond), base.Add(500 * time.Millisecond),
+		base, base.Add(time.Second), base.Add(1), base.Add(999_999_999),
+	}
+	strs := make([]string, len(times))
+	for i, tm := range times {
+		strs[i] = FormatTime(tm)
+	}
+	sort.Strings(strs)
+	for i := 1; i < len(strs); i++ {
+		a, _ := ParseTime(strs[i-1])
+		b, _ := ParseTime(strs[i])
+		if a.After(b) {
+			t.Fatalf("lexical order != chronological: %s before %s", strs[i-1], strs[i])
+		}
+	}
+	if len(FormatTime(base)) != len(FormatTime(base.Add(1))) {
+		t.Fatal("format must be fixed width")
+	}
+	// Legacy RFC3339Nano values still parse.
+	if _, err := ParseTime("2026-08-23T12:34:56.5Z"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWithTxRollsBackOnPanic(t *testing.T) {
+	s := open(t)
+	ctx := context.Background()
+	func() {
+		defer func() { _ = recover() }()
+		_ = s.WithTx(ctx, func(q *sqlcgen.Queries) error {
+			_ = q.UpsertSetting(ctx, sqlcgen.UpsertSettingParams{Key: "k", Value: "v", UpdatedAt: now()})
+			panic("boom")
+		})
+	}()
+	// The single connection must be usable again and the write rolled back.
+	done := make(chan error, 1)
+	go func() { _, err := s.GetSetting(ctx, "k"); done <- err }()
+	select {
+	case err := <-done:
+		if !IsNotFound(err) {
+			t.Fatalf("expected rollback, got %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("connection leaked by panicking transaction")
+	}
+}
+
+func TestBoolAndHashChecks(t *testing.T) {
+	s := open(t)
+	ctx := context.Background()
+	if _, err := s.DB().ExecContext(ctx, `INSERT INTO provider_accounts (id,kind,name,credentials,enabled,is_default,created_at,updated_at) VALUES ('x','torbox','n','{}',2,0,'t','t')`); err == nil {
+		t.Fatal("enabled=2 should violate CHECK")
+	}
+	_ = s.InsertProviderAccount(ctx, sqlcgen.InsertProviderAccountParams{ID: "a", Kind: "torbox", Name: "n", Credentials: "{}", Enabled: 1, CreatedAt: now(), UpdatedAt: now()})
+	if err := s.InsertTorrent(ctx, sqlcgen.InsertTorrentParams{ID: "t", AccountID: "a", Hash: "ABC", Status: "queued", Files: "[]", Settings: "{}", PayloadKind: "magnet", Payload: []byte("m"), AddedAt: now(), UpdatedAt: now()}); err == nil {
+		t.Fatal("uppercase hash should violate CHECK")
 	}
 }
 

@@ -25,7 +25,7 @@ type Querier interface {
 	GetTorrent(ctx context.Context, id string) (Torrent, error)
 	GetTorrentByHash(ctx context.Context, arg GetTorrentByHashParams) (Torrent, error)
 	GetTorrentByProviderID(ctx context.Context, arg GetTorrentByProviderIDParams) (Torrent, error)
-	InsertDownload(ctx context.Context, arg InsertDownloadParams) error
+	InsertDownload(ctx context.Context, arg InsertDownloadParams) (int64, error)
 	InsertProviderAccount(ctx context.Context, arg InsertProviderAccountParams) error
 	InsertTorrent(ctx context.Context, arg InsertTorrentParams) error
 	ListActiveTorrents(ctx context.Context) ([]Torrent, error)

@@ -61,7 +61,7 @@ func (q *Queries) GetDownload(ctx context.Context, id string) (Download, error) 
 	return i, err
 }
 
-const insertDownload = `-- name: InsertDownload :exec
+const insertDownload = `-- name: InsertDownload :execrows
 INSERT INTO downloads (
     id, torrent_id, file_id, provider_link, direct_url, rel_path, filename, size, bytes_done, state, error, retry_count,
     queued_at, started_at, finished_at, unpack_started_at, unpack_finished_at, completed_at, updated_at
@@ -91,8 +91,8 @@ type InsertDownloadParams struct {
 	UpdatedAt        string
 }
 
-func (q *Queries) InsertDownload(ctx context.Context, arg InsertDownloadParams) error {
-	_, err := q.db.ExecContext(ctx, insertDownload,
+func (q *Queries) InsertDownload(ctx context.Context, arg InsertDownloadParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, insertDownload,
 		arg.ID,
 		arg.TorrentID,
 		arg.FileID,
@@ -113,7 +113,10 @@ func (q *Queries) InsertDownload(ctx context.Context, arg InsertDownloadParams) 
 		arg.CompletedAt,
 		arg.UpdatedAt,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const listDownloadsByState = `-- name: ListDownloadsByState :many

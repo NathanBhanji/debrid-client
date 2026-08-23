@@ -1,4 +1,4 @@
--- name: InsertDownload :exec
+-- name: InsertDownload :execrows
 INSERT INTO downloads (
     id, torrent_id, file_id, provider_link, direct_url, rel_path, filename, size, bytes_done, state, error, retry_count,
     queued_at, started_at, finished_at, unpack_started_at, unpack_finished_at, completed_at, updated_at

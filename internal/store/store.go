@@ -27,28 +27,30 @@ var migrationsFS embed.FS
 //
 // SQLite permits a single writer; we run all statements through one
 // connection pool capped at one open connection so writers serialise in-process
-// instead of fighting over the file lock, and use WAL so readers are never
-// blocked by the writer.
+// instead of fighting over the file lock (WAL lets other *processes* read
+// concurrently). Consequences callers must respect:
+//   - Inside WithTx, use only the *sqlcgen.Queries passed to the callback.
+//     Calling s.Queries or s.DB() there would wait for the single connection
+//     held by the transaction and deadlock.
+//   - Do not hold *sql.Rows open while issuing another query.
 type Store struct {
 	db *sql.DB
 	*sqlcgen.Queries
 }
 
-// Open opens (creating if needed) the database at path and applies migrations.
-// Use ":memory:" for an in-memory database (tests).
+// Open opens (creating if needed) the database file at path and applies
+// migrations. Tests should use a file in t.TempDir() (":memory:" databases are
+// per-connection and not supported).
 func Open(ctx context.Context, path string) (*Store, error) {
-	if path != ":memory:" {
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return nil, fmt.Errorf("create data dir: %w", err)
-		}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, fmt.Errorf("create data dir: %w", err)
 	}
 	db, err := sql.Open("sqlite", dsn(path))
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
-	// One connection: serialises writers and makes ":memory:" share a single DB.
+	// One connection: serialises writers in-process (see Store doc).
 	db.SetMaxOpenConns(1)
-	db.SetConnMaxLifetime(0)
 
 	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
@@ -93,16 +95,20 @@ func (s *Store) DB() *sql.DB { return s.db }
 func (s *Store) Close() error { return s.db.Close() }
 
 // WithTx runs fn inside a transaction using transaction-scoped queries.
-// The transaction is committed if fn returns nil and rolled back otherwise.
-func (s *Store) WithTx(ctx context.Context, fn func(q *sqlcgen.Queries) error) error {
+// The transaction is committed if fn returns nil and rolled back otherwise
+// (including on panic, so the single connection is never leaked).
+// fn must only use the queries it is given — see Store.
+func (s *Store) WithTx(ctx context.Context, fn func(q *sqlcgen.Queries) error) (err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	if err := fn(s.Queries.WithTx(tx)); err != nil {
-		if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) {
-			return errors.Join(err, rbErr)
+	defer func() {
+		if rbErr := tx.Rollback(); rbErr != nil && !errors.Is(rbErr, sql.ErrTxDone) && err == nil {
+			err = rbErr
 		}
+	}()
+	if err := fn(s.Queries.WithTx(tx)); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -111,14 +117,23 @@ func (s *Store) WithTx(ctx context.Context, fn func(q *sqlcgen.Queries) error) e
 // IsNotFound reports whether err means a row was not found.
 func IsNotFound(err error) bool { return errors.Is(err, sql.ErrNoRows) }
 
-// Timestamps are stored as RFC 3339 UTC strings with nanosecond precision so
-// they sort lexically and round-trip exactly.
+// Timestamps are stored as fixed-width UTC strings with nanosecond precision
+// ("2006-01-02T15:04:05.000000000Z") so they sort lexically (SQLite TEXT
+// collation) and round-trip exactly. RFC3339Nano is NOT used: it trims
+// trailing zeros, producing variable-width strings that mis-sort.
+const timeLayout = "2006-01-02T15:04:05.000000000Z07:00"
 
 // FormatTime converts a time to its stored representation.
-func FormatTime(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
+func FormatTime(t time.Time) string { return t.UTC().Format(timeLayout) }
 
-// ParseTime converts a stored timestamp back to a time.
-func ParseTime(s string) (time.Time, error) { return time.Parse(time.RFC3339Nano, s) }
+// ParseTime converts a stored timestamp back to a time (accepts RFC 3339 too).
+func ParseTime(s string) (time.Time, error) {
+	t, err := time.Parse(timeLayout, s)
+	if err != nil {
+		t, err = time.Parse(time.RFC3339Nano, s)
+	}
+	return t, err
+}
 
 // NullTime converts an optional time to its stored representation.
 func NullTime(t *time.Time) sql.NullString {

@@ -4,8 +4,8 @@ CREATE TABLE provider_accounts (
     kind        TEXT NOT NULL,                    -- torbox|realdebrid|alldebrid|premiumize|debridlink
     name        TEXT NOT NULL UNIQUE,             -- user-facing label
     credentials TEXT NOT NULL,                    -- JSON blob (api key / oauth tokens)
-    enabled     INTEGER NOT NULL DEFAULT 1,
-    is_default  INTEGER NOT NULL DEFAULT 0,
+    enabled     INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+    is_default  INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1)),
     created_at  TEXT NOT NULL,
     updated_at  TEXT NOT NULL
 );
@@ -14,7 +14,7 @@ CREATE UNIQUE INDEX provider_accounts_default ON provider_accounts(is_default) W
 CREATE TABLE torrents (
     id                  TEXT PRIMARY KEY,         -- uuid
     account_id          TEXT NOT NULL REFERENCES provider_accounts(id) ON DELETE RESTRICT,
-    hash                TEXT NOT NULL,            -- lowercase info hash
+    hash                TEXT NOT NULL CHECK (hash = lower(hash)), -- lowercase info hash
     name                TEXT NOT NULL DEFAULT '',
     category            TEXT NOT NULL DEFAULT '',
     status              TEXT NOT NULL,            -- domain.TorrentStatus
@@ -41,7 +41,7 @@ CREATE TABLE torrents (
 );
 CREATE INDEX torrents_account_hash ON torrents(account_id, hash);
 CREATE INDEX torrents_status ON torrents(status);
-CREATE INDEX torrents_provider_id ON torrents(account_id, provider_id);
+CREATE INDEX torrents_provider_id ON torrents(account_id, provider_id) WHERE provider_id <> '';
 
 CREATE TABLE downloads (
     id                  TEXT PRIMARY KEY,         -- uuid

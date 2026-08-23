@@ -31,8 +31,8 @@ tidy:
 generate: ## Regenerate sqlc code
 	cd internal/store && $(SQLC) generate
 
-generate-check: generate ## Fail if generated code is stale
-	@git diff --exit-code internal/store/sqlcgen || (echo "sqlc output is stale: run make generate" && exit 1)
+generate-check: generate ## Fail if generated code is stale or uncommitted
+	@git add -N internal/store/sqlcgen && git diff --exit-code internal/store/sqlcgen || (echo "sqlc output is stale: run make generate and commit" && exit 1)
 
 run: build
 	./bin/debrid $(ARGS)

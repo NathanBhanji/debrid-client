@@ -112,7 +112,7 @@ func (q *Queries) GetTorrentByHash(ctx context.Context, arg GetTorrentByHashPara
 }
 
 const getTorrentByProviderID = `-- name: GetTorrentByProviderID :one
-SELECT id, account_id, hash, name, category, status, status_reason, error, progress, size, speed, seeders, provider_id, provider_status, files, settings, payload_kind, payload, retry_count, added_at, provider_added_at, provider_ended_at, files_selected_at, completed_at, retry_at, updated_at FROM torrents WHERE account_id = ? AND provider_id = ?
+SELECT id, account_id, hash, name, category, status, status_reason, error, progress, size, speed, seeders, provider_id, provider_status, files, settings, payload_kind, payload, retry_count, added_at, provider_added_at, provider_ended_at, files_selected_at, completed_at, retry_at, updated_at FROM torrents WHERE account_id = ? AND provider_id = ? ORDER BY added_at DESC LIMIT 1
 `
 
 type GetTorrentByProviderIDParams struct {
