@@ -50,12 +50,17 @@ func VerifyPassword(encoded, password string) bool {
 	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &m, &t, &p); err != nil {
 		return false
 	}
+	// Bound parameters from the (possibly tampered) stored hash: zero values
+	// panic inside argon2 and a huge memory cost is an allocation DoS.
+	if t < 1 || p < 1 || m < 8*1024 || m > 1024*1024 {
+		return false
+	}
 	salt, err := base64.RawStdEncoding.DecodeString(parts[4])
 	if err != nil {
 		return false
 	}
 	want, err := base64.RawStdEncoding.DecodeString(parts[5])
-	if err != nil {
+	if err != nil || len(want) < 16 {
 		return false
 	}
 	got := argon2.IDKey([]byte(password), salt, t, m, p, uint32(len(want)))

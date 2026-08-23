@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -97,8 +98,8 @@ func newSessionCookie(value string, secure bool, maxAge int) http.Cookie {
 // directly or via a single trusted proxy.
 func clientIP(ctx huma.Context) string {
 	addr := ctx.RemoteAddr()
-	if i := strings.LastIndex(addr, ":"); i > 0 {
-		return addr[:i]
+	if host, _, err := net.SplitHostPort(addr); err == nil {
+		return host
 	}
 	return addr
 }

@@ -97,23 +97,21 @@ func (m *Manager) SetupPassword(ctx context.Context, username, password string) 
 	if err != nil {
 		return User{}, err
 	}
-	u, err := m.createSoleUser(ctx, username, hash, "", "")
-	if err != nil {
-		return User{}, err
-	}
-	return u, m.setMode(ctx, ModePassword)
+	return m.createSoleUser(ctx, ModePassword, username, hash, "", "")
 }
 
-// createSoleUser inserts the single local user; setup is once-only.
-func (m *Manager) createSoleUser(ctx context.Context, username, hash, sub, email string) (User, error) {
+// createSoleUser inserts the single local user and records the auth mode in
+// one transaction — a partial write here would otherwise brick onboarding
+// (user exists but mode unset, or vice versa). Setup is once-only.
+func (m *Manager) createSoleUser(ctx context.Context, mode Mode, username, hash, sub, email string) (User, error) {
 	now := store.FormatTime(m.now())
 	id := uuid.Must(uuid.NewV7()).String()
 	err := m.store.WithTx(ctx, func(q *sqlcgen.Queries) error {
-		mode, err := q.GetSetting(ctx, modeKey)
+		existing, err := q.GetSetting(ctx, modeKey)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
-		if mode != "" {
+		if existing != "" {
 			return ErrAlreadyConfigured
 		}
 		n, err := q.CountUsers(ctx)
@@ -123,22 +121,21 @@ func (m *Manager) createSoleUser(ctx context.Context, username, hash, sub, email
 		if n > 0 {
 			return ErrAlreadyConfigured
 		}
-		return q.InsertUser(ctx, sqlcgen.InsertUserParams{
+		if err := q.InsertUser(ctx, sqlcgen.InsertUserParams{
 			ID: id, Username: username, PasswordHash: hash,
 			OidcSubject: sub, OidcEmail: email,
 			CreatedAt: now, UpdatedAt: now,
+		}); err != nil {
+			return err
+		}
+		return q.UpsertSetting(ctx, sqlcgen.UpsertSettingParams{
+			Key: modeKey, Value: string(mode), UpdatedAt: now,
 		})
 	})
 	if err != nil {
 		return User{}, err
 	}
 	return User{ID: id, Username: username}, nil
-}
-
-func (m *Manager) setMode(ctx context.Context, mode Mode) error {
-	return m.store.UpsertSetting(ctx, sqlcgen.UpsertSettingParams{
-		Key: modeKey, Value: string(mode), UpdatedAt: store.FormatTime(m.now()),
-	})
 }
 
 // Login verifies a password login. clientKey identifies the caller for rate
@@ -182,7 +179,8 @@ var dummyHash = func() string {
 }()
 
 // ChangePassword replaces the user's password after verifying the current one
-// and revokes every other session.
+// and revokes all of the user's sessions, including the current one — the
+// caller must log in again.
 func (m *Manager) ChangePassword(ctx context.Context, userID, current, next string) error {
 	if err := ValidatePassword(next); err != nil {
 		return err

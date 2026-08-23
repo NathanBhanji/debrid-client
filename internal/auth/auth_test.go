@@ -148,3 +148,18 @@ func TestLoginRateLimit(t *testing.T) {
 		t.Fatalf("other client blocked: %v", err)
 	}
 }
+
+func TestVerifyPasswordTamperedHashes(t *testing.T) {
+	// Tampered stored hashes must fail cleanly, not panic or allocate wildly.
+	for _, h := range []string{
+		"$argon2id$v=19$m=19456,t=0,p=1$c2FsdHNhbHRzYWx0c2FsdA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+		"$argon2id$v=19$m=19456,t=2,p=0$c2FsdHNhbHRzYWx0c2FsdA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+		"$argon2id$v=19$m=4294967295,t=2,p=1$c2FsdHNhbHRzYWx0c2FsdA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+		"$argon2id$v=19$m=19456,t=2,p=1$c2FsdHNhbHRzYWx0c2FsdA$",
+		"$argon2id$v=19$m=19456,t=2,p=1$$AAAA",
+	} {
+		if VerifyPassword(h, "password12") {
+			t.Fatalf("tampered hash accepted: %s", h)
+		}
+	}
+}
