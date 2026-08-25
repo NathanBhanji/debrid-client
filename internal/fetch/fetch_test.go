@@ -538,3 +538,30 @@ func TestParseContentRange(t *testing.T) {
 		t.Fatal("retry-after")
 	}
 }
+
+func TestNormalizeURL(t *testing.T) {
+	cases := []struct{ in, want string }{
+		// Raw spaces and brackets in the filename param (TorBox-style).
+		{
+			"https://cdn.example/dld/abc?token=xyz&filename=Some.Movie.[YTS - GG].mp4",
+			"https://cdn.example/dld/abc?token=xyz&filename=Some.Movie.%5BYTS%20-%20GG%5D.mp4",
+		},
+		// Order preserved; already-encoded sequences untouched.
+		{
+			"https://cdn.example/x?a=1&b=%20already&c=raw space",
+			"https://cdn.example/x?a=1&b=%20already&c=raw%20space",
+		},
+		// Clean URLs pass through unchanged.
+		{
+			"https://cdn.example/dld/abc?token=xyz&filename=English.srt",
+			"https://cdn.example/dld/abc?token=xyz&filename=English.srt",
+		},
+		// No query at all.
+		{"https://cdn.example/file.mp4", "https://cdn.example/file.mp4"},
+	}
+	for _, tc := range cases {
+		if got := normalizeURL(tc.in); got != tc.want {
+			t.Errorf("normalizeURL(%q)\n = %q\n want %q", tc.in, got, tc.want)
+		}
+	}
+}
