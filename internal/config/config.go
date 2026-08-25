@@ -264,6 +264,10 @@ func (c Config) Derived() Config {
 	if c.DownloadDir == "" {
 		c.DownloadDir = filepath.Join(c.DataDir, "downloads")
 	}
+	// Path-prefix guards elsewhere assume clean paths (a trailing slash in
+	// download_dir would defeat deletion's HasPrefix checks).
+	c.DataDir = filepath.Clean(c.DataDir)
+	c.DownloadDir = filepath.Clean(c.DownloadDir)
 	return c
 }
 

@@ -86,6 +86,7 @@ type Torrent struct {
 	RetryAt         sql.NullString
 	UpdatedAt       string
 	Organized       int64
+	TrackedPaths    string
 }
 
 type User struct {

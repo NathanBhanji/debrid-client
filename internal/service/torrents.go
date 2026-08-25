@@ -11,6 +11,7 @@ import (
 
 	"github.com/NathanBhanji/debrid-client/internal/domain"
 	"github.com/NathanBhanji/debrid-client/internal/events"
+	"github.com/NathanBhanji/debrid-client/internal/fetch"
 	"github.com/NathanBhanji/debrid-client/internal/provider"
 	"github.com/NathanBhanji/debrid-client/internal/store"
 	"github.com/NathanBhanji/debrid-client/internal/store/sqlcgen"
@@ -348,7 +349,7 @@ func (s *Service) deleteOrganizedFiles(ctx context.Context, t domain.Torrent, di
 		if err := os.Remove(abs); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("delete file: %w", err)
 		}
-		_ = os.Remove(abs + ".part")
+		fetch.Cleanup(abs) // resume sidecars (.part, .part.json, …)
 		for p := filepath.Dir(abs); strings.HasPrefix(p, dir) || p == dir; p = filepath.Dir(p) {
 			pruneDirs[p] = true
 			if p == dir {
@@ -360,7 +361,9 @@ func (s *Service) deleteOrganizedFiles(ctx context.Context, t domain.Torrent, di
 	for _, r := range rows {
 		d, err := store.DownloadFromRow(r)
 		if err != nil {
-			continue
+			// Skipping would silently leak this download's files after the
+			// torrent row is gone; failing keeps the delete retryable.
+			return fmt.Errorf("organized delete: %w", err)
 		}
 		if err := removeRel(d.RelPath); err != nil {
 			return err
@@ -369,6 +372,12 @@ func (s *Service) deleteOrganizedFiles(ctx context.Context, t domain.Torrent, di
 			if err := removeRel(ep); err != nil {
 				return err
 			}
+		}
+	}
+	// Paths preserved across retries (rows were dropped, files were kept).
+	for _, p := range t.TrackedPaths {
+		if err := removeRel(p); err != nil {
+			return err
 		}
 	}
 	// Prune deepest-first so emptied parents collapse too, then walk from the
@@ -381,6 +390,9 @@ func (s *Service) deleteOrganizedFiles(ctx context.Context, t domain.Torrent, di
 	for _, d := range dirs {
 		_ = os.Remove(d) // fails (kept) unless empty
 	}
+	// Prune upward to (not including) the download root. This may remove an
+	// emptied category directory — intentional; MkdirAll recreates it on the
+	// next download into that category.
 	for p := filepath.Dir(dir); p != s.cfg.DownloadDir && strings.HasPrefix(p, s.cfg.DownloadDir+string(os.PathSeparator)); p = filepath.Dir(p) {
 		if err := os.Remove(p); err != nil {
 			break // not empty: stop pruning
@@ -447,6 +459,31 @@ func (s *Service) RetryTorrent(ctx context.Context, idOrHash string) (TorrentDet
 		t.ProviderStatus = ""
 		t.Progress = 0
 		t.UpdatedAt = s.now()
+		if t.Organized {
+			// Retry drops the download rows for a fresh start, but organized
+			// deletion is driven by them: snapshot every path this torrent
+			// has produced so delete-with-files can still find them later.
+			rows, err := q.ListDownloadsForTorrent(ctx, t.ID)
+			if err != nil {
+				return err
+			}
+			seen := map[string]bool{}
+			for _, p := range t.TrackedPaths {
+				seen[p] = true
+			}
+			for _, r := range rows {
+				d, err := store.DownloadFromRow(r)
+				if err != nil {
+					return err
+				}
+				for _, p := range append([]string{d.RelPath}, d.ExtractedPaths...) {
+					if p != "" && !seen[p] {
+						seen[p] = true
+						t.TrackedPaths = append(t.TrackedPaths, p)
+					}
+				}
+			}
+		}
 		params, err := store.TorrentUpdateParams(t)
 		if err != nil {
 			return err

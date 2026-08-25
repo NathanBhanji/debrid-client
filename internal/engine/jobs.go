@@ -256,7 +256,7 @@ func (e *Engine) runUnpack(ctx context.Context, t domain.Torrent, d domain.Downl
 			base := path.Dir(d.RelPath)
 			d.ExtractedPaths = make([]string, 0, len(res.Files))
 			for _, f := range res.Files {
-				d.ExtractedPaths = append(d.ExtractedPaths, path.Join(base, f))
+				d.ExtractedPaths = append(d.ExtractedPaths, path.Join(base, filepath.ToSlash(f)))
 			}
 			d.UnpackFinishedAt, d.CompletedAt, d.State = &now, &now, domain.DownloadDone
 		case errors.Is(err, context.Canceled):

@@ -1,9 +1,9 @@
 -- name: InsertTorrent :exec
 INSERT INTO torrents (
-    id, account_id, hash, name, dir_name, organized, category, status, status_reason, error, progress, size, speed, seeders,
+    id, account_id, hash, name, dir_name, organized, tracked_paths, category, status, status_reason, error, progress, size, speed, seeders,
     provider_id, provider_status, files, settings, payload_kind, payload, retry_count,
     added_at, provider_added_at, provider_ended_at, files_selected_at, completed_at, retry_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetTorrent :one
 SELECT * FROM torrents WHERE id = ?;
@@ -28,7 +28,7 @@ SELECT * FROM torrents WHERE completed_at IS NULL ORDER BY added_at;
 
 -- name: UpdateTorrent :exec
 UPDATE torrents SET
-    name = ?, dir_name = ?, organized = ?, category = ?, status = ?, status_reason = ?, error = ?, progress = ?, size = ?, speed = ?, seeders = ?,
+    name = ?, dir_name = ?, organized = ?, tracked_paths = ?, category = ?, status = ?, status_reason = ?, error = ?, progress = ?, size = ?, speed = ?, seeders = ?,
     provider_id = ?, provider_status = ?, files = ?, settings = ?, retry_count = ?,
     provider_added_at = ?, provider_ended_at = ?, files_selected_at = ?, completed_at = ?, retry_at = ?, updated_at = ?
 WHERE id = ?;

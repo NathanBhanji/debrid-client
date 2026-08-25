@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -132,5 +133,130 @@ func TestOrganizedDelete(t *testing.T) {
 	}
 	if _, err := os.Stat(f.svc.cfg.DownloadDir); err != nil {
 		t.Errorf("download root must survive: %v", err)
+	}
+}
+
+// TestOrganizedRetryThenDelete: retry drops download rows but must snapshot
+// produced paths so a later delete-with-files still removes everything.
+func TestOrganizedRetryThenDelete(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	now := time.Now()
+	acc := f.addAccount(t, "main")
+
+	tor := domain.Torrent{
+		ID: "torR", AccountID: acc.ID, Hash: "cccc", Name: "torR",
+		DirName: "Show/Season 03", Organized: true,
+		Status: domain.TorrentError, AddedAt: now, UpdatedAt: now,
+		Settings: domain.DefaultTorrentSettings(),
+	}
+	params, err := store.TorrentInsertParams(tor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.InsertTorrent(ctx, params); err != nil {
+		t.Fatal(err)
+	}
+	d := domain.Download{
+		ID: "dlR", TorrentID: "torR", FileID: "dlR", ProviderLink: "link-dlR",
+		RelPath: "ep1.rar", Filename: "ep1.rar", State: domain.DownloadDone,
+		ExtractedPaths: []string{"ep1.mkv"}, QueuedAt: now, UpdatedAt: now,
+	}
+	if _, err := f.store.InsertDownload(ctx, store.DownloadInsertParams(d)); err != nil {
+		t.Fatal(err)
+	}
+	p1 := filepath.Join(f.svc.cfg.DownloadDir, "Show", "Season 03", "ep1.rar")
+	p2 := filepath.Join(f.svc.cfg.DownloadDir, "Show", "Season 03", "ep1.mkv")
+	sidecar := p1 + ".part.json"
+	for _, p := range []string{p1, p2, sidecar} {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := f.svc.RetryTorrent(ctx, "torR"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := f.svc.GetTorrent(ctx, "torR")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Torrent.TrackedPaths) != 2 {
+		t.Fatalf("tracked paths after retry: %v", got.Torrent.TrackedPaths)
+	}
+
+	if err := f.svc.DeleteTorrent(ctx, "torR", DeleteOptions{DeleteFiles: true}); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{p1, p2, sidecar} {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("leaked after retry+delete: %s", p)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(f.svc.cfg.DownloadDir, "Show")); !os.IsNotExist(err) {
+		t.Error("tree not pruned")
+	}
+}
+
+// Hostile relative paths in rows must never delete outside the torrent dir.
+func TestOrganizedDeleteHostilePath(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	now := time.Now()
+	acc := f.addAccount(t, "main")
+
+	tor := domain.Torrent{
+		ID: "torH", AccountID: acc.ID, Hash: "dddd", Name: "torH",
+		DirName: "Movie (2020)", Organized: true,
+		Status: domain.TorrentCompleted, AddedAt: now, UpdatedAt: now,
+		Settings: domain.DefaultTorrentSettings(),
+	}
+	params, err := store.TorrentInsertParams(tor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.InsertTorrent(ctx, params); err != nil {
+		t.Fatal(err)
+	}
+	d := domain.Download{
+		ID: "dlH", TorrentID: "torH", FileID: "dlH", ProviderLink: "link-dlH",
+		RelPath: "../victim.txt", Filename: "victim.txt", State: domain.DownloadDone,
+		QueuedAt: now, UpdatedAt: now,
+	}
+	if _, err := f.store.InsertDownload(ctx, store.DownloadInsertParams(d)); err != nil {
+		t.Fatal(err)
+	}
+	victim := filepath.Join(f.svc.cfg.DownloadDir, "victim.txt")
+	if err := os.MkdirAll(f.svc.cfg.DownloadDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(victim, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := f.svc.DeleteTorrent(ctx, "torH", DeleteOptions{DeleteFiles: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(victim); err != nil {
+		t.Errorf("traversal escaped the torrent dir: %v", err)
+	}
+}
+
+// Torrent names containing separators must not create nested folders.
+func TestDirPathForSeparatorInjection(t *testing.T) {
+	tor := domain.Torrent{Name: "Nasty/../../Movie.2019.1080p.BluRay", Hash: "h"}
+	got, organized := DirPathFor(tor, organize.Settings{Enabled: true})
+	if strings.Contains(got, "..") {
+		t.Fatalf("dot-dot survived: %q", got)
+	}
+	if organized {
+		for _, seg := range strings.Split(got, "/") {
+			if seg == "" || seg == ".." {
+				t.Fatalf("bad segment in %q", got)
+			}
+		}
 	}
 }

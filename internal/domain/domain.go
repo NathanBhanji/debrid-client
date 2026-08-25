@@ -243,7 +243,12 @@ type Torrent struct {
 	// Organized marks a DirName produced by library organization: such
 	// directories may be shared between torrents, so deletion is per-file.
 	Organized bool
-	Category  string
+	// TrackedPaths preserves files ("/"-separated, torrent-dir-relative) that
+	// earlier runs of this torrent produced: retry drops download rows for a
+	// fresh start, and without this snapshot an organized delete-with-files
+	// could no longer find them.
+	TrackedPaths []string
+	Category     string
 
 	Status       TorrentStatus
 	StatusReason string
