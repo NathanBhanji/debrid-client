@@ -7,6 +7,11 @@
 // tables. Parsing is deliberately conservative: a name without a confident
 // title plus a year or TV marker reports ok=false and callers fall back to
 // the raw name.
+//
+// Known ambiguity: a title-embedded plausible year with no release year
+// ("Wonder.Woman.1984.1080p") is indistinguishable from a release year
+// without a title database; guessit shares this behavior. The preview UI is
+// the mitigation.
 package relname
 
 import (
@@ -23,6 +28,7 @@ type Info struct {
 	Year       int
 	Season     int
 	Episode    int
+	EpisodeEnd int // last episode of a multi-episode file (S01E01E02); -1 otherwise
 	Resolution string
 	Source     string
 	Codec      string
@@ -38,9 +44,9 @@ var extRe = regexp.MustCompile(`(?i)\.(mkv|mp4|avi|m4v|mov|wmv|mpg|mpeg|webm|flv
 const sep = `[ ._\-\[\](),]`
 
 var (
-	// S01E02, S01E02E03, S01E02-E03, S01, s2024e01 (dated shows use 4-digit
-	// seasons rarely; cap season at 2 digits, episode at 3).
-	sxeRe      = regexp.MustCompile(`(?i)(?:^|` + sep + `)S(\d{1,2})[ ._\-]?E(\d{1,3})(?:[E\-]\d{1,3})*(?:$|` + sep + `)`)
+	// S01E02, S01E02E03, S01E02-E03, S01 (season capped at 2 digits,
+	// episode at 3; 4-digit date-style seasons are not supported).
+	sxeRe      = regexp.MustCompile(`(?i)(?:^|` + sep + `)S(\d{1,2})[ ._\-]?E(\d{1,3})(?:[E\-](\d{1,3}))*(?:$|` + sep + `)`)
 	seasonRe   = regexp.MustCompile(`(?i)(?:^|` + sep + `)S(\d{1,2})(?:$|` + sep + `)`)
 	nxnRe      = regexp.MustCompile(`(?i)(?:^|` + sep + `)(\d{1,2})x(\d{2,3})(?:$|` + sep + `)`)
 	yearCandRe = regexp.MustCompile(`(?:19|20)\d{2}`)
@@ -57,10 +63,15 @@ var (
 	// Leading "[Group] " prefix (anime-style).
 	bracketPrefixRe = regexp.MustCompile(`^\[([^\]]+)\]\s*`)
 
-	// Other tokens that terminate a title but carry no field value of their
-	// own (editions, HDR flags, audio…). Kept broad so they never leak into
-	// titles when they appear before the classic boundaries.
-	otherBoundaryRe = regexp.MustCompile(`(?i)(?:^|` + sep + `)(repack|proper|extended|unrated|remastered|restored|uncut|internal|limited|complete|multi|dubbed|subbed|hdr10\+?|hdr|dolby[ ._]?vision|dovi|dv|atmos|dd[p+]?[ ._]?[57][ ._]?1|dts(?:[ ._\-]?(?:hd|x|ma))?|truehd|aac(?:[ ._]?2[ ._]?0)?|ac3|eac3|flac|opus|10[ ._]?bit|8[ ._]?bit|hybrid|imax|3d|criterion|directors?[ ._]?cut|theatrical)(?:$|` + sep + `)`)
+	// Unambiguous technical/edition tokens: these terminate a title wherever
+	// they appear (no English sentence contains "HDR10" or "Directors Cut"
+	// mid-title by accident).
+	otherBoundaryRe = regexp.MustCompile(`(?i)(?:^|` + sep + `)(repack|extended|unrated|remastered|hdr10\+?|hdr|dolby[ ._]?vision|dovi|atmos|dd[p+]?[ ._]?[57][ ._]?1|dts(?:[ ._\-]?(?:hd|x|ma))?|truehd|aac(?:[ ._]?2[ ._]?0)?|ac3|eac3|flac|opus|10[ ._]?bit|8[ ._]?bit|imax|criterion|directors?[ ._]?cut|theatrical)(?:$|` + sep + `)`)
+
+	// Ambiguous dictionary words ("The Complete History of…"): these only
+	// count as boundaries when they appear after another anchor (year or a
+	// technical token), otherwise they would truncate legitimate titles.
+	ambiguousBoundaryRe = regexp.MustCompile(`(?i)(?:^|` + sep + `)(proper|restored|uncut|internal|limited|complete|multi|dubbed|subbed|hybrid|dv|3d)(?:$|` + sep + `)`)
 )
 
 type match struct {
@@ -89,7 +100,7 @@ func findFirst(re *regexp.Regexp, s string) match {
 // not confident enough to organize by (no title, or neither a year nor a TV
 // marker); callers should then keep the raw name.
 func Parse(name string) (Info, bool) {
-	info := Info{Season: -1, Episode: -1}
+	info := Info{Season: -1, Episode: -1, EpisodeEnd: -1}
 	s := strings.TrimSpace(extRe.ReplaceAllString(strings.TrimSpace(name), ""))
 	if s == "" {
 		return info, false
@@ -107,6 +118,9 @@ func Parse(name string) (Info, bool) {
 		info.IsTV = true
 		info.Season = atoi(s[m[2]:m[3]])
 		info.Episode = atoi(s[m[4]:m[5]])
+		if m[6] >= 0 { // repeated group keeps its final iteration
+			info.EpisodeEnd = atoi(s[m[6]:m[7]])
+		}
 		tvStart = match{start: m[0], ok: true}
 	} else if m := nxnRe.FindStringSubmatchIndex(s); m != nil {
 		info.IsTV = true
@@ -153,7 +167,19 @@ func Parse(name string) (Info, bool) {
 		yearStart = match{start: start, ok: true}
 	}
 
-	titleEnd := earliest(firstNonYear, otherStart, yearStart)
+	// Ambiguous words become boundaries only past an existing anchor.
+	anchor := earliest(strongBoundary, otherStart, yearStart)
+	ambStart := match{ok: false}
+	if anchor.ok {
+		for _, m := range ambiguousBoundaryRe.FindAllStringIndex(s, -1) {
+			if m[0] >= anchor.start {
+				ambStart = match{start: m[0], ok: true}
+				break
+			}
+		}
+	}
+
+	titleEnd := earliest(firstNonYear, otherStart, ambStart, yearStart)
 	if !titleEnd.ok {
 		return info, false // nothing recognized at all
 	}
@@ -191,7 +217,7 @@ func Parse(name string) (Info, bool) {
 	return info, true
 }
 
-var titleSepRe = strings.NewReplacer(".", " ", "_", " ", "(", " ", ")", " ", "[", " ", "]", " ")
+var titleSepRe = strings.NewReplacer(".", " ", "_", " ", "(", " ", ")", " ", "[", " ", "]", " ", ",", " ")
 
 // cleanTitle converts separator characters to spaces and tidies the result.
 // Hyphens survive inside words ("Spider-Man") but are trimmed at the edges.
@@ -210,8 +236,10 @@ func normalizeResolution(s string) string {
 	}
 }
 
+var normSep = strings.NewReplacer(" ", "", ".", "", "_", "", "-", "")
+
 func normalizeSource(s string) string {
-	c := strings.ToLower(regexp.MustCompile(`[ ._\-]`).ReplaceAllString(s, ""))
+	c := strings.ToLower(normSep.Replace(s))
 	switch c {
 	case "bluray":
 		return "BluRay"
@@ -241,7 +269,7 @@ func normalizeSource(s string) string {
 }
 
 func normalizeCodec(s string) string {
-	c := strings.ToLower(regexp.MustCompile(`[ ._]`).ReplaceAllString(s, ""))
+	c := strings.ToLower(normSep.Replace(s))
 	switch c {
 	case "x264":
 		return "x264"
@@ -265,7 +293,9 @@ func normalizeCodec(s string) string {
 }
 
 // isTokenEdge reports whether position i (which may be -1 or len(s)) is a
-// token boundary: outside the string or a separator character.
+// token boundary: outside the string or a separator character. Byte-wise
+// indexing is safe here because the separator set is pure ASCII — UTF-8
+// continuation/lead bytes are all >= 0x80 and can never false-match.
 func isTokenEdge(s string, i int) bool {
 	if i < 0 || i >= len(s) {
 		return true
@@ -289,7 +319,7 @@ func isKnownTokenTail(g string) bool {
 		return true // bare numbers ("...DDP5-1") are never groups
 	}
 	// Full-token matches of the field classes are not groups either.
-	for _, re := range []*regexp.Regexp{resolutionRe, codecRe, otherBoundaryRe} {
+	for _, re := range []*regexp.Regexp{resolutionRe, codecRe, sourceRe, otherBoundaryRe, ambiguousBoundaryRe} {
 		if loc := re.FindStringIndex(lg); loc != nil && loc[0] == 0 && loc[1] == len(lg) {
 			return true
 		}
