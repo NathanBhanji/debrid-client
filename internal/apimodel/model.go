@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/NathanBhanji/debrid-client/internal/domain"
+	"github.com/NathanBhanji/debrid-client/internal/organize"
 	"github.com/NathanBhanji/debrid-client/internal/provider"
 	"github.com/NathanBhanji/debrid-client/internal/service"
 )
@@ -50,6 +51,14 @@ type TorrentSettings struct {
 	DeleteOnError   string   `json:"delete_on_error,omitempty" doc:"Remove the torrent (files, provider) this long after a terminal error, e.g. 24h; empty = never"`
 	Lifetime        string   `json:"lifetime,omitempty" doc:"Fail if not finished at the provider within this long, e.g. 72h; empty = never"`
 	Unpack          bool     `json:"unpack" required:"false" doc:"Extract archives after download"`
+	Organize        *bool    `json:"organize,omitempty" doc:"Override the global library-organization toggle for this torrent (absent = inherit)"`
+}
+
+// OrganizeSettings control library-style directory layout for new torrents.
+type OrganizeSettings struct {
+	Enabled       bool   `json:"enabled" required:"false" doc:"Lay out new torrents as a media library (Movie Name (Year)/...)"`
+	MovieTemplate string `json:"movie_template,omitempty" doc:"Movie path template; empty = '{title} ({year})'"`
+	TVTemplate    string `json:"tv_template,omitempty" doc:"TV path template; empty = '{title} ({year})/Season {season:02}'"`
 }
 
 // File is a file within a torrent.
@@ -106,9 +115,10 @@ type Torrent struct {
 
 // Settings are runtime settings.
 type Settings struct {
-	TorrentDefaults TorrentSettings `json:"torrent_defaults"`
-	Categories      []string        `json:"categories" required:"false" nullable:"false"`
-	UnpackMaxDepth  int             `json:"unpack_max_depth" minimum:"0" maximum:"5" required:"false"`
+	TorrentDefaults TorrentSettings  `json:"torrent_defaults"`
+	Categories      []string         `json:"categories" required:"false" nullable:"false"`
+	UnpackMaxDepth  int              `json:"unpack_max_depth" minimum:"0" maximum:"5" required:"false"`
+	Organize        OrganizeSettings `json:"organize" required:"false"`
 }
 
 // Status is the system summary.
@@ -145,6 +155,7 @@ func FromTorrentSettings(s domain.TorrentSettings) TorrentSettings {
 		FinishedAction: string(s.FinishedAction), FinishedDelay: durStr(s.FinishedDelay),
 		DownloadRetries: s.DownloadRetries, TorrentRetries: s.TorrentRetries,
 		DeleteOnError: durStr(s.DeleteOnError), Lifetime: durStr(s.Lifetime), Unpack: s.Unpack,
+		Organize: s.Organize,
 	}
 }
 
@@ -169,7 +180,7 @@ func (s TorrentSettings) ToDomain() (domain.TorrentSettings, error) {
 	return domain.TorrentSettings{
 		MinFileSize: s.MinFileSize, IncludeRegex: s.IncludeRegex, ExcludeRegex: s.ExcludeRegex, ManualFiles: s.ManualFiles,
 		FinishedAction: fa, FinishedDelay: fd, DownloadRetries: s.DownloadRetries, TorrentRetries: s.TorrentRetries,
-		DeleteOnError: de, Lifetime: lt, Unpack: s.Unpack,
+		DeleteOnError: de, Lifetime: lt, Unpack: s.Unpack, Organize: s.Organize,
 	}, nil
 }
 
@@ -201,7 +212,10 @@ func FromTorrent(d service.TorrentDetail) Torrent {
 }
 
 func FromSettings(s service.Settings) Settings {
-	return Settings{TorrentDefaults: FromTorrentSettings(s.TorrentDefaults), Categories: s.Categories, UnpackMaxDepth: s.UnpackMaxDepth}
+	return Settings{
+		TorrentDefaults: FromTorrentSettings(s.TorrentDefaults), Categories: s.Categories, UnpackMaxDepth: s.UnpackMaxDepth,
+		Organize: OrganizeSettings{Enabled: s.Organize.Enabled, MovieTemplate: s.Organize.MovieTemplate, TVTemplate: s.Organize.TVTemplate},
+	}
 }
 
 func (s Settings) ToService() (service.Settings, error) {
@@ -209,7 +223,10 @@ func (s Settings) ToService() (service.Settings, error) {
 	if err != nil {
 		return service.Settings{}, err
 	}
-	return service.Settings{TorrentDefaults: td, Categories: s.Categories, UnpackMaxDepth: s.UnpackMaxDepth}, nil
+	return service.Settings{
+		TorrentDefaults: td, Categories: s.Categories, UnpackMaxDepth: s.UnpackMaxDepth,
+		Organize: organize.Settings{Enabled: s.Organize.Enabled, MovieTemplate: s.Organize.MovieTemplate, TVTemplate: s.Organize.TVTemplate},
+	}, nil
 }
 
 func FromStatus(s service.SystemStatus) Status {

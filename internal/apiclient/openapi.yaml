@@ -456,6 +456,19 @@ components:
         - mode
         - api_key
       type: object
+    OrganizeSettings:
+      additionalProperties: false
+      properties:
+        enabled:
+          description: Lay out new torrents as a media library (Movie Name (Year)/...)
+          type: boolean
+        movie_template:
+          description: Movie path template; empty = '{title} ({year})'
+          type: string
+        tv_template:
+          description: TV path template; empty = '{title} ({year})/Season {season:02}'
+          type: string
+      type: object
     SelectFilesInBody:
       additionalProperties: false
       properties:
@@ -500,6 +513,8 @@ components:
           items:
             type: string
           type: array
+        organize:
+          $ref: "#/components/schemas/OrganizeSettings"
         torrent_defaults:
           $ref: "#/components/schemas/TorrentSettings"
         unpack_max_depth:
@@ -744,6 +759,9 @@ components:
           format: int64
           minimum: 0
           type: integer
+        organize:
+          description: Override the global library-organization toggle for this torrent (absent = inherit)
+          type: boolean
         torrent_retries:
           description: Automatic re-adds after a provider error
           format: int64

@@ -71,7 +71,7 @@ func TorrentFromRow(r sqlcgen.Torrent) (domain.Torrent, error) {
 		settings.FinishedAction = domain.FinishedKeep
 	}
 	t := domain.Torrent{
-		ID: r.ID, AccountID: r.AccountID, Hash: r.Hash, Name: r.Name, DirName: r.DirName, Category: r.Category,
+		ID: r.ID, AccountID: r.AccountID, Hash: r.Hash, Name: r.Name, DirName: r.DirName, Organized: r.Organized != 0, Category: r.Category,
 		Status: domain.TorrentStatus(r.Status), StatusReason: r.StatusReason, Error: r.Error,
 		Progress: r.Progress, Size: r.Size, Speed: r.Speed, Seeders: int(r.Seeders),
 		ProviderID: r.ProviderID, ProviderStatus: r.ProviderStatus, Files: files, Settings: settings,
@@ -112,7 +112,7 @@ func TorrentInsertParams(t domain.Torrent) (sqlcgen.InsertTorrentParams, error) 
 		t.Payload = []byte{} // column is NOT NULL; an empty payload is a caller bug but shouldn't fail the insert
 	}
 	return sqlcgen.InsertTorrentParams{
-		ID: t.ID, AccountID: t.AccountID, Hash: t.Hash, Name: t.Name, DirName: t.DirName, Category: t.Category,
+		ID: t.ID, AccountID: t.AccountID, Hash: t.Hash, Name: t.Name, DirName: t.DirName, Organized: b2i(t.Organized), Category: t.Category,
 		Status: string(t.Status), StatusReason: t.StatusReason, Error: t.Error,
 		Progress: t.Progress, Size: t.Size, Speed: t.Speed, Seeders: int64(t.Seeders),
 		ProviderID: t.ProviderID, ProviderStatus: t.ProviderStatus, Files: files, Settings: settings,
@@ -130,7 +130,7 @@ func TorrentUpdateParams(t domain.Torrent) (sqlcgen.UpdateTorrentParams, error) 
 		return sqlcgen.UpdateTorrentParams{}, err
 	}
 	return sqlcgen.UpdateTorrentParams{
-		Name: t.Name, DirName: t.DirName, Category: t.Category, Status: string(t.Status), StatusReason: t.StatusReason, Error: t.Error,
+		Name: t.Name, DirName: t.DirName, Organized: b2i(t.Organized), Category: t.Category, Status: string(t.Status), StatusReason: t.StatusReason, Error: t.Error,
 		Progress: t.Progress, Size: t.Size, Speed: t.Speed, Seeders: int64(t.Seeders),
 		ProviderID: t.ProviderID, ProviderStatus: t.ProviderStatus, Files: files, Settings: settings,
 		RetryCount: int64(t.RetryCount), ProviderAddedAt: NullTime(t.ProviderAddedAt),
@@ -162,6 +162,11 @@ func DownloadFromRow(r sqlcgen.Download) (domain.Download, error) {
 		RelPath: r.RelPath, Filename: r.Filename, Size: r.Size, BytesDone: r.BytesDone,
 		State: domain.DownloadState(r.State), Error: r.Error, RetryCount: int(r.RetryCount),
 	}
+	if r.ExtractedPaths != "" {
+		if err := json.Unmarshal([]byte(r.ExtractedPaths), &d.ExtractedPaths); err != nil {
+			return domain.Download{}, fmt.Errorf("download %s extracted_paths: %w", r.ID, err)
+		}
+	}
 	var err error
 	if d.QueuedAt, err = ParseTime(r.QueuedAt); err != nil {
 		return domain.Download{}, err
@@ -192,7 +197,7 @@ func DownloadInsertParams(d domain.Download) sqlcgen.InsertDownloadParams {
 	return sqlcgen.InsertDownloadParams{
 		ID: d.ID, TorrentID: d.TorrentID, FileID: d.FileID, ProviderLink: d.ProviderLink, DirectUrl: d.DirectURL,
 		RelPath: d.RelPath, Filename: d.Filename, Size: d.Size, BytesDone: d.BytesDone,
-		State: string(d.State), Error: d.Error, RetryCount: int64(d.RetryCount),
+		State: string(d.State), Error: d.Error, RetryCount: int64(d.RetryCount), ExtractedPaths: extractedJSON(d),
 		QueuedAt: FormatTime(d.QueuedAt), StartedAt: NullTime(d.StartedAt), FinishedAt: NullTime(d.FinishedAt),
 		UnpackStartedAt: NullTime(d.UnpackStartedAt), UnpackFinishedAt: NullTime(d.UnpackFinishedAt),
 		CompletedAt: NullTime(d.CompletedAt), UpdatedAt: FormatTime(d.UpdatedAt),
@@ -203,7 +208,7 @@ func DownloadInsertParams(d domain.Download) sqlcgen.InsertDownloadParams {
 func DownloadUpdateParams(d domain.Download) sqlcgen.UpdateDownloadParams {
 	return sqlcgen.UpdateDownloadParams{
 		DirectUrl: d.DirectURL, RelPath: d.RelPath, Filename: d.Filename, Size: d.Size, BytesDone: d.BytesDone,
-		State: string(d.State), Error: d.Error, RetryCount: int64(d.RetryCount),
+		State: string(d.State), Error: d.Error, RetryCount: int64(d.RetryCount), ExtractedPaths: extractedJSON(d),
 		StartedAt: NullTime(d.StartedAt), FinishedAt: NullTime(d.FinishedAt),
 		UnpackStartedAt: NullTime(d.UnpackStartedAt), UnpackFinishedAt: NullTime(d.UnpackFinishedAt),
 		CompletedAt: NullTime(d.CompletedAt), UpdatedAt: FormatTime(d.UpdatedAt), ID: d.ID,
@@ -217,6 +222,19 @@ func utcCreds(c domain.Credentials) domain.Credentials {
 		c.ExpiresAt = &u
 	}
 	return c
+}
+
+// extractedJSON serialises the extracted-paths list; empty stays "" (column
+// default) so unmodified rows keep their compact form.
+func extractedJSON(d domain.Download) string {
+	if len(d.ExtractedPaths) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(d.ExtractedPaths)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 func b2i(b bool) int64 {

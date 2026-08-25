@@ -660,6 +660,14 @@ export interface components {
       /** @description Set for session requests; empty for API-key requests */
       username?: string
     }
+    OrganizeSettings: {
+      /** @description Lay out new torrents as a media library (Movie Name (Year)/...) */
+      enabled?: boolean
+      /** @description Movie path template; empty = '{title} ({year})' */
+      movie_template?: string
+      /** @description TV path template; empty = '{title} ({year})/Season {season:02}' */
+      tv_template?: string
+    }
     SelectFilesInBody: {
       /**
        * Format: uri
@@ -686,6 +694,7 @@ export interface components {
        */
       readonly $schema?: string
       categories?: string[]
+      organize?: components['schemas']['OrganizeSettings']
       torrent_defaults: components['schemas']['TorrentSettings']
       /** Format: int64 */
       unpack_max_depth?: number
@@ -833,6 +842,8 @@ export interface components {
        * @description Skip files smaller than this many bytes
        */
       min_file_size?: number
+      /** @description Override the global library-organization toggle for this torrent (absent = inherit) */
+      organize?: boolean
       /**
        * Format: int64
        * @description Automatic re-adds after a provider error

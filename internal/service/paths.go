@@ -7,6 +7,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/NathanBhanji/debrid-client/internal/domain"
+	"github.com/NathanBhanji/debrid-client/internal/organize"
+	"github.com/NathanBhanji/debrid-client/internal/relname"
 )
 
 // TorrentDir is the directory under root where a torrent's files live:
@@ -14,7 +16,7 @@ import (
 // frozen it (at first local download), else derived from the current Name.
 // Engine and service must agree on this.
 func TorrentDir(root string, t domain.Torrent) string {
-	name := DirNameFor(t)
+	name := filepath.FromSlash(DirNameFor(t))
 	if t.Category != "" {
 		return filepath.Join(root, t.Category, name)
 	}
@@ -31,6 +33,39 @@ func DirNameFor(t domain.Torrent) string {
 		return name
 	}
 	return t.Hash
+}
+
+// DirPathFor computes the directory path to freeze for a torrent: the
+// organized "/"-separated library path when organization applies and the
+// release name parses confidently, else the plain sanitized name. organized
+// reports which one was chosen (organized dirs may be shared, so deletion
+// must be per-file).
+func DirPathFor(t domain.Torrent, org organize.Settings) (path string, organized bool) {
+	enabled := org.Enabled
+	if t.Settings.Organize != nil {
+		enabled = *t.Settings.Organize
+	}
+	if !enabled {
+		return DirNameFor(t), false
+	}
+	info, ok := relname.Parse(t.Name)
+	if !ok {
+		return DirNameFor(t), false
+	}
+	segs, ok := organize.Render(org.Template(info), info)
+	if !ok {
+		return DirNameFor(t), false
+	}
+	clean := make([]string, 0, len(segs))
+	for _, seg := range segs {
+		if s := SanitizeName(seg); s != "" {
+			clean = append(clean, s)
+		}
+	}
+	if len(clean) == 0 {
+		return DirNameFor(t), false
+	}
+	return strings.Join(clean, "/"), true
 }
 
 // maxNameLen bounds a path component (most filesystems allow 255 bytes).

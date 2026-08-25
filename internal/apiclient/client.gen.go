@@ -474,6 +474,18 @@ type MeOutBody struct {
 	Username *string `json:"username,omitempty"`
 }
 
+// OrganizeSettings defines model for OrganizeSettings.
+type OrganizeSettings struct {
+	// Enabled Lay out new torrents as a media library (Movie Name (Year)/...)
+	Enabled *bool `json:"enabled,omitempty"`
+
+	// MovieTemplate Movie path template; empty = '{title} ({year})'
+	MovieTemplate *string `json:"movie_template,omitempty"`
+
+	// TvTemplate TV path template; empty = '{title} ({year})/Season {season:02}'
+	TvTemplate *string `json:"tv_template,omitempty"`
+}
+
 // SelectFilesInBody defines model for SelectFilesInBody.
 type SelectFilesInBody struct {
 	// Schema A URL to the JSON Schema for this object.
@@ -497,10 +509,11 @@ type Settings struct {
 	// Schema A URL to the JSON Schema for this object.
 	//
 	// Example: https://example.com/schemas/Settings.json
-	Schema          *string         `json:"$schema,omitempty"`
-	Categories      *[]string       `json:"categories,omitempty"`
-	TorrentDefaults TorrentSettings `json:"torrent_defaults"`
-	UnpackMaxDepth  *int64          `json:"unpack_max_depth,omitempty"`
+	Schema          *string           `json:"$schema,omitempty"`
+	Categories      *[]string         `json:"categories,omitempty"`
+	Organize        *OrganizeSettings `json:"organize,omitempty"`
+	TorrentDefaults TorrentSettings   `json:"torrent_defaults"`
+	UnpackMaxDepth  *int64            `json:"unpack_max_depth,omitempty"`
 }
 
 // SetupOIDCInBody defines model for SetupOIDCInBody.
@@ -628,6 +641,9 @@ type TorrentSettings struct {
 
 	// MinFileSize Skip files smaller than this many bytes
 	MinFileSize *int64 `json:"min_file_size,omitempty"`
+
+	// Organize Override the global library-organization toggle for this torrent (absent = inherit)
+	Organize *bool `json:"organize,omitempty"`
 
 	// TorrentRetries Automatic re-adds after a provider error
 	TorrentRetries *int64 `json:"torrent_retries,omitempty"`
