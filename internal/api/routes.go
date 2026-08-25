@@ -13,6 +13,8 @@ import (
 	"github.com/NathanBhanji/debrid-client/internal/buildinfo"
 	"github.com/NathanBhanji/debrid-client/internal/domain"
 	"github.com/NathanBhanji/debrid-client/internal/events"
+	"github.com/NathanBhanji/debrid-client/internal/organize"
+	"github.com/NathanBhanji/debrid-client/internal/relname"
 	"github.com/NathanBhanji/debrid-client/internal/service"
 )
 
@@ -301,6 +303,43 @@ func (h *Handler) registerRoutes(p string) {
 			return &settingsOut{Body: apimodel.FromSettings(got)}, nil
 		})
 
+	// Preview where a release name would land under organization; templates
+	// in the request override the saved ones so the UI can try edits before
+	// saving. Enabled is implied — previewing is the point.
+	huma.Register(api, huma.Operation{OperationID: "organize-preview", Method: http.MethodPost, Path: p + "/organize/preview", Summary: "Preview the organized folder for a release name", Tags: []string{"settings"}},
+		func(ctx context.Context, in *organizePreviewIn) (*organizePreviewOut, error) {
+			for _, tpl := range []string{in.Body.MovieTemplate, in.Body.TVTemplate} {
+				if tpl != "" {
+					if err := organize.ValidateTemplate(tpl); err != nil {
+						return nil, huma.Error422UnprocessableEntity(err.Error())
+					}
+				}
+			}
+			st, err := h.svc.GetSettings(ctx)
+			if err != nil {
+				return nil, h.mapErr(err)
+			}
+			org := st.Organize
+			org.Enabled = true
+			if in.Body.MovieTemplate != "" {
+				org.MovieTemplate = in.Body.MovieTemplate
+			}
+			if in.Body.TVTemplate != "" {
+				org.TVTemplate = in.Body.TVTemplate
+			}
+			path, organized := service.DirPathFor(domain.Torrent{Name: in.Body.Name, Hash: "preview"}, org)
+			out := &organizePreviewOut{}
+			out.Body.Path = path
+			out.Body.Organized = organized
+			if info, ok := relname.Parse(in.Body.Name); ok {
+				out.Body.Parsed = &organizeParsed{
+					Title: info.Title, Year: info.Year, Season: info.Season, Episode: info.Episode,
+					Resolution: info.Resolution, Source: info.Source, Codec: info.Codec, Group: info.Group, TV: info.IsTV,
+				}
+			}
+			return out, nil
+		})
+
 	// Events (SSE)
 	// huma/sse picks the SSE event name by the Go type of the payload, so each
 	// event name gets its own (identical) type.
@@ -368,4 +407,32 @@ func typedEvent(e events.Event) any {
 		return evSettingsChanged(e)
 	}
 	return evTorrentUpdated(e)
+}
+
+type organizePreviewIn struct {
+	Body struct {
+		Name          string `json:"name" minLength:"1" maxLength:"512" doc:"Release name to preview"`
+		MovieTemplate string `json:"movie_template,omitempty" doc:"Override the saved movie template"`
+		TVTemplate    string `json:"tv_template,omitempty" doc:"Override the saved TV template"`
+	}
+}
+
+type organizeParsed struct {
+	Title      string `json:"title"`
+	Year       int    `json:"year,omitempty"`
+	Season     int    `json:"season,omitempty"`
+	Episode    int    `json:"episode,omitempty"`
+	Resolution string `json:"resolution,omitempty"`
+	Source     string `json:"source,omitempty"`
+	Codec      string `json:"codec,omitempty"`
+	Group      string `json:"group,omitempty"`
+	TV         bool   `json:"tv,omitempty"`
+}
+
+type organizePreviewOut struct {
+	Body struct {
+		Path      string          `json:"path" doc:"Folder path the torrent would use (relative to the download dir / category)"`
+		Organized bool            `json:"organized" doc:"False when the name would keep the raw-name folder"`
+		Parsed    *organizeParsed `json:"parsed,omitempty" doc:"Release metadata when the name parsed"`
+	}
 }

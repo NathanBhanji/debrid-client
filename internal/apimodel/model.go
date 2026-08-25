@@ -95,6 +95,8 @@ type Torrent struct {
 	Hash             string          `json:"hash"`
 	Name             string          `json:"name"`
 	Category         string          `json:"category,omitempty"`
+	DirName          string          `json:"dir_name,omitempty" doc:"Folder path under the download dir ('/'-separated); frozen when local downloads start"`
+	Organized        bool            `json:"organized,omitempty" doc:"True when dir_name was produced by library organization"`
 	Status           string          `json:"status" enum:"queued,adding,processing,waiting_selection,downloading,uploading,finished,completed,error"`
 	StatusReason     string          `json:"status_reason,omitempty" doc:"Human-readable detail about the current state"`
 	Error            string          `json:"error,omitempty"`
@@ -196,6 +198,7 @@ func FromTorrent(d service.TorrentDetail) Torrent {
 	t := d.Torrent
 	out := Torrent{
 		ID: t.ID, AccountID: t.AccountID, Hash: t.Hash, Name: t.Name, Category: t.Category,
+		DirName: t.DirName, Organized: t.Organized,
 		Status: string(t.Status), StatusReason: t.StatusReason, Error: t.Error,
 		ProviderProgress: t.Progress, LocalProgress: d.LocalProgress(), Size: t.Size, Speed: t.Speed, Seeders: t.Seeders,
 		ProviderID: t.ProviderID, ProviderStatus: t.ProviderStatus, Settings: FromTorrentSettings(t.Settings),

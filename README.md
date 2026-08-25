@@ -30,6 +30,10 @@ The CLI talks to the running server. On the same machine it finds the server add
 
 Files land in `<download_dir>/[<category>/]<torrent name>/…`. Archives are extracted in place by default.
 
+### Library organization (optional)
+
+Turn on `organize` in settings (UI, `debrid settings set`, API or MCP) and new torrents land as a media library instead of raw release names — `Some.Movie.2019.2160p.WEB-DL.x265-GRP` becomes `Some Movie (2019)/…`, `Some.Show.S02.…` becomes `Some Show/Season 02/…` (Jellyfin/Plex conventions; templates are customizable with `{title} {year} {season:02} …` variables and previewable in the settings UI). Parsing is conservative: names that don't parse confidently keep the raw-name folder. Organized folders may be shared (a whole show accumulates under one tree), so deleting a torrent with its files removes exactly that torrent's files and prunes empty folders. Per-torrent override via the `organize` torrent setting.
+
 ## Web UI
 
 `debrid serve` also serves a web UI at the server address (http://127.0.0.1:8080 by default). Add magnets or drop `.torrent` files, watch progress live, and manage accounts and settings. Release binaries and Docker images ship with the UI embedded; when building from source, run `make web` before `make build` to include it (plain `go build` works without it and serves the API only).

@@ -268,6 +268,23 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/organize/preview': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Preview the organized folder for a release name */
+    post: operations['organize-preview']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/settings': {
     parameters: {
       query?: never
@@ -660,6 +677,48 @@ export interface components {
       /** @description Set for session requests; empty for API-key requests */
       username?: string
     }
+    OrganizeParsed: {
+      codec?: string
+      /** Format: int64 */
+      episode?: number
+      group?: string
+      resolution?: string
+      /** Format: int64 */
+      season?: number
+      source?: string
+      title: string
+      tv?: boolean
+      /** Format: int64 */
+      year?: number
+    }
+    OrganizePreviewInBody: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://example.com/schemas/OrganizePreviewInBody.json
+       */
+      readonly $schema?: string
+      /** @description Override the saved movie template */
+      movie_template?: string
+      /** @description Release name to preview */
+      name: string
+      /** @description Override the saved TV template */
+      tv_template?: string
+    }
+    OrganizePreviewOutBody: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://example.com/schemas/OrganizePreviewOutBody.json
+       */
+      readonly $schema?: string
+      /** @description False when the name would keep the raw-name folder */
+      organized: boolean
+      /** @description Release metadata when the name parsed */
+      parsed?: components['schemas']['OrganizeParsed']
+      /** @description Folder path the torrent would use (relative to the download dir / category) */
+      path: string
+    }
     OrganizeSettings: {
       /** @description Lay out new torrents as a media library (Movie Name (Year)/...) */
       enabled?: boolean
@@ -769,6 +828,8 @@ export interface components {
       category?: string
       /** Format: date-time */
       completed_at?: string
+      /** @description Folder path under the download dir ('/'-separated); frozen when local downloads start */
+      dir_name?: string
       downloads: components['schemas']['Download'][]
       error?: string
       files: components['schemas']['File'][]
@@ -780,6 +841,8 @@ export interface components {
        */
       local_progress: number
       name: string
+      /** @description True when dir_name was produced by library organization */
+      organized?: boolean
       provider_id?: string
       /**
        * Format: double
@@ -1532,6 +1595,39 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['HealthOutBody']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'organize-preview': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['OrganizePreviewInBody']
+      }
+    }
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['OrganizePreviewOutBody']
         }
       }
       /** @description Error */

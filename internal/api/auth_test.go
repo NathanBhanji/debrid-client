@@ -168,3 +168,55 @@ func TestAuthFlow(t *testing.T) {
 		t.Fatalf("key me: %+v", me)
 	}
 }
+
+func TestOrganizePreview(t *testing.T) {
+	srv := setupAuth(t)
+	hdr := map[string]string{"Authorization": "Bearer " + key}
+
+	resp := req(t, srv, "POST", "/api/v1/organize/preview",
+		`{"name":"Some.Movie.2019.2160p.WEB-DL.x265-GRP"}`, hdr)
+	if resp.StatusCode != 200 {
+		t.Fatalf("preview: %d", resp.StatusCode)
+	}
+	var out struct {
+		Path      string `json:"path"`
+		Organized bool   `json:"organized"`
+		Parsed    *struct {
+			Title string `json:"title"`
+			Year  int    `json:"year"`
+		} `json:"parsed"`
+	}
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	if !out.Organized || out.Path != "Some Movie (2019)" || out.Parsed == nil || out.Parsed.Title != "Some Movie" {
+		t.Fatalf("preview result: %+v", out)
+	}
+
+	// Template override applies without saving.
+	resp = req(t, srv, "POST", "/api/v1/organize/preview",
+		`{"name":"Some.Movie.2019.2160p.WEB-DL.x265-GRP","movie_template":"Films/{title} [{resolution}]"}`, hdr)
+	out.Parsed = nil
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	if out.Path != "Films/Some Movie [2160p]" {
+		t.Fatalf("override result: %+v", out)
+	}
+
+	// Invalid template → 422; unparseable name → organized=false, raw path.
+	resp = req(t, srv, "POST", "/api/v1/organize/preview",
+		`{"name":"x","movie_template":"{bogus}"}`, hdr)
+	if resp.StatusCode != 422 {
+		t.Fatalf("bad template: %d", resp.StatusCode)
+	}
+	resp = req(t, srv, "POST", "/api/v1/organize/preview", `{"name":"random data"}`, hdr)
+	out = struct {
+		Path      string `json:"path"`
+		Organized bool   `json:"organized"`
+		Parsed    *struct {
+			Title string `json:"title"`
+			Year  int    `json:"year"`
+		} `json:"parsed"`
+	}{}
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	if out.Organized || out.Path != "random data" {
+		t.Fatalf("unparseable result: %+v", out)
+	}
+}

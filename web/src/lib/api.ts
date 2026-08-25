@@ -17,6 +17,7 @@ export type UpdateAccount = components['schemas']['UpdateAccountInBody']
 export type ProviderKind = Account['kind']
 export type AuthStatus = components['schemas']['AuthStatusOutBody']
 export type Me = components['schemas']['MeOutBody']
+export type OrganizePreview = components['schemas']['OrganizePreviewOutBody']
 
 export const PROVIDER_KINDS: Array<ProviderKind> = [
   'torbox',
@@ -143,6 +144,17 @@ export const api = {
       request<Settings>('/settings', {
         method: 'PUT',
         body: JSON.stringify(body),
+      }),
+  },
+  organize: {
+    preview: (name: string, movieTemplate?: string, tvTemplate?: string) =>
+      request<OrganizePreview>('/organize/preview', {
+        method: 'POST',
+        body: JSON.stringify({
+          name,
+          ...(movieTemplate ? { movie_template: movieTemplate } : {}),
+          ...(tvTemplate ? { tv_template: tvTemplate } : {}),
+        }),
       }),
   },
   auth: {
