@@ -137,6 +137,123 @@ function ChangePasswordCard() {
   )
 }
 
+// OrganizeCard edits the library-organization block with a live preview:
+// type a sample release name and see the folder your (possibly unsaved)
+// templates would produce.
+const DEFAULT_MOVIE_TEMPLATE = '{title} ({year})'
+const DEFAULT_TV_TEMPLATE = '{title} ({year})/Season {season:02}'
+
+function OrganizeCard({
+  value,
+  onChange,
+}: {
+  value: NonNullable<Settings['organize']>
+  onChange: (v: NonNullable<Settings['organize']>) => void
+}) {
+  const [sample, setSample] = useState(
+    'Some.Movie.2019.2160p.WEB-DL.x265-GROUP',
+  )
+  const [preview, setPreview] = useState<string | null>(null)
+  const [previewErr, setPreviewErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (sample.trim() === '') {
+      setPreview(null)
+      setPreviewErr(null)
+      return
+    }
+    // Always send the effective templates: a cleared field means "use the
+    // default", and the server treats an omitted override as "keep saved" —
+    // without this the preview could show the old saved template's path.
+    let live = true
+    const timer = setTimeout(() => {
+      api.organize
+        .preview(
+          sample.trim(),
+          value.movie_template || DEFAULT_MOVIE_TEMPLATE,
+          value.tv_template || DEFAULT_TV_TEMPLATE,
+        )
+        .then((p) => {
+          if (!live) return // an edit superseded this request
+          setPreview(
+            p.organized ? p.path : `${p.path}  (kept as-is — not parseable)`,
+          )
+          setPreviewErr(null)
+        })
+        .catch((e: unknown) => {
+          if (!live) return
+          setPreview(null)
+          setPreviewErr(e instanceof Error ? e.message : String(e))
+        })
+    }, 350)
+    return () => {
+      live = false
+      clearTimeout(timer)
+    }
+  }, [sample, value.movie_template, value.tv_template])
+
+  return (
+    <div className="acard">
+      <h3>Library organization</h3>
+      <div className="sub">
+        Lay out new torrents as a media library instead of raw release names.
+        Variables:{' '}
+        {
+          '{title} {year} {season:02} {episode} {resolution} {source} {codec} {group}'
+        }
+      </div>
+      <Toggle
+        label="Organize new torrents"
+        on={value.enabled ?? false}
+        onChange={(v) => onChange({ ...value, enabled: v })}
+      />
+      <div style={{ height: 12 }} />
+      <Field
+        id="org-movie"
+        label="Movie template"
+        value={value.movie_template ?? ''}
+        onChange={(v) => onChange({ ...value, movie_template: v })}
+        placeholder={DEFAULT_MOVIE_TEMPLATE}
+      />
+      <Field
+        id="org-tv"
+        label="TV template"
+        value={value.tv_template ?? ''}
+        onChange={(v) => onChange({ ...value, tv_template: v })}
+        placeholder={DEFAULT_TV_TEMPLATE}
+      />
+      <Field
+        id="org-sample"
+        label="Preview a release name"
+        value={sample}
+        onChange={setSample}
+        placeholder="paste a release name to see where it would land"
+      />
+      {(preview || previewErr) && (
+        <div className="lcd" style={{ marginTop: 4 }}>
+          <div className="lbl">
+            {value.enabled
+              ? 'Would land in'
+              : 'Would land in (once enabled — organization is off)'}
+          </div>
+          <div
+            className="big"
+            style={{
+              fontSize: 13,
+              color: previewErr ? 'var(--lcd-red)' : undefined,
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {previewErr ?? preview}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // The form edits string shadows of the numeric/list fields so partial input
 // isn't fought by the parser; parsing happens on save.
 function SettingsPage() {
@@ -323,6 +440,10 @@ function SettingsPage() {
           </div>
         )}
       </div>
+      <OrganizeCard
+        value={settings.organize ?? { enabled: false }}
+        onChange={(o) => setSettings({ ...settings, organize: o })}
+      />
       {mode === 'password' && <ChangePasswordCard />}
     </div>
   )

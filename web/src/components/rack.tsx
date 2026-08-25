@@ -265,6 +265,12 @@ function Bay({ t }: { t: Torrent }) {
               <span>added</span>
               <b>{formatWhen(t.added_at)}</b>
             </div>
+            {t.dir_name ? (
+              <div className="kv">
+                <span>folder</span>
+                <b title={t.dir_name}>{t.dir_name}</b>
+              </div>
+            ) : null}
             {t.category ? (
               <div className="kv">
                 <span>category</span>

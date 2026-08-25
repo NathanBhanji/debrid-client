@@ -474,6 +474,51 @@ type MeOutBody struct {
 	Username *string `json:"username,omitempty"`
 }
 
+// OrganizeParsed defines model for OrganizeParsed.
+type OrganizeParsed struct {
+	Codec      *string `json:"codec,omitempty"`
+	Episode    *int64  `json:"episode,omitempty"`
+	Group      *string `json:"group,omitempty"`
+	Resolution *string `json:"resolution,omitempty"`
+	Season     *int64  `json:"season,omitempty"`
+	Source     *string `json:"source,omitempty"`
+	Title      string  `json:"title"`
+	Tv         *bool   `json:"tv,omitempty"`
+	Year       *int64  `json:"year,omitempty"`
+}
+
+// OrganizePreviewInBody defines model for OrganizePreviewInBody.
+type OrganizePreviewInBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	//
+	// Example: https://example.com/schemas/OrganizePreviewInBody.json
+	Schema *string `json:"$schema,omitempty"`
+
+	// MovieTemplate Override the saved movie template
+	MovieTemplate *string `json:"movie_template,omitempty"`
+
+	// Name Release name to preview
+	Name string `json:"name"`
+
+	// TvTemplate Override the saved TV template
+	TvTemplate *string `json:"tv_template,omitempty"`
+}
+
+// OrganizePreviewOutBody defines model for OrganizePreviewOutBody.
+type OrganizePreviewOutBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	//
+	// Example: https://example.com/schemas/OrganizePreviewOutBody.json
+	Schema *string `json:"$schema,omitempty"`
+
+	// Organized False when the name would keep the raw-name folder
+	Organized bool            `json:"organized"`
+	Parsed    *OrganizeParsed `json:"parsed,omitempty"`
+
+	// Path Folder path the torrent would use (relative to the download dir / category)
+	Path string `json:"path"`
+}
+
 // OrganizeSettings defines model for OrganizeSettings.
 type OrganizeSettings struct {
 	// Enabled Lay out new torrents as a media library (Movie Name (Year)/...)
@@ -581,16 +626,22 @@ type Torrent struct {
 	AddedAt     time.Time  `json:"added_at"`
 	Category    *string    `json:"category,omitempty"`
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
-	Downloads   []Download `json:"downloads"`
-	Error       *string    `json:"error,omitempty"`
-	Files       []File     `json:"files"`
-	Hash        string     `json:"hash"`
-	Id          string     `json:"id"`
+
+	// DirName Folder path under the download dir ('/'-separated); frozen when local downloads start
+	DirName   *string    `json:"dir_name,omitempty"`
+	Downloads []Download `json:"downloads"`
+	Error     *string    `json:"error,omitempty"`
+	Files     []File     `json:"files"`
+	Hash      string     `json:"hash"`
+	Id        string     `json:"id"`
 
 	// LocalProgress 0..1 progress of local downloads
 	LocalProgress float64 `json:"local_progress"`
 	Name          string  `json:"name"`
-	ProviderId    *string `json:"provider_id,omitempty"`
+
+	// Organized True when dir_name was produced by library organization
+	Organized  *bool   `json:"organized,omitempty"`
+	ProviderId *string `json:"provider_id,omitempty"`
 
 	// ProviderProgress 0..1 progress at the debrid provider
 	ProviderProgress float64 `json:"provider_progress"`
@@ -749,6 +800,9 @@ type AuthSetupOidcJSONRequestBody = SetupOIDCInBody
 
 // AuthSetupPasswordJSONRequestBody defines body for AuthSetupPassword for application/json ContentType.
 type AuthSetupPasswordJSONRequestBody = SetupPasswordInBody
+
+// OrganizePreviewJSONRequestBody defines body for OrganizePreview for application/json ContentType.
+type OrganizePreviewJSONRequestBody = OrganizePreviewInBody
 
 // UpdateSettingsJSONRequestBody defines body for UpdateSettings for application/json ContentType.
 type UpdateSettingsJSONRequestBody = Settings
@@ -988,6 +1042,20 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /api/v1/health (the `Health` operationId).
 	Health(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// OrganizePreviewWithBody Preview the organized folder for a release name
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/organize/preview (the `OrganizePreview` operationId).
+	OrganizePreviewWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// OrganizePreview Preview the organized folder for a release name
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/organize/preview (the `OrganizePreview` operationId).
+	OrganizePreview(ctx context.Context, body OrganizePreviewJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetSettings Get runtime settings
 	//
@@ -1463,6 +1531,40 @@ func (c *Client) Events(ctx context.Context, reqEditors ...RequestEditorFn) (*ht
 // Corresponds with GET /api/v1/health (the `Health` operationId).
 func (c *Client) Health(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewHealthRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// OrganizePreviewWithBody Preview the organized folder for a release name
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/organize/preview (the `OrganizePreview` operationId).
+func (c *Client) OrganizePreviewWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewOrganizePreviewRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// OrganizePreview Preview the organized folder for a release name
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/organize/preview (the `OrganizePreview` operationId).
+func (c *Client) OrganizePreview(ctx context.Context, body OrganizePreviewJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewOrganizePreviewRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2405,6 +2507,46 @@ func NewHealthRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewOrganizePreviewRequest calls the generic OrganizePreview builder with application/json body
+func NewOrganizePreviewRequest(server string, body OrganizePreviewJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewOrganizePreviewRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewOrganizePreviewRequestWithBody constructs an http.Request for the OrganizePreview method, with any body, and a specified content type
+func NewOrganizePreviewRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/organize/preview")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewGetSettingsRequest constructs an http.Request for the GetSettings method
 func NewGetSettingsRequest(server string) (*http.Request, error) {
 	var err error
@@ -3098,6 +3240,20 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /api/v1/health (the `Health` operationId).
 	HealthWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*HealthResponse, error)
+
+	// OrganizePreviewWithBodyWithResponse Preview the organized folder for a release name
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/organize/preview (the `OrganizePreview` operationId).
+	OrganizePreviewWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*OrganizePreviewResponse, error)
+
+	// OrganizePreviewWithResponse Preview the organized folder for a release name
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/organize/preview (the `OrganizePreview` operationId).
+	OrganizePreviewWithResponse(ctx context.Context, body OrganizePreviewJSONRequestBody, reqEditors ...RequestEditorFn) (*OrganizePreviewResponse, error)
 
 	// GetSettingsWithResponse Get runtime settings
 	//
@@ -4063,6 +4219,54 @@ func (r HealthResponse) ContentType() string {
 	return ""
 }
 
+type OrganizePreviewResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *OrganizePreviewOutBody
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r OrganizePreviewResponse) GetJSON200() *OrganizePreviewOutBody {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r OrganizePreviewResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r OrganizePreviewResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r OrganizePreviewResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r OrganizePreviewResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r OrganizePreviewResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type GetSettingsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -4902,6 +5106,32 @@ func (c *ClientWithResponses) HealthWithResponse(ctx context.Context, reqEditors
 	return ParseHealthResponse(rsp)
 }
 
+// OrganizePreviewWithBodyWithResponse Preview the organized folder for a release name
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/organize/preview (the `OrganizePreview` operationId).
+func (c *ClientWithResponses) OrganizePreviewWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*OrganizePreviewResponse, error) {
+	rsp, err := c.OrganizePreviewWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseOrganizePreviewResponse(rsp)
+}
+
+// OrganizePreviewWithResponse Preview the organized folder for a release name
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/organize/preview (the `OrganizePreview` operationId).
+func (c *ClientWithResponses) OrganizePreviewWithResponse(ctx context.Context, body OrganizePreviewJSONRequestBody, reqEditors ...RequestEditorFn) (*OrganizePreviewResponse, error) {
+	rsp, err := c.OrganizePreview(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseOrganizePreviewResponse(rsp)
+}
+
 // GetSettingsWithResponse Get runtime settings
 //
 // Returns a wrapper object for the known response body format(s).
@@ -5719,6 +5949,39 @@ func ParseHealthResponse(rsp *http.Response) (*HealthResponse, error) {
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest HealthOutBody
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseOrganizePreviewResponse parses an HTTP response from a OrganizePreviewWithResponse call
+func ParseOrganizePreviewResponse(rsp *http.Response) (*OrganizePreviewResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &OrganizePreviewResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest OrganizePreviewOutBody
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
