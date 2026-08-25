@@ -538,3 +538,48 @@ func TestParseContentRange(t *testing.T) {
 		t.Fatal("retry-after")
 	}
 }
+
+func TestNormalizeURL(t *testing.T) {
+	cases := []struct{ in, want string }{
+		// Raw spaces and brackets in the filename param (TorBox-style).
+		{
+			"https://cdn.example/dld/abc?token=xyz&filename=Some.Movie.[YTS - GG].mp4",
+			"https://cdn.example/dld/abc?token=xyz&filename=Some.Movie.%5BYTS%20-%20GG%5D.mp4",
+		},
+		// Order preserved; already-encoded sequences untouched.
+		{
+			"https://cdn.example/x?a=1&b=%20already&c=raw space",
+			"https://cdn.example/x?a=1&b=%20already&c=raw%20space",
+		},
+		// Clean URLs pass through unchanged.
+		{
+			"https://cdn.example/dld/abc?token=xyz&filename=English.srt",
+			"https://cdn.example/dld/abc?token=xyz&filename=English.srt",
+		},
+		// No query at all.
+		{"https://cdn.example/file.mp4", "https://cdn.example/file.mp4"},
+		// '#' in a filename must stay in the query, not become a dropped fragment.
+		{
+			"https://cdn.example/x?filename=track #1.mp3",
+			"https://cdn.example/x?filename=track%20%231.mp3",
+		},
+		// Trailing bare and incomplete percent escapes are encoded literally.
+		{"https://cdn.example/x?f=x%", "https://cdn.example/x?f=x%25"},
+		{"https://cdn.example/x?f=x%2", "https://cdn.example/x?f=x%252"},
+		// Multibyte UTF-8 is escaped per byte.
+		{
+			"https://cdn.example/x?f=Amélie.mkv",
+			"https://cdn.example/x?f=Am%C3%A9lie.mkv",
+		},
+		// A fully-encoded signed query is an exact no-op (order + escapes kept).
+		{
+			"https://cdn.example/x?sig=aB3%2FcD%3D&t=1&exp=99",
+			"https://cdn.example/x?sig=aB3%2FcD%3D&t=1&exp=99",
+		},
+	}
+	for _, tc := range cases {
+		if got := normalizeURL(tc.in); got != tc.want {
+			t.Errorf("normalizeURL(%q)\n = %q\n want %q", tc.in, got, tc.want)
+		}
+	}
+}

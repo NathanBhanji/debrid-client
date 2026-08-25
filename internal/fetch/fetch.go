@@ -19,6 +19,7 @@ import (
 	"io"
 	"math/rand/v2"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -244,8 +245,59 @@ func defaultClient(conns int) *http.Client {
 	return &http.Client{Transport: tr}
 }
 
-func (o Options) newRequest(ctx context.Context, url string) (*http.Request, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+// normalizeURL re-escapes illegal raw characters (spaces, brackets, …) in a
+// provider download URL's query so the request line is well-formed. Providers
+// like TorBox hand back links with an unencoded filename= parameter; sent
+// verbatim, a raw space truncates the request target and the CDN answers 400.
+// Order and existing %XX escapes are preserved so any signed URL survives.
+func normalizeURL(raw string) string {
+	// Split at the first '?' ourselves: url.Parse would peel a '#…' suffix off
+	// as a fragment and drop it from the request line, breaking a filename that
+	// contains '#' the same way an unescaped space does. Parsing just the part
+	// before '?' still escapes raw spaces in the path for free.
+	head, query, hasQuery := strings.Cut(raw, "?")
+	if u, err := url.Parse(head); err == nil {
+		head = u.String()
+	}
+	if !hasQuery {
+		return head
+	}
+	return head + "?" + escapeRawQuery(query)
+}
+
+// escapeRawQuery percent-encodes bytes outside the RFC 3986 query set,
+// leaving structural &/= and already-encoded %XX sequences untouched.
+func escapeRawQuery(q string) string {
+	const upperhex = "0123456789ABCDEF"
+	allowed := func(c byte) bool {
+		switch {
+		case c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z', c >= '0' && c <= '9':
+			return true
+		}
+		return strings.IndexByte("-._~!$&'()*+,;=:@/?", c) >= 0
+	}
+	isHex := func(c byte) bool {
+		return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f')
+	}
+	var b strings.Builder
+	for i := 0; i < len(q); i++ {
+		c := q[i]
+		switch {
+		case c == '%' && i+2 < len(q) && isHex(q[i+1]) && isHex(q[i+2]):
+			b.WriteByte(c) // keep an existing escape as-is
+		case allowed(c):
+			b.WriteByte(c)
+		default:
+			b.WriteByte('%')
+			b.WriteByte(upperhex[c>>4])
+			b.WriteByte(upperhex[c&0x0f])
+		}
+	}
+	return b.String()
+}
+
+func (o Options) newRequest(ctx context.Context, rawURL string) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, normalizeURL(rawURL), nil)
 	if err != nil {
 		return nil, err
 	}
