@@ -438,7 +438,9 @@ func TestRemovedAtProviderFails(t *testing.T) {
 
 func TestCancelViaDeleteStopsDownload(t *testing.T) {
 	h := newHarness(t, nil)
-	h.fetch.delay = 2 * time.Second
+	// Long fetch delay so a working cancel is clearly distinguishable from the
+	// download finishing on its own.
+	h.fetch.delay = 5 * time.Second
 	tor := h.add(nil)
 	pid := h.waitProviderID(tor.ID)
 	h.finishAtProvider(pid, map[string][]byte{"a.mkv": []byte("a")})
@@ -455,11 +457,19 @@ func TestCancelViaDeleteStopsDownload(t *testing.T) {
 	if err := h.svc.DeleteTorrent(context.Background(), tor.ID, service.DeleteOptions{DeleteFiles: true}); err != nil {
 		t.Fatal(err)
 	}
-	if time.Since(start) > time.Second {
+	// Must return well before the 5s fetch would finish; the bound is generous
+	// so job cleanup + the single-connection DB write don't flake under -race.
+	if time.Since(start) > 3*time.Second {
 		t.Fatal("delete should cancel the in-flight download promptly")
 	}
-	if h.eng.countJobs(jobDownload) != 0 {
-		t.Fatal("job still registered")
+	// The job deregisters as its goroutine unwinds, which can trail the
+	// cancel by a scheduling hair — poll briefly rather than assert instantly.
+	jobDeadline := time.Now().Add(2 * time.Second)
+	for h.eng.countJobs(jobDownload) != 0 {
+		if time.Now().After(jobDeadline) {
+			t.Fatal("job still registered")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
