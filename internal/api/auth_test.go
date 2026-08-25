@@ -173,7 +173,14 @@ func TestOrganizePreview(t *testing.T) {
 	srv := setupAuth(t)
 	hdr := map[string]string{"Authorization": "Bearer " + key}
 
+	// Preview requires auth like every other operation.
 	resp := req(t, srv, "POST", "/api/v1/organize/preview",
+		`{"name":"x.2019.1080p"}`, nil)
+	if resp.StatusCode != 401 {
+		t.Fatalf("unauthenticated preview: %d", resp.StatusCode)
+	}
+
+	resp = req(t, srv, "POST", "/api/v1/organize/preview",
 		`{"name":"Some.Movie.2019.2160p.WEB-DL.x265-GRP"}`, hdr)
 	if resp.StatusCode != 200 {
 		t.Fatalf("preview: %d", resp.StatusCode)

@@ -140,6 +140,9 @@ function ChangePasswordCard() {
 // OrganizeCard edits the library-organization block with a live preview:
 // type a sample release name and see the folder your (possibly unsaved)
 // templates would produce.
+const DEFAULT_MOVIE_TEMPLATE = '{title} ({year})'
+const DEFAULT_TV_TEMPLATE = '{title} ({year})/Season {season:02}'
+
 function OrganizeCard({
   value,
   onChange,
@@ -159,21 +162,34 @@ function OrganizeCard({
       setPreviewErr(null)
       return
     }
+    // Always send the effective templates: a cleared field means "use the
+    // default", and the server treats an omitted override as "keep saved" —
+    // without this the preview could show the old saved template's path.
+    let live = true
     const timer = setTimeout(() => {
       api.organize
-        .preview(sample.trim(), value.movie_template, value.tv_template)
+        .preview(
+          sample.trim(),
+          value.movie_template || DEFAULT_MOVIE_TEMPLATE,
+          value.tv_template || DEFAULT_TV_TEMPLATE,
+        )
         .then((p) => {
+          if (!live) return // an edit superseded this request
           setPreview(
             p.organized ? p.path : `${p.path}  (kept as-is — not parseable)`,
           )
           setPreviewErr(null)
         })
         .catch((e: unknown) => {
+          if (!live) return
           setPreview(null)
           setPreviewErr(e instanceof Error ? e.message : String(e))
         })
     }, 350)
-    return () => clearTimeout(timer)
+    return () => {
+      live = false
+      clearTimeout(timer)
+    }
   }, [sample, value.movie_template, value.tv_template])
 
   return (
@@ -197,14 +213,14 @@ function OrganizeCard({
         label="Movie template"
         value={value.movie_template ?? ''}
         onChange={(v) => onChange({ ...value, movie_template: v })}
-        placeholder="{title} ({year})"
+        placeholder={DEFAULT_MOVIE_TEMPLATE}
       />
       <Field
         id="org-tv"
         label="TV template"
         value={value.tv_template ?? ''}
         onChange={(v) => onChange({ ...value, tv_template: v })}
-        placeholder="{title} ({year})/Season {season:02}"
+        placeholder={DEFAULT_TV_TEMPLATE}
       />
       <Field
         id="org-sample"
@@ -215,7 +231,11 @@ function OrganizeCard({
       />
       {(preview || previewErr) && (
         <div className="lcd" style={{ marginTop: 4 }}>
-          <div className="lbl">Would land in</div>
+          <div className="lbl">
+            {value.enabled
+              ? 'Would land in'
+              : 'Would land in (once enabled — organization is off)'}
+          </div>
           <div
             className="big"
             style={{
