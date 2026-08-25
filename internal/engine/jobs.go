@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/NathanBhanji/debrid-client/internal/domain"
+	"github.com/NathanBhanji/debrid-client/internal/events"
 	"github.com/NathanBhanji/debrid-client/internal/fetch"
 	"github.com/NathanBhanji/debrid-client/internal/provider"
 	"github.com/NathanBhanji/debrid-client/internal/service"
@@ -128,13 +129,18 @@ func (e *Engine) runDownload(ctx context.Context, t domain.Torrent, d domain.Dow
 	lastSave := time.Now()
 	opts := fetch.Options{
 		Connections: conns, Retries: 3, Limiter: e.limiter, ExpectedSize: d.Size,
-		ProgressInterval: time.Second, RequestTimeout: 2 * time.Minute,
+		ProgressInterval: 500 * time.Millisecond, RequestTimeout: 2 * time.Minute,
 		Progress: func(done, _ int64) {
-			if time.Since(lastSave) < 2*time.Second {
+			// Persist and announce progress ~1×/s so the UI's progress bar
+			// advances smoothly; without the event the browser only learns of
+			// progress on a state change or the next provider poll.
+			if time.Since(lastSave) < time.Second {
 				return
 			}
 			lastSave = time.Now()
-			_ = e.store.UpdateDownloadProgress(sctx, sqlcgen.UpdateDownloadProgressParams{BytesDone: done, UpdatedAt: store.FormatTime(e.now()), ID: d.ID})
+			if err := e.store.UpdateDownloadProgress(sctx, sqlcgen.UpdateDownloadProgressParams{BytesDone: done, UpdatedAt: store.FormatTime(e.now()), ID: d.ID}); err == nil {
+				e.events.Publish(events.Event{Type: events.DownloadUpdated, TorrentID: d.TorrentID, DownloadID: d.ID})
+			}
 		},
 	}
 	res, err := e.fetcher(ctx, d.DirectURL, dest, opts)
