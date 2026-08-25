@@ -28,11 +28,13 @@ const magnet = "magnet:?xt=urn:btih:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb&dn=
 
 // fakeFetch writes content keyed by URL; URLs not in the map yield an error.
 type fakeFetch struct {
-	mu      sync.Mutex
-	content map[string][]byte
-	fails   map[string]error // URL → error returned once (then removed)
-	calls   int
-	delay   time.Duration
+	beforeProgress func()        // test hook: runs just before o.Progress fires
+	blockAfter     chan struct{} // test hook: fetcher waits here after Progress, before completing
+	mu             sync.Mutex
+	content        map[string][]byte
+	fails          map[string]error // URL → error returned once (then removed)
+	calls          int
+	delay          time.Duration
 }
 
 func (f *fakeFetch) fn(ctx context.Context, url, dest string, o fetch.Options) (fetch.Result, error) {
@@ -63,7 +65,17 @@ func (f *fakeFetch) fn(ctx context.Context, url, dest string, o fetch.Options) (
 		return fetch.Result{}, err
 	}
 	if o.Progress != nil {
+		if f.beforeProgress != nil {
+			f.beforeProgress()
+		}
 		o.Progress(int64(len(b))/2, int64(len(b)))
+	}
+	if f.blockAfter != nil {
+		select {
+		case <-f.blockAfter:
+		case <-ctx.Done():
+			return fetch.Result{}, ctx.Err()
+		}
 	}
 	return fetch.Result{Size: int64(len(b))}, os.WriteFile(dest, b, 0o644)
 }
@@ -71,6 +83,7 @@ func (f *fakeFetch) fn(ctx context.Context, url, dest string, o fetch.Options) (
 type harness struct {
 	t      *testing.T
 	svc    *service.Service
+	bus    *events.Bus
 	eng    *Engine
 	fake   *providertest.Fake
 	fetch  *fakeFetch
@@ -106,7 +119,7 @@ func newHarness(t *testing.T, mut func(*Config)) *harness {
 	ff := &fakeFetch{content: map[string][]byte{}, fails: map[string]error{}}
 	eng.SetFetcher(ff.fn)
 	svc.SetEngine(eng)
-	h := &harness{t: t, svc: svc, eng: eng, fake: fake, fetch: ff, dir: dir, done: make(chan struct{})}
+	h := &harness{t: t, svc: svc, bus: bus, eng: eng, fake: fake, fetch: ff, dir: dir, done: make(chan struct{})}
 	ctx, cancel := context.WithCancel(context.Background())
 	h.cancel = cancel
 	go func() { defer close(h.done); _ = eng.Run(ctx) }()
@@ -702,5 +715,43 @@ func TestSelectFilesProviderDownloadsAllLinksAndAdoptsRealName(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(service.TorrentDir(h.eng.cfg.DownloadDir, got), "Show.S01.rar")); err != nil {
 		t.Fatal("file should be written under its real name")
+	}
+}
+
+// A download in progress must announce itself so the UI's progress bar can
+// advance mid-download, not only on state changes. The fetcher blocks after
+// reporting progress but before completing, so any DownloadUpdated observed
+// here is the mid-download progress event — not the terminal one.
+func TestProgressPublishesEvent(t *testing.T) {
+	h := newHarness(t, nil)
+	gate := make(chan struct{})
+	h.fetch.blockAfter = gate
+	// Bump the clock past the 1s throttle right before progress is reported,
+	// so the periodic progress write fires deterministically.
+	h.fetch.beforeProgress = func() {
+		h.eng.setClock(func() time.Time { return time.Now().UTC().Add(2 * time.Second) })
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sub := h.bus.Subscribe(ctx, 64)
+
+	tor := h.add(nil)
+	pid := h.waitProviderID(tor.ID)
+	h.finishAtProvider(pid, map[string][]byte{"e01.mkv": []byte("episode one payload")})
+
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case ev := <-sub:
+			// The fetcher is still blocked pre-completion, so a DownloadUpdated
+			// here can only be the progress event.
+			if ev.Type == events.DownloadUpdated && ev.TorrentID == tor.ID && ev.DownloadID != "" {
+				close(gate) // let the download finish
+				return
+			}
+		case <-deadline:
+			close(gate)
+			t.Fatal("no progress download.updated event during the download")
+		}
 	}
 }

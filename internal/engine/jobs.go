@@ -126,7 +126,7 @@ func (e *Engine) runDownload(ctx context.Context, t domain.Torrent, d domain.Dow
 	if c := prov.Caps().MaxConnections; c > 0 && c < conns {
 		conns = c
 	}
-	lastSave := time.Now()
+	lastSave := e.now()
 	opts := fetch.Options{
 		Connections: conns, Retries: 3, Limiter: e.limiter, ExpectedSize: d.Size,
 		ProgressInterval: 500 * time.Millisecond, RequestTimeout: 2 * time.Minute,
@@ -134,10 +134,10 @@ func (e *Engine) runDownload(ctx context.Context, t domain.Torrent, d domain.Dow
 			// Persist and announce progress ~1×/s so the UI's progress bar
 			// advances smoothly; without the event the browser only learns of
 			// progress on a state change or the next provider poll.
-			if time.Since(lastSave) < time.Second {
+			if e.now().Sub(lastSave) < time.Second {
 				return
 			}
-			lastSave = time.Now()
+			lastSave = e.now()
 			if err := e.store.UpdateDownloadProgress(sctx, sqlcgen.UpdateDownloadProgressParams{BytesDone: done, UpdatedAt: store.FormatTime(e.now()), ID: d.ID}); err == nil {
 				e.events.Publish(events.Event{Type: events.DownloadUpdated, TorrentID: d.TorrentID, DownloadID: d.ID})
 			}
