@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/NathanBhanji/debrid-client/internal/domain"
 	"github.com/NathanBhanji/debrid-client/internal/events"
+	"github.com/NathanBhanji/debrid-client/internal/fetch"
 	"github.com/NathanBhanji/debrid-client/internal/provider"
 	"github.com/NathanBhanji/debrid-client/internal/store"
 	"github.com/NathanBhanji/debrid-client/internal/store/sqlcgen"
@@ -290,16 +292,27 @@ func (s *Service) DeleteTorrent(ctx context.Context, idOrHash string, opts Delet
 	}
 	if opts.DeleteFiles {
 		dir := TorrentDir(s.cfg.DownloadDir, t)
-		shared, err := s.dirSharedByOther(ctx, t.ID, dir)
-		if err != nil {
-			return err
-		}
 		switch {
-		case shared:
-			s.log.Warn("not deleting files: directory shared with another torrent", "id", t.ID, "dir", dir)
-		case dir != s.cfg.DownloadDir && strings.HasPrefix(dir, s.cfg.DownloadDir+string(os.PathSeparator)):
-			if err := os.RemoveAll(dir); err != nil {
-				return fmt.Errorf("delete files: %w", err)
+		case t.Organized:
+			// Organized directories are shareable by design (two season packs
+			// resolve to the same "Show/Season 02"), so deletion is per-file:
+			// remove this torrent's tracked downloads and extracted files,
+			// then prune directories that ended up empty.
+			if err := s.deleteOrganizedFiles(ctx, t, dir); err != nil {
+				return err
+			}
+		default:
+			shared, err := s.dirSharedByOther(ctx, t.ID, dir)
+			if err != nil {
+				return err
+			}
+			switch {
+			case shared:
+				s.log.Warn("not deleting files: directory shared with another torrent", "id", t.ID, "dir", dir)
+			case dir != s.cfg.DownloadDir && strings.HasPrefix(dir, s.cfg.DownloadDir+string(os.PathSeparator)):
+				if err := os.RemoveAll(dir); err != nil {
+					return fmt.Errorf("delete files: %w", err)
+				}
 			}
 		}
 	}
@@ -307,6 +320,84 @@ func (s *Service) DeleteTorrent(ctx context.Context, idOrHash string, opts Delet
 		return err
 	}
 	s.events.Publish(events.Event{Type: events.TorrentDeleted, TorrentID: t.ID})
+	return nil
+}
+
+// deleteOrganizedFiles removes the torrent's own files from a possibly
+// shared organized directory: each download's file (and anything it
+// extracted), then any directories left empty, pruning upward to the
+// download root.
+func (s *Service) deleteOrganizedFiles(ctx context.Context, t domain.Torrent, dir string) error {
+	if dir == s.cfg.DownloadDir || !strings.HasPrefix(dir, s.cfg.DownloadDir+string(os.PathSeparator)) {
+		return nil
+	}
+	rows, err := s.store.ListDownloadsForTorrent(ctx, t.ID)
+	if err != nil {
+		return err
+	}
+	pruneDirs := map[string]bool{dir: true}
+	removeRel := func(rel string) error {
+		if rel == "" {
+			return nil
+		}
+		abs := filepath.Join(dir, filepath.FromSlash(rel))
+		// Tracked paths are produced by our own sanitizers, but never follow
+		// one outside the torrent dir regardless.
+		if abs != dir && !strings.HasPrefix(abs, dir+string(os.PathSeparator)) {
+			return nil
+		}
+		if err := os.Remove(abs); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("delete file: %w", err)
+		}
+		fetch.Cleanup(abs) // resume sidecars (.part, .part.json, …)
+		for p := filepath.Dir(abs); strings.HasPrefix(p, dir) || p == dir; p = filepath.Dir(p) {
+			pruneDirs[p] = true
+			if p == dir {
+				break
+			}
+		}
+		return nil
+	}
+	for _, r := range rows {
+		d, err := store.DownloadFromRow(r)
+		if err != nil {
+			// Skipping would silently leak this download's files after the
+			// torrent row is gone; failing keeps the delete retryable.
+			return fmt.Errorf("organized delete: %w", err)
+		}
+		if err := removeRel(d.RelPath); err != nil {
+			return err
+		}
+		for _, ep := range d.ExtractedPaths {
+			if err := removeRel(ep); err != nil {
+				return err
+			}
+		}
+	}
+	// Paths preserved across retries (rows were dropped, files were kept).
+	for _, p := range t.TrackedPaths {
+		if err := removeRel(p); err != nil {
+			return err
+		}
+	}
+	// Prune deepest-first so emptied parents collapse too, then walk from the
+	// torrent dir up to (not including) the download root.
+	dirs := make([]string, 0, len(pruneDirs))
+	for d := range pruneDirs {
+		dirs = append(dirs, d)
+	}
+	sort.Slice(dirs, func(i, j int) bool { return len(dirs[i]) > len(dirs[j]) })
+	for _, d := range dirs {
+		_ = os.Remove(d) // fails (kept) unless empty
+	}
+	// Prune upward to (not including) the download root. This may remove an
+	// emptied category directory — intentional; MkdirAll recreates it on the
+	// next download into that category.
+	for p := filepath.Dir(dir); p != s.cfg.DownloadDir && strings.HasPrefix(p, s.cfg.DownloadDir+string(os.PathSeparator)); p = filepath.Dir(p) {
+		if err := os.Remove(p); err != nil {
+			break // not empty: stop pruning
+		}
+	}
 	return nil
 }
 
@@ -368,6 +459,31 @@ func (s *Service) RetryTorrent(ctx context.Context, idOrHash string) (TorrentDet
 		t.ProviderStatus = ""
 		t.Progress = 0
 		t.UpdatedAt = s.now()
+		if t.Organized {
+			// Retry drops the download rows for a fresh start, but organized
+			// deletion is driven by them: snapshot every path this torrent
+			// has produced so delete-with-files can still find them later.
+			rows, err := q.ListDownloadsForTorrent(ctx, t.ID)
+			if err != nil {
+				return err
+			}
+			seen := map[string]bool{}
+			for _, p := range t.TrackedPaths {
+				seen[p] = true
+			}
+			for _, r := range rows {
+				d, err := store.DownloadFromRow(r)
+				if err != nil {
+					return err
+				}
+				for _, p := range append([]string{d.RelPath}, d.ExtractedPaths...) {
+					if p != "" && !seen[p] {
+						seen[p] = true
+						t.TrackedPaths = append(t.TrackedPaths, p)
+					}
+				}
+			}
+		}
 		params, err := store.TorrentUpdateParams(t)
 		if err != nil {
 			return err

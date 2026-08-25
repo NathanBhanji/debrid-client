@@ -28,6 +28,7 @@ type Download struct {
 	UnpackFinishedAt sql.NullString
 	CompletedAt      sql.NullString
 	UpdatedAt        string
+	ExtractedPaths   string
 }
 
 type ProviderAccount struct {
@@ -84,6 +85,8 @@ type Torrent struct {
 	CompletedAt     sql.NullString
 	RetryAt         sql.NullString
 	UpdatedAt       string
+	Organized       int64
+	TrackedPaths    string
 }
 
 type User struct {

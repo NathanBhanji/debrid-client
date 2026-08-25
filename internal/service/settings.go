@@ -8,6 +8,7 @@ import (
 
 	"github.com/NathanBhanji/debrid-client/internal/domain"
 	"github.com/NathanBhanji/debrid-client/internal/events"
+	"github.com/NathanBhanji/debrid-client/internal/organize"
 	"github.com/NathanBhanji/debrid-client/internal/store"
 	"github.com/NathanBhanji/debrid-client/internal/store/sqlcgen"
 )
@@ -23,6 +24,8 @@ type Settings struct {
 	Categories []string `json:"categories"`
 	// UnpackMaxDepth bounds nested archive extraction.
 	UnpackMaxDepth int `json:"unpack_max_depth"`
+	// Organize controls library-style directory layout for new torrents.
+	Organize organize.Settings `json:"organize"`
 }
 
 // DefaultSettings returns the built-in settings.
@@ -79,6 +82,16 @@ func (s *Service) UpdateSettings(ctx context.Context, st Settings) (Settings, er
 	}
 	if st.UnpackMaxDepth < 0 || st.UnpackMaxDepth > 5 {
 		return Settings{}, validationErr("unpack_max_depth must be between 0 and 5")
+	}
+	for name, tpl := range map[string]string{
+		"movie_template": st.Organize.MovieTemplate, "tv_template": st.Organize.TVTemplate,
+	} {
+		if tpl == "" {
+			continue // empty = built-in default
+		}
+		if err := organize.ValidateTemplate(tpl); err != nil {
+			return Settings{}, validationErr("organize.%s: %v", name, err)
+		}
 	}
 	seen := map[string]bool{}
 	cats := make([]string, 0, len(st.Categories))

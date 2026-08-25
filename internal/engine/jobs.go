@@ -36,11 +36,18 @@ func (e *Engine) startDownload(ctx context.Context, t *domain.Torrent, d *domain
 		return err
 	}
 	if t.DirName == "" {
+		// Settings are loaded before the mutate: queries inside a mutate
+		// callback deadlock the single-connection store.
+		settings, err := e.svc.GetSettings(ctx)
+		if err != nil {
+			return err
+		}
+		dir, organized := service.DirPathFor(*t, settings.Organize)
 		nt, err := e.mutate(ctx, t.ID, func(t *domain.Torrent) error {
 			if t.DirName != "" {
 				return store.ErrSkip
 			}
-			t.DirName = service.DirNameFor(*t)
+			t.DirName, t.Organized = dir, organized
 			return nil
 		})
 		if err != nil {
@@ -244,6 +251,13 @@ func (e *Engine) runUnpack(ctx context.Context, t domain.Torrent, d domain.Downl
 		switch {
 		case err == nil:
 			e.log.Info("unpacked", "id", d.ID, "files", len(res.Files), "bytes", res.Bytes)
+			// Result paths are relative to the archive's directory; store them
+			// relative to the torrent dir for per-file deletion.
+			base := path.Dir(d.RelPath)
+			d.ExtractedPaths = make([]string, 0, len(res.Files))
+			for _, f := range res.Files {
+				d.ExtractedPaths = append(d.ExtractedPaths, path.Join(base, filepath.ToSlash(f)))
+			}
 			d.UnpackFinishedAt, d.CompletedAt, d.State = &now, &now, domain.DownloadDone
 		case errors.Is(err, context.Canceled):
 			d.State, d.UnpackStartedAt = domain.DownloadDownloaded, nil

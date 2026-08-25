@@ -31,7 +31,7 @@ func (q *Queries) DeleteTorrent(ctx context.Context, id string) error {
 }
 
 const getTorrent = `-- name: GetTorrent :one
-SELECT id, account_id, hash, name, dir_name, category, status, status_reason, error, progress, size, speed, seeders, provider_id, provider_status, files, settings, payload_kind, payload, retry_count, added_at, provider_added_at, provider_ended_at, files_selected_at, completed_at, retry_at, updated_at FROM torrents WHERE id = ?
+SELECT id, account_id, hash, name, dir_name, category, status, status_reason, error, progress, size, speed, seeders, provider_id, provider_status, files, settings, payload_kind, payload, retry_count, added_at, provider_added_at, provider_ended_at, files_selected_at, completed_at, retry_at, updated_at, organized, tracked_paths FROM torrents WHERE id = ?
 `
 
 func (q *Queries) GetTorrent(ctx context.Context, id string) (Torrent, error) {
@@ -65,12 +65,14 @@ func (q *Queries) GetTorrent(ctx context.Context, id string) (Torrent, error) {
 		&i.CompletedAt,
 		&i.RetryAt,
 		&i.UpdatedAt,
+		&i.Organized,
+		&i.TrackedPaths,
 	)
 	return i, err
 }
 
 const getTorrentByHash = `-- name: GetTorrentByHash :one
-SELECT id, account_id, hash, name, dir_name, category, status, status_reason, error, progress, size, speed, seeders, provider_id, provider_status, files, settings, payload_kind, payload, retry_count, added_at, provider_added_at, provider_ended_at, files_selected_at, completed_at, retry_at, updated_at FROM torrents WHERE account_id = ? AND hash = ? ORDER BY added_at DESC LIMIT 1
+SELECT id, account_id, hash, name, dir_name, category, status, status_reason, error, progress, size, speed, seeders, provider_id, provider_status, files, settings, payload_kind, payload, retry_count, added_at, provider_added_at, provider_ended_at, files_selected_at, completed_at, retry_at, updated_at, organized, tracked_paths FROM torrents WHERE account_id = ? AND hash = ? ORDER BY added_at DESC LIMIT 1
 `
 
 type GetTorrentByHashParams struct {
@@ -109,12 +111,14 @@ func (q *Queries) GetTorrentByHash(ctx context.Context, arg GetTorrentByHashPara
 		&i.CompletedAt,
 		&i.RetryAt,
 		&i.UpdatedAt,
+		&i.Organized,
+		&i.TrackedPaths,
 	)
 	return i, err
 }
 
 const getTorrentByProviderID = `-- name: GetTorrentByProviderID :one
-SELECT id, account_id, hash, name, dir_name, category, status, status_reason, error, progress, size, speed, seeders, provider_id, provider_status, files, settings, payload_kind, payload, retry_count, added_at, provider_added_at, provider_ended_at, files_selected_at, completed_at, retry_at, updated_at FROM torrents WHERE account_id = ? AND provider_id = ? ORDER BY added_at DESC LIMIT 1
+SELECT id, account_id, hash, name, dir_name, category, status, status_reason, error, progress, size, speed, seeders, provider_id, provider_status, files, settings, payload_kind, payload, retry_count, added_at, provider_added_at, provider_ended_at, files_selected_at, completed_at, retry_at, updated_at, organized, tracked_paths FROM torrents WHERE account_id = ? AND provider_id = ? ORDER BY added_at DESC LIMIT 1
 `
 
 type GetTorrentByProviderIDParams struct {
@@ -153,16 +157,18 @@ func (q *Queries) GetTorrentByProviderID(ctx context.Context, arg GetTorrentByPr
 		&i.CompletedAt,
 		&i.RetryAt,
 		&i.UpdatedAt,
+		&i.Organized,
+		&i.TrackedPaths,
 	)
 	return i, err
 }
 
 const insertTorrent = `-- name: InsertTorrent :exec
 INSERT INTO torrents (
-    id, account_id, hash, name, dir_name, category, status, status_reason, error, progress, size, speed, seeders,
+    id, account_id, hash, name, dir_name, organized, tracked_paths, category, status, status_reason, error, progress, size, speed, seeders,
     provider_id, provider_status, files, settings, payload_kind, payload, retry_count,
     added_at, provider_added_at, provider_ended_at, files_selected_at, completed_at, retry_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertTorrentParams struct {
@@ -171,6 +177,8 @@ type InsertTorrentParams struct {
 	Hash            string
 	Name            string
 	DirName         string
+	Organized       int64
+	TrackedPaths    string
 	Category        string
 	Status          string
 	StatusReason    string
@@ -202,6 +210,8 @@ func (q *Queries) InsertTorrent(ctx context.Context, arg InsertTorrentParams) er
 		arg.Hash,
 		arg.Name,
 		arg.DirName,
+		arg.Organized,
+		arg.TrackedPaths,
 		arg.Category,
 		arg.Status,
 		arg.StatusReason,
@@ -229,7 +239,7 @@ func (q *Queries) InsertTorrent(ctx context.Context, arg InsertTorrentParams) er
 }
 
 const listActiveTorrents = `-- name: ListActiveTorrents :many
-SELECT id, account_id, hash, name, dir_name, category, status, status_reason, error, progress, size, speed, seeders, provider_id, provider_status, files, settings, payload_kind, payload, retry_count, added_at, provider_added_at, provider_ended_at, files_selected_at, completed_at, retry_at, updated_at FROM torrents WHERE completed_at IS NULL ORDER BY added_at
+SELECT id, account_id, hash, name, dir_name, category, status, status_reason, error, progress, size, speed, seeders, provider_id, provider_status, files, settings, payload_kind, payload, retry_count, added_at, provider_added_at, provider_ended_at, files_selected_at, completed_at, retry_at, updated_at, organized, tracked_paths FROM torrents WHERE completed_at IS NULL ORDER BY added_at
 `
 
 func (q *Queries) ListActiveTorrents(ctx context.Context) ([]Torrent, error) {
@@ -269,6 +279,8 @@ func (q *Queries) ListActiveTorrents(ctx context.Context) ([]Torrent, error) {
 			&i.CompletedAt,
 			&i.RetryAt,
 			&i.UpdatedAt,
+			&i.Organized,
+			&i.TrackedPaths,
 		); err != nil {
 			return nil, err
 		}
@@ -284,7 +296,7 @@ func (q *Queries) ListActiveTorrents(ctx context.Context) ([]Torrent, error) {
 }
 
 const listTorrents = `-- name: ListTorrents :many
-SELECT id, account_id, hash, name, dir_name, category, status, status_reason, error, progress, size, speed, seeders, provider_id, provider_status, files, settings, payload_kind, payload, retry_count, added_at, provider_added_at, provider_ended_at, files_selected_at, completed_at, retry_at, updated_at FROM torrents ORDER BY added_at DESC
+SELECT id, account_id, hash, name, dir_name, category, status, status_reason, error, progress, size, speed, seeders, provider_id, provider_status, files, settings, payload_kind, payload, retry_count, added_at, provider_added_at, provider_ended_at, files_selected_at, completed_at, retry_at, updated_at, organized, tracked_paths FROM torrents ORDER BY added_at DESC
 `
 
 func (q *Queries) ListTorrents(ctx context.Context) ([]Torrent, error) {
@@ -324,6 +336,8 @@ func (q *Queries) ListTorrents(ctx context.Context) ([]Torrent, error) {
 			&i.CompletedAt,
 			&i.RetryAt,
 			&i.UpdatedAt,
+			&i.Organized,
+			&i.TrackedPaths,
 		); err != nil {
 			return nil, err
 		}
@@ -339,7 +353,7 @@ func (q *Queries) ListTorrents(ctx context.Context) ([]Torrent, error) {
 }
 
 const listTorrentsByAccount = `-- name: ListTorrentsByAccount :many
-SELECT id, account_id, hash, name, dir_name, category, status, status_reason, error, progress, size, speed, seeders, provider_id, provider_status, files, settings, payload_kind, payload, retry_count, added_at, provider_added_at, provider_ended_at, files_selected_at, completed_at, retry_at, updated_at FROM torrents WHERE account_id = ? ORDER BY added_at DESC
+SELECT id, account_id, hash, name, dir_name, category, status, status_reason, error, progress, size, speed, seeders, provider_id, provider_status, files, settings, payload_kind, payload, retry_count, added_at, provider_added_at, provider_ended_at, files_selected_at, completed_at, retry_at, updated_at, organized, tracked_paths FROM torrents WHERE account_id = ? ORDER BY added_at DESC
 `
 
 func (q *Queries) ListTorrentsByAccount(ctx context.Context, accountID string) ([]Torrent, error) {
@@ -379,6 +393,8 @@ func (q *Queries) ListTorrentsByAccount(ctx context.Context, accountID string) (
 			&i.CompletedAt,
 			&i.RetryAt,
 			&i.UpdatedAt,
+			&i.Organized,
+			&i.TrackedPaths,
 		); err != nil {
 			return nil, err
 		}
@@ -394,7 +410,7 @@ func (q *Queries) ListTorrentsByAccount(ctx context.Context, accountID string) (
 }
 
 const listTorrentsByStatus = `-- name: ListTorrentsByStatus :many
-SELECT id, account_id, hash, name, dir_name, category, status, status_reason, error, progress, size, speed, seeders, provider_id, provider_status, files, settings, payload_kind, payload, retry_count, added_at, provider_added_at, provider_ended_at, files_selected_at, completed_at, retry_at, updated_at FROM torrents WHERE status = ? ORDER BY added_at
+SELECT id, account_id, hash, name, dir_name, category, status, status_reason, error, progress, size, speed, seeders, provider_id, provider_status, files, settings, payload_kind, payload, retry_count, added_at, provider_added_at, provider_ended_at, files_selected_at, completed_at, retry_at, updated_at, organized, tracked_paths FROM torrents WHERE status = ? ORDER BY added_at
 `
 
 func (q *Queries) ListTorrentsByStatus(ctx context.Context, status string) ([]Torrent, error) {
@@ -434,6 +450,8 @@ func (q *Queries) ListTorrentsByStatus(ctx context.Context, status string) ([]To
 			&i.CompletedAt,
 			&i.RetryAt,
 			&i.UpdatedAt,
+			&i.Organized,
+			&i.TrackedPaths,
 		); err != nil {
 			return nil, err
 		}
@@ -450,7 +468,7 @@ func (q *Queries) ListTorrentsByStatus(ctx context.Context, status string) ([]To
 
 const updateTorrent = `-- name: UpdateTorrent :exec
 UPDATE torrents SET
-    name = ?, dir_name = ?, category = ?, status = ?, status_reason = ?, error = ?, progress = ?, size = ?, speed = ?, seeders = ?,
+    name = ?, dir_name = ?, organized = ?, tracked_paths = ?, category = ?, status = ?, status_reason = ?, error = ?, progress = ?, size = ?, speed = ?, seeders = ?,
     provider_id = ?, provider_status = ?, files = ?, settings = ?, retry_count = ?,
     provider_added_at = ?, provider_ended_at = ?, files_selected_at = ?, completed_at = ?, retry_at = ?, updated_at = ?
 WHERE id = ?
@@ -459,6 +477,8 @@ WHERE id = ?
 type UpdateTorrentParams struct {
 	Name            string
 	DirName         string
+	Organized       int64
+	TrackedPaths    string
 	Category        string
 	Status          string
 	StatusReason    string
@@ -485,6 +505,8 @@ func (q *Queries) UpdateTorrent(ctx context.Context, arg UpdateTorrentParams) er
 	_, err := q.db.ExecContext(ctx, updateTorrent,
 		arg.Name,
 		arg.DirName,
+		arg.Organized,
+		arg.TrackedPaths,
 		arg.Category,
 		arg.Status,
 		arg.StatusReason,

@@ -196,6 +196,9 @@ type TorrentSettings struct {
 	// FinishedAction and FinishedDelay control provider-side cleanup.
 	FinishedAction FinishedAction `json:"finished_action,omitempty"`
 	FinishedDelay  time.Duration  `json:"finished_delay,omitempty"`
+	// Organize overrides the global library-organization toggle for this
+	// torrent (nil = inherit).
+	Organize *bool `json:"organize,omitempty"`
 	// DownloadRetries is the max automatic retries per file.
 	DownloadRetries int `json:"download_retries"`
 	// TorrentRetries is the max automatic re-adds of the whole torrent after a provider error.
@@ -233,10 +236,19 @@ type Torrent struct {
 	AccountID string
 	Hash      string
 	Name      string
-	// DirName is the sanitised folder name under the download dir, frozen by
-	// the engine when local downloads start (Name may still change before that).
-	DirName  string
-	Category string
+	// DirName is the sanitised folder path under the download dir (a single
+	// component, or "a/b" segments when organized), frozen by the engine when
+	// local downloads start (Name may still change before that).
+	DirName string
+	// Organized marks a DirName produced by library organization: such
+	// directories may be shared between torrents, so deletion is per-file.
+	Organized bool
+	// TrackedPaths preserves files ("/"-separated, torrent-dir-relative) that
+	// earlier runs of this torrent produced: retry drops download rows for a
+	// fresh start, and without this snapshot an organized delete-with-files
+	// could no longer find them.
+	TrackedPaths []string
+	Category     string
 
 	Status       TorrentStatus
 	StatusReason string
@@ -288,6 +300,9 @@ type Download struct {
 	State        DownloadState
 	Error        string
 	RetryCount   int
+	// ExtractedPaths are files this download's archive produced on unpack
+	// ("/"-separated, relative to the torrent dir); used for precise deletes.
+	ExtractedPaths []string
 
 	QueuedAt         time.Time
 	StartedAt        *time.Time

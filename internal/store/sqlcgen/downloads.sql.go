@@ -51,7 +51,7 @@ func (q *Queries) DeleteDownloadsForTorrent(ctx context.Context, torrentID strin
 }
 
 const getDownload = `-- name: GetDownload :one
-SELECT id, torrent_id, file_id, provider_link, direct_url, rel_path, filename, size, bytes_done, state, error, retry_count, queued_at, started_at, finished_at, unpack_started_at, unpack_finished_at, completed_at, updated_at FROM downloads WHERE id = ?
+SELECT id, torrent_id, file_id, provider_link, direct_url, rel_path, filename, size, bytes_done, state, error, retry_count, queued_at, started_at, finished_at, unpack_started_at, unpack_finished_at, completed_at, updated_at, extracted_paths FROM downloads WHERE id = ?
 `
 
 func (q *Queries) GetDownload(ctx context.Context, id string) (Download, error) {
@@ -77,15 +77,16 @@ func (q *Queries) GetDownload(ctx context.Context, id string) (Download, error) 
 		&i.UnpackFinishedAt,
 		&i.CompletedAt,
 		&i.UpdatedAt,
+		&i.ExtractedPaths,
 	)
 	return i, err
 }
 
 const insertDownload = `-- name: InsertDownload :execrows
 INSERT INTO downloads (
-    id, torrent_id, file_id, provider_link, direct_url, rel_path, filename, size, bytes_done, state, error, retry_count,
+    id, torrent_id, file_id, provider_link, direct_url, rel_path, filename, size, bytes_done, state, error, retry_count, extracted_paths,
     queued_at, started_at, finished_at, unpack_started_at, unpack_finished_at, completed_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(torrent_id, provider_link) DO NOTHING
 `
 
@@ -102,6 +103,7 @@ type InsertDownloadParams struct {
 	State            string
 	Error            string
 	RetryCount       int64
+	ExtractedPaths   string
 	QueuedAt         string
 	StartedAt        sql.NullString
 	FinishedAt       sql.NullString
@@ -125,6 +127,7 @@ func (q *Queries) InsertDownload(ctx context.Context, arg InsertDownloadParams) 
 		arg.State,
 		arg.Error,
 		arg.RetryCount,
+		arg.ExtractedPaths,
 		arg.QueuedAt,
 		arg.StartedAt,
 		arg.FinishedAt,
@@ -140,7 +143,7 @@ func (q *Queries) InsertDownload(ctx context.Context, arg InsertDownloadParams) 
 }
 
 const listDownloads = `-- name: ListDownloads :many
-SELECT id, torrent_id, file_id, provider_link, direct_url, rel_path, filename, size, bytes_done, state, error, retry_count, queued_at, started_at, finished_at, unpack_started_at, unpack_finished_at, completed_at, updated_at FROM downloads ORDER BY queued_at
+SELECT id, torrent_id, file_id, provider_link, direct_url, rel_path, filename, size, bytes_done, state, error, retry_count, queued_at, started_at, finished_at, unpack_started_at, unpack_finished_at, completed_at, updated_at, extracted_paths FROM downloads ORDER BY queued_at
 `
 
 func (q *Queries) ListDownloads(ctx context.Context) ([]Download, error) {
@@ -172,6 +175,7 @@ func (q *Queries) ListDownloads(ctx context.Context) ([]Download, error) {
 			&i.UnpackFinishedAt,
 			&i.CompletedAt,
 			&i.UpdatedAt,
+			&i.ExtractedPaths,
 		); err != nil {
 			return nil, err
 		}
@@ -187,7 +191,7 @@ func (q *Queries) ListDownloads(ctx context.Context) ([]Download, error) {
 }
 
 const listDownloadsByState = `-- name: ListDownloadsByState :many
-SELECT id, torrent_id, file_id, provider_link, direct_url, rel_path, filename, size, bytes_done, state, error, retry_count, queued_at, started_at, finished_at, unpack_started_at, unpack_finished_at, completed_at, updated_at FROM downloads WHERE state = ? ORDER BY queued_at
+SELECT id, torrent_id, file_id, provider_link, direct_url, rel_path, filename, size, bytes_done, state, error, retry_count, queued_at, started_at, finished_at, unpack_started_at, unpack_finished_at, completed_at, updated_at, extracted_paths FROM downloads WHERE state = ? ORDER BY queued_at
 `
 
 func (q *Queries) ListDownloadsByState(ctx context.Context, state string) ([]Download, error) {
@@ -219,6 +223,7 @@ func (q *Queries) ListDownloadsByState(ctx context.Context, state string) ([]Dow
 			&i.UnpackFinishedAt,
 			&i.CompletedAt,
 			&i.UpdatedAt,
+			&i.ExtractedPaths,
 		); err != nil {
 			return nil, err
 		}
@@ -234,7 +239,7 @@ func (q *Queries) ListDownloadsByState(ctx context.Context, state string) ([]Dow
 }
 
 const listDownloadsForTorrent = `-- name: ListDownloadsForTorrent :many
-SELECT id, torrent_id, file_id, provider_link, direct_url, rel_path, filename, size, bytes_done, state, error, retry_count, queued_at, started_at, finished_at, unpack_started_at, unpack_finished_at, completed_at, updated_at FROM downloads WHERE torrent_id = ? ORDER BY rel_path
+SELECT id, torrent_id, file_id, provider_link, direct_url, rel_path, filename, size, bytes_done, state, error, retry_count, queued_at, started_at, finished_at, unpack_started_at, unpack_finished_at, completed_at, updated_at, extracted_paths FROM downloads WHERE torrent_id = ? ORDER BY rel_path
 `
 
 func (q *Queries) ListDownloadsForTorrent(ctx context.Context, torrentID string) ([]Download, error) {
@@ -266,6 +271,7 @@ func (q *Queries) ListDownloadsForTorrent(ctx context.Context, torrentID string)
 			&i.UnpackFinishedAt,
 			&i.CompletedAt,
 			&i.UpdatedAt,
+			&i.ExtractedPaths,
 		); err != nil {
 			return nil, err
 		}
@@ -282,7 +288,7 @@ func (q *Queries) ListDownloadsForTorrent(ctx context.Context, torrentID string)
 
 const updateDownload = `-- name: UpdateDownload :exec
 UPDATE downloads SET
-    direct_url = ?, rel_path = ?, filename = ?, size = ?, bytes_done = ?, state = ?, error = ?, retry_count = ?,
+    direct_url = ?, rel_path = ?, filename = ?, size = ?, bytes_done = ?, state = ?, error = ?, retry_count = ?, extracted_paths = ?,
     started_at = ?, finished_at = ?, unpack_started_at = ?, unpack_finished_at = ?, completed_at = ?, updated_at = ?
 WHERE id = ?
 `
@@ -296,6 +302,7 @@ type UpdateDownloadParams struct {
 	State            string
 	Error            string
 	RetryCount       int64
+	ExtractedPaths   string
 	StartedAt        sql.NullString
 	FinishedAt       sql.NullString
 	UnpackStartedAt  sql.NullString
@@ -315,6 +322,7 @@ func (q *Queries) UpdateDownload(ctx context.Context, arg UpdateDownloadParams) 
 		arg.State,
 		arg.Error,
 		arg.RetryCount,
+		arg.ExtractedPaths,
 		arg.StartedAt,
 		arg.FinishedAt,
 		arg.UnpackStartedAt,
