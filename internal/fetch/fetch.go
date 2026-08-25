@@ -251,14 +251,18 @@ func defaultClient(conns int) *http.Client {
 // verbatim, a raw space truncates the request target and the CDN answers 400.
 // Order and existing %XX escapes are preserved so any signed URL survives.
 func normalizeURL(raw string) string {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return raw
+	// Split at the first '?' ourselves: url.Parse would peel a '#…' suffix off
+	// as a fragment and drop it from the request line, breaking a filename that
+	// contains '#' the same way an unescaped space does. Parsing just the part
+	// before '?' still escapes raw spaces in the path for free.
+	head, query, hasQuery := strings.Cut(raw, "?")
+	if u, err := url.Parse(head); err == nil {
+		head = u.String()
 	}
-	if u.RawQuery != "" {
-		u.RawQuery = escapeRawQuery(u.RawQuery)
+	if !hasQuery {
+		return head
 	}
-	return u.String()
+	return head + "?" + escapeRawQuery(query)
 }
 
 // escapeRawQuery percent-encodes bytes outside the RFC 3986 query set,

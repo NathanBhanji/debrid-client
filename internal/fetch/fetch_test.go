@@ -558,6 +558,24 @@ func TestNormalizeURL(t *testing.T) {
 		},
 		// No query at all.
 		{"https://cdn.example/file.mp4", "https://cdn.example/file.mp4"},
+		// '#' in a filename must stay in the query, not become a dropped fragment.
+		{
+			"https://cdn.example/x?filename=track #1.mp3",
+			"https://cdn.example/x?filename=track%20%231.mp3",
+		},
+		// Trailing bare and incomplete percent escapes are encoded literally.
+		{"https://cdn.example/x?f=x%", "https://cdn.example/x?f=x%25"},
+		{"https://cdn.example/x?f=x%2", "https://cdn.example/x?f=x%252"},
+		// Multibyte UTF-8 is escaped per byte.
+		{
+			"https://cdn.example/x?f=Amélie.mkv",
+			"https://cdn.example/x?f=Am%C3%A9lie.mkv",
+		},
+		// A fully-encoded signed query is an exact no-op (order + escapes kept).
+		{
+			"https://cdn.example/x?sig=aB3%2FcD%3D&t=1&exp=99",
+			"https://cdn.example/x?sig=aB3%2FcD%3D&t=1&exp=99",
+		},
 	}
 	for _, tc := range cases {
 		if got := normalizeURL(tc.in); got != tc.want {
