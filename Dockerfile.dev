@@ -1,5 +1,5 @@
 # Local build without GoReleaser: docker build -f Dockerfile.dev -t debrid-client .
-FROM golang:1.26-alpine AS build
+FROM golang:1.26.10-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -7,7 +7,7 @@ COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /out/debrid ./cmd/debrid \
  && mkdir -p /out/data /out/downloads && chown -R 65532:65532 /out/data /out/downloads
 
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM gcr.io/distroless/static-debian13:nonroot
 COPY --from=build /out/debrid /usr/local/bin/debrid
 COPY --from=build --chown=65532:65532 /out/data /data
 COPY --from=build --chown=65532:65532 /out/downloads /downloads

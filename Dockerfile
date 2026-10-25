@@ -5,10 +5,10 @@
 # The data/download directories must be owned by the nonroot user so the
 # container starts with a fresh named volume; distroless has no chown, so
 # create them in a helper stage and copy them in.
-FROM busybox:1.36 AS dirs
+FROM busybox:1.37 AS dirs
 RUN mkdir -p /data /downloads && chown -R 65532:65532 /data /downloads
 
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM gcr.io/distroless/static-debian13:nonroot
 ARG TARGETPLATFORM
 COPY $TARGETPLATFORM/debrid /usr/local/bin/debrid
 COPY --from=dirs --chown=65532:65532 /data /data
