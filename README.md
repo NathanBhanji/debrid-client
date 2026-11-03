@@ -72,6 +72,10 @@ OpenAPI 3.1 at `/openapi.json`, interactive docs at `/docs`. All routes under `/
 
 A typed Go client is generated into `internal/apiclient`; `debrid openapi` prints the spec for other generators.
 
+## Native iPhone app (in development)
+
+A native SwiftUI app is being built in [`ios/`](ios/README.md). The first milestone is a fixture-only design preview; live connection and magnet/share intake follow the [29-PR roadmap](docs/plan/ios-native.md). Review the [design proposal](docs/design/ios/README.md).
+
 ## MCP
 
 Expose the same operations to AI agents:
