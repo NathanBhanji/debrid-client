@@ -1,6 +1,6 @@
 # Debrid for iPhone
 
-Native SwiftUI app, Swift 6 complete concurrency checking. **This first milestone is a fixture-only design preview**: no credentials, network requests, URL registration or live mutations. Search, tabs, detail navigation and the add design sheet work locally. It is not ready for daily use.
+Native SwiftUI app, Swift 6 complete concurrency checking. **Current milestone: server connection and secure storage.** Normal launch checks public health/auth endpoints and saves server profiles. Pocket ID browser sign-in and live management follow next; this is not ready for daily use. Debug `-Demo` or the native design gallery use fixture data without network or mutations.
 
 XcodeGen `project.yml` is the source of truth. Do not edit generated projects/Info.plists/entitlements. Xcode 27.1 (27A9275), iPhoneOS/Simulator SDK 27.1 and installed iOS 27.0 runtime verified on 2026-11-03. Minimum iOS **27.0**, provisionally matching Nathan's app fleet and the available runtime; confirm the phone's OS before device delivery. No third-party packages. Design and Swift implementation follow Emil’s `emil-design-eng`, `apple-design` and `write-swift` skills; see the [research/review](../docs/design/ios/research.md). Nathan requested the existing web identity within native iOS 27 navigation and controls, and chose Pocket ID SSO as the primary login; this requires a secure native exchange addition to the backend before live use.
 
@@ -58,3 +58,9 @@ Use core-only tests when UI is unchanged; the default suite still includes nativ
 Metadata and Keychain are separate stores, not a two-store transaction. Removal deletes the secret first: if metadata then fails, the visible profile can remain signed out, while other servers are untouched. Own exactly one `SessionStore` per namespace. A future extension inbox coordinates files separately and does not need session credentials.
 
 Validation: 28 Swift Testing functions (including real hosted simulator Keychain read/update/delete, accessibility attributes, namespace isolation, expiry, storage failures and proxy-path boundaries) passed on the shared iOS 27.0 device. Physical-device entitlement/protection behavior remains a delivery check. Apple’s [Keychain access-group guidance](https://developer.apple.com/documentation/security/sharing-access-to-keychain-items-among-a-collection-of-apps) explains why the adapter never searches implicitly across entitled groups.
+
+## Server onboarding
+
+Normal launch opens the native Connect form. It requires a full HTTPS URL, checks anonymous `/health` and `/auth/status`, then offers explicit non-secret server saving. Health must be healthy; authentication setup/mode and optional `native_sso` capability determine readiness. An older OIDC server reports that an update is needed, rather than falling back to copying an API key. Password-only setups are described honestly; changing a configured password server into OIDC is an administrator operation.
+
+Discovery constructs an anonymous, redirect-refusing transport per server. Editing/cancelling invalidates results, including tasks cancelled before they start. No auto-discovery on launch, provider probes, real transfers, credentials or TLS bypass. Saved metadata restores only the address until live session restoration arrives. DNS/network messages suggest checking Tailscale without claiming to detect VPN status.

@@ -4,6 +4,7 @@ import XCTest
 final class DemoFlowTests: XCTestCase {
     func testNativeNavigationAndReviewSheet() throws {
         let app = XCUIApplication()
+        app.launchArguments += ["-Demo"]
         app.launch()
         XCTAssertTrue(app.staticTexts["TRANSFER STATUS · DEMO"].waitForExistence(timeout: 10))
         app.buttons["add-transfer"].tap()
@@ -24,6 +25,7 @@ final class DemoFlowTests: XCTestCase {
     func testAccessibilityTextCanReachTransferAndDismissSheet() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launchArguments += ["-Demo"]
         app.launch()
         XCTAssertTrue(app.staticTexts["TRANSFER STATUS · DEMO"].waitForExistence(timeout: 10))
         for _ in 0..<3 where !app.buttons["transfer-ocean"].isHittable { app.swipeUp() }
@@ -37,6 +39,7 @@ final class DemoFlowTests: XCTestCase {
     func testNativeGalleryKeepsActionsExplicitlyLocal() throws {
         let app = XCUIApplication()
         app.launchArguments = ["-DesignScreen", "sign-in"]
+        app.launchArguments += ["-Demo"]
         app.launch()
         let signIn = app.buttons["Continue with Pocket ID"]
         XCTAssertTrue(signIn.waitForExistence(timeout: 10))
@@ -45,6 +48,7 @@ final class DemoFlowTests: XCTestCase {
         app.alerts.buttons["OK"].tap()
         app.terminate()
         app.launchArguments = ["-DesignScreen", "selection"]
+        app.launchArguments += ["-Demo"]
         app.launch()
         XCTAssertTrue(app.navigationBars["Choose files"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.switches["The Open Ocean.mkv · 9.8 GB"].exists)
@@ -55,10 +59,26 @@ final class DemoFlowTests: XCTestCase {
         waitForExpectations(timeout: 5)
         app.terminate()
         app.launchArguments = ["-DesignScreen", "removal"]
+        app.launchArguments += ["-Demo"]
         app.launch()
         XCTAssertTrue(app.navigationBars["Remove transfer"].waitForExistence(timeout: 10))
         XCTAssertEqual(app.switches["Downloaded files on your NAS"].value as? String, "0")
         XCTAssertEqual(app.switches["At the debrid provider"].value as? String, "0")
     }
 
+}
+
+@MainActor
+final class ConnectionFlowTests: XCTestCase {
+    func testInvalidAddressAndNativeConnectionForm() {
+        let app = XCUIApplication()
+        app.launch()
+        XCTAssertTrue(app.navigationBars["Connect"].waitForExistence(timeout: 10))
+        let field = app.textFields["server-address"]
+        XCTAssertTrue(field.exists)
+        field.tap(); field.typeText("http://invalid.example.test")
+        app.buttons["check-connection"].tap()
+        XCTAssertTrue(app.otherElements["connection-error"].waitForExistence(timeout: 5) || app.staticTexts["connection-error"].exists)
+        XCTAssertTrue(app.staticTexts["Enter a full HTTPS server address without credentials, a query or a fragment."].exists)
+    }
 }
