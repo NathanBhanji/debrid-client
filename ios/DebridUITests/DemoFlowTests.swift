@@ -222,7 +222,7 @@ final class MagnetHandoffFlowTests: XCTestCase {
         app.buttons["review-received-link"].tap()
         XCTAssertTrue(app.navigationBars["Saved item"].waitForExistence(timeout:5))
         XCTAssertTrue(app.staticTexts["Fixture Ocean"].waitForExistence(timeout:5))
-        XCTAssertTrue(app.staticTexts["No transfer has been added."].exists)
+        XCTAssertTrue(app.staticTexts["No transfer has been added."].waitForExistence(timeout:5))
         app.buttons["Keep for later"].tap()
         XCTAssertTrue(app.navigationBars["Pending items"].waitForExistence(timeout:5))
         XCTAssertTrue(app.staticTexts["Fixture Ocean"].exists)
@@ -314,12 +314,70 @@ final class DocumentIntakeFlowTests: XCTestCase {
         let app = XCUIApplication(); app.launchArguments = ["-DebridInboxTestNamespace",UUID().uuidString,"-DebridInboxCaptureMode","torrent"]; app.launch()
         XCTAssertTrue(app.navigationBars["Saved item"].waitForExistence(timeout:10))
         XCTAssertTrue(app.staticTexts["Fixture Ocean.mkv"].waitForExistence(timeout:5))
-        XCTAssertTrue(app.staticTexts["No transfer has been added."].exists)
+        XCTAssertTrue(app.staticTexts["No transfer has been added."].waitForExistence(timeout:5))
         XCTAssertTrue(app.staticTexts["An exact copy is saved on this iPhone. The original file is unchanged."].exists)
         try await Task.sleep(for:.seconds(10))
         let shot = XCTAttachment(screenshot:app.screenshot()); shot.name = "torrent-native"; shot.lifetime = .keepAlways; add(shot)
         app.buttons["Keep for later"].tap()
         XCTAssertTrue(app.navigationBars["Pending items"].waitForExistence(timeout:5))
         XCTAssertTrue(app.staticTexts["Fixture Ocean.mkv"].exists)
+    }
+}
+
+@MainActor
+final class NativeSubmissionFlowTests:XCTestCase {
+    private func launch(_ mode:String,large:Bool = false) -> XCUIApplication {
+        let app=XCUIApplication();app.launchArguments=["-DebridInboxTestNamespace",UUID().uuidString,"-DebridInboxCaptureMode",mode]
+        if large { app.launchArguments += ["-UIPreferredContentSizeCategoryName","UICTContentSizeCategoryAccessibilityXXXL"] }
+        app.launch();return app
+    }
+    private func reach(_ element:XCUIElement,in app:XCUIApplication,swipes:Int = 16) {
+        for _ in 0..<swipes where !element.isHittable { app.swipeUp() }
+        XCTAssertTrue(element.isHittable)
+    }
+    func testNativeReviewRequiresExplicitAddAndShowsConfirmation() async throws {
+        let app=launch("submit")
+        XCTAssertTrue(app.navigationBars["Saved item"].waitForExistence(timeout:12))
+        XCTAssertTrue(app.staticTexts["No transfer has been added."].waitForExistence(timeout:5))
+        let provider=app.buttons["add-provider"]
+        reach(provider,in:app)
+        XCTAssertTrue(app.staticTexts["Preview · Fictional submission"].exists)
+        try await Task.sleep(for:.seconds(10))
+        let review=XCTAttachment(screenshot:app.screenshot());review.name="add-review-native";review.lifetime = .keepAlways;add(review)
+        let addTransfer=app.buttons["add-reviewed-transfer"];reach(addTransfer,in:app)
+        XCTAssertTrue(app.staticTexts["Automatic lifecycle rules"].exists)
+        XCTAssertTrue(app.staticTexts["Adds this transfer using the reviewed settings. Files download to your server."].exists)
+        XCTAssertFalse(app.otherElements["submission-accepted"].exists)
+        try await Task.sleep(for:.seconds(10))
+        let primary=XCTAttachment(screenshot:app.screenshot());primary.name="add-primary-native";primary.lifetime = .keepAlways;add(primary)
+        addTransfer.tap()
+        let accepted=app.descendants(matching:.any).matching(identifier:"submission-accepted").firstMatch
+        XCTAssertTrue(accepted.waitForExistence(timeout:8))
+        reach(app.buttons["view-added-transfer"],in:app)
+        try await Task.sleep(for:.seconds(10))
+        let confirmation=XCTAttachment(screenshot:app.screenshot());confirmation.name="add-confirmed-native";confirmation.lifetime = .keepAlways;add(confirmation)
+        app.buttons["view-added-transfer"].tap()
+        XCTAssertTrue(app.navigationBars["Transfer"].waitForExistence(timeout:8))
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format:"label CONTAINS %@","The Open Ocean")).firstMatch.exists)
+    }
+    func testUncertainResponseOffersReceiptCheckWithoutNewAdd() throws {
+        let app=launch("uncertain")
+        XCTAssertTrue(app.navigationBars["Saved item"].waitForExistence(timeout:12))
+        let addTransfer=app.buttons["add-reviewed-transfer"];reach(addTransfer,in:app);addTransfer.tap()
+        let check=app.buttons["check-submission-result"]
+        XCTAssertTrue(check.waitForExistence(timeout:8));reach(check,in:app)
+        XCTAssertTrue(app.buttons["retry-saved-submission"].exists)
+        XCTAssertFalse(app.buttons["add-reviewed-transfer"].exists)
+        check.tap()
+        XCTAssertTrue(app.descendants(matching:.any).matching(identifier:"submission-accepted").firstMatch.waitForExistence(timeout:8))
+    }
+    func testLargestTextCanReviewAndAddWithoutClippedAction() throws {
+        let app=launch("submit",large:true)
+        XCTAssertTrue(app.navigationBars["Saved item"].waitForExistence(timeout:12))
+        let addTransfer=app.buttons["add-reviewed-transfer"];reach(addTransfer,in:app,swipes:25)
+        XCTAssertTrue(addTransfer.isEnabled);addTransfer.tap()
+        XCTAssertTrue(app.descendants(matching:.any).matching(identifier:"submission-accepted").firstMatch.waitForExistence(timeout:8))
+        let finish=app.buttons["Done"];reach(finish,in:app);finish.tap()
+        XCTAssertTrue(app.navigationBars["Transfers"].waitForExistence(timeout:8))
     }
 }

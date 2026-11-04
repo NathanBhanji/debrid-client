@@ -27,11 +27,17 @@ struct ConnectionRoot: View {
     var body: some View {
         Group {
             if let auth, case .connected(let connected) = auth.phase {
-                LiveTransfers(server: connected, auth: auth).id(connected.profile.id)
+                LiveTransfers(server: connected, auth: auth).id(connected.connectionID)
             } else { connectionForm }
         }
         .task { await prepare() }
-        .onChange(of:activeServerURL,initial:true) { intake?.setTargetServer(activeServerURL) }
+         .onChange(of:activeConnection?.connectionID,initial:true) {
+            guard !preview else { return }
+            if let server=activeConnection,let auth {
+                let profileID=server.profile.id
+                intake?.setConnection(server,onUnauthorized:{ [weak auth] id in await auth?.sessionRejected(for:profileID,connectionID:id) })
+            } else { intake?.setConnection(nil) }
+        }
         .onChange(of: model.address) { checkTask?.cancel(); savedID = nil; savingID = nil; saveRevision &+= 1 }
         .onDisappear { cancel(); cancelAuth() }
         .alert("Preview only", isPresented: $showingPreviewNotice) {
@@ -39,8 +45,8 @@ struct ConnectionRoot: View {
         } message: { Text("This sample server cannot sign in or save credentials.") }
     }
 
-    private var activeServerURL: URL? {
-        if let auth, case .connected(let server) = auth.phase { return server.profile.serverURL }; return nil
+    private var activeConnection: AuthenticatedServer? {
+        if let auth, case .connected(let server) = auth.phase { return server }; return nil
     }
     private var connectionForm: some View {
         NavigationStack {

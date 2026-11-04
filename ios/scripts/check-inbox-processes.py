@@ -16,7 +16,7 @@ ARTIFACTS = ROOT / ".artifacts"
 ARTIFACTS.mkdir(exist_ok=True)
 lock = acquire_lock(ARTIFACTS / "check.lock")
 binary = ARTIFACTS / "inbox-process-probe"
-compiler = subprocess.Popen(["xcrun", "--sdk", "macosx", "swiftc", "-parse-as-library", "-swift-version", "6", "-strict-concurrency=complete", "-module-cache-path", str(ROOT / ".build/inbox-host-modules"), str(ROOT / "DebridKit/MagnetLink.swift"), str(ROOT / "DebridKit/ServerAddress.swift"), str(ROOT / "DebridKit/TorrentFile.swift"), str(ROOT / "DebridKit/PendingInbox.swift"), str(ROOT / "scripts/fixtures/PendingInboxProbe.swift"), "-o", str(binary)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
+compiler = subprocess.Popen(["xcrun", "--sdk", "macosx", "swiftc", "-parse-as-library", "-swift-version", "6", "-strict-concurrency=complete", "-module-cache-path", str(ROOT / ".build/inbox-host-modules"), str(ROOT / "DebridKit/MagnetLink.swift"), str(ROOT / "DebridKit/ServerAddress.swift"), str(ROOT / "DebridKit/TorrentFile.swift"), str(ROOT / "DebridKit/APIDTOs.swift"), str(ROOT / "DebridKit/SubmissionIntent.swift"), str(ROOT / "DebridKit/PendingInbox.swift"), str(ROOT / "scripts/fixtures/PendingInboxProbe.swift"), "-o", str(binary)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
 try:
     compiler_output, _ = compiler.communicate(timeout=90)
 except (subprocess.TimeoutExpired, KeyboardInterrupt):

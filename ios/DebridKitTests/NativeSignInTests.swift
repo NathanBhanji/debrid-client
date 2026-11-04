@@ -268,6 +268,20 @@ private actor AuthFixture: NativeSignInAPI {
         #expect(await api.logouts == 1)
     }
 
+    @Test func lateRejectionFromSameServerPreviousConnectionCannotRemoveNewLogin() async throws {
+        let (coordinator,store,_,_,_)=fixture();let target=try profile()
+        await coordinator.signIn(to:target)
+        guard case .connected(let first)=coordinator.phase else { Issue.record("First login missing");return }
+        await coordinator.signIn(to:target)
+        guard case .connected(let current)=coordinator.phase else { Issue.record("New login missing");return }
+        #expect(first.connectionID != current.connectionID)
+        await coordinator.sessionRejected(for:target.id,connectionID:first.connectionID)
+        guard case .connected(let kept)=coordinator.phase else { Issue.record("Old401 removed new login");return }
+        #expect(kept.connectionID==current.connectionID);#expect(try await store.session(for:target.id) != nil)
+        await coordinator.sessionRejected(for:target.id,connectionID:current.connectionID)
+        #expect(try await store.session(for:target.id)==nil)
+    }
+
     @Test func rejectionFromPreviousServerCannotRemoveCurrentCredential() async throws {
         let (coordinator,store,_,_,_) = fixture()
         let a = try profile(), b = try profile("b.example.test")

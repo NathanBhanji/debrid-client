@@ -28,12 +28,21 @@ nonisolated private func openPendingInboxForApp() throws -> any PendingInboxAcce
     #endif
     return try PendingInbox.shared()
 }
+@MainActor private func makeSubmissionAPIForApp(_ server:AuthenticatedServer) throws -> any TransferSubmissionAPI {
+    #if DEBUG
+    if let configuration=intakeTestConfiguration(),["submit","uncertain"].contains(configuration.mode ?? "") {
+        return SubmissionFixtureAPI(serverURL:server.profile.serverURL,dropFirst:configuration.mode=="uncertain")
+    }
+    #endif
+    return try DebridAPIClient(server:ServerAddress(server.profile.serverURL.absoluteString),credential:server.credential)
+}
 /// Normal app root; validated Debug intake fixtures use the existing no-network Connect fixture.
 struct NativeAppRoot: View {
     var body: some View {
         MagnetInboxHost {
             #if DEBUG
-            if intakeTestConfiguration() != nil { ConnectionRoot(discoveryPreview:SignInDiscoveryPreview()) }
+            if let configuration=intakeTestConfiguration(),["submit","uncertain"].contains(configuration.mode ?? "") { LiveTransfersPreview() }
+            else if intakeTestConfiguration() != nil { ConnectionRoot(discoveryPreview:SignInDiscoveryPreview()) }
             else { ConnectionRoot() }
             #else
             ConnectionRoot()
@@ -43,7 +52,7 @@ struct NativeAppRoot: View {
 }
 struct MagnetInboxHost<Content:View>: View {
     let content: Content
-    @State private var intake = MagnetIntakeCoordinator(openInbox:openPendingInboxForApp)
+    @State private var intake = MagnetIntakeCoordinator(openInbox:openPendingInboxForApp,makeSubmissionAPI:makeSubmissionAPIForApp)
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var typeSize
     init(@ViewBuilder content:() -> Content) { self.content = content() }
@@ -56,7 +65,16 @@ struct MagnetInboxHost<Content:View>: View {
             #if DEBUG
             .task {
                 // A UUID-isolated Debug-only fixture exercises the real copy/store/review path.
-                guard let configuration = intakeTestConfiguration(), configuration.mode == "torrent" else { return }
+                guard let configuration=intakeTestConfiguration() else { return }
+                if ["submit","uncertain"].contains(configuration.mode ?? "") {
+                    do {
+                        let profile=try ServerProfile(server:ServerAddress("https://debrid.example.test"))
+                        intake.setConnection(AuthenticatedServer(profile:profile,username:"Sample User",credential:try .session("fixture_unused")))
+                        if let url=URL(string:"magnet:?xt=urn:btih:"+String(repeating:"0",count:40)+"&dn=The+Open+Ocean&tr=https%3a%2f%2ffixture.example.test%2fannounce") { await intake.receive(url) }
+                    } catch { }
+                    return
+                }
+                guard configuration.mode=="torrent" else { return }
                 let file = FileManager.default.temporaryDirectory.appendingPathComponent("DebridFixture-"+configuration.id.uuidString+".torrent")
                 defer { try? FileManager.default.removeItem(at:file) }
                 let bytes = Data("d4:infod6:lengthi1234e4:name17:Fixture Ocean.mkv12:piece lengthi16384e6:pieces20:00000000000000000000ee".utf8)
@@ -65,7 +83,7 @@ struct MagnetInboxHost<Content:View>: View {
             .onChange(of:intake.notice) {
                 guard intake.notice != nil, let configuration = intakeTestConfiguration() else { return }
                 switch configuration.mode {
-                case "review", "torrent": intake.reviewReceivedLink()
+                case "review", "torrent", "submit", "uncertain": intake.reviewReceivedLink()
                 case "list": intake.present()
                 default: break
                 }
@@ -165,7 +183,7 @@ struct PendingLinksSheet: View {
         VStack(alignment:.leading,spacing:6) {
             Text(item.displayName).font(.headline).foregroundStyle(DebridStyle.ink)
             if item.torrent != nil { Label("Torrent file",systemImage:"doc").font(.caption).foregroundStyle(DebridStyle.secondary) }
-            Text(item.state == .expired ? "Confirm to keep" : item.state == .reviewing ? "Being reviewed" : "Saved for review").font(.subheadline).foregroundStyle(DebridStyle.secondary)
+            Text(item.state == .expired ? "Confirm to keep" : item.submission?.phase == .accepted ? "Added to server" : item.submission?.phase == .prepared || item.submission?.phase == .blocked ? "Check saved submission" : item.state == .reviewing ? "Being reviewed" : "Saved for review").font(.subheadline).foregroundStyle(DebridStyle.secondary)
             Text(item.createdAt,format:.dateTime.day().month().hour().minute()).font(.footnote).foregroundStyle(DebridStyle.secondary)
         }.padding(.vertical,6)
     }
@@ -173,6 +191,11 @@ struct PendingLinksSheet: View {
 private struct PendingItemReview: View {
     let intake: MagnetIntakeCoordinator
     let id: UUID
+    @State private var addModel:TransferAddModel?
+    @State private var addSetupMessage:String?
+    @State private var request:ReviewRequest?
+    private struct ReviewRequest:Identifiable { let id=UUID();let action:SubmissionReviewSections.Action }
+    private struct ReviewContext:Hashable { let token:UUID?;let connection:UUID?;let active:Bool }
     @State private var owner = UUID()
     private enum Confirmation { case discard, keep }
     @State private var confirmation: Confirmation?
@@ -192,8 +215,18 @@ private struct PendingItemReview: View {
             if let claim = intake.activeClaim, claim.item.id == id {
                 Section {
                     Text(claim.item.displayName).font(.title2.weight(.semibold))
-                    Label("Saved for review",systemImage:"tray.and.arrow.down.fill").foregroundStyle(DebridStyle.tint)
-                    Text("No transfer has been added.").font(.subheadline).foregroundStyle(DebridStyle.secondary)
+                    if let model=addModel,case .accepted = model.phase {
+                        Label("Server confirmed",systemImage:"checkmark.circle.fill").foregroundStyle(DebridStyle.tint)
+                    } else if addModel?.attempt?.phase == .prepared || addModel?.attempt?.phase == .blocked || claim.item.submission?.phase == .prepared || claim.item.submission?.phase == .blocked {
+                        Label("Saved submission",systemImage:"clock").foregroundStyle(DebridStyle.secondary)
+                    } else { Label("Saved for review",systemImage:"tray.and.arrow.down.fill").foregroundStyle(DebridStyle.tint) }
+                    if let model=addModel,case .accepted = model.phase {
+                        Text("The server has confirmed this submission.").font(.subheadline).foregroundStyle(DebridStyle.secondary)
+                    } else if claim.item.submission?.phase == .prepared || claim.item.submission?.phase == .blocked || addModel?.attempt?.phase == .prepared || addModel?.attempt?.phase == .blocked {
+                        Text("This item has a saved submission to check.").font(.subheadline).foregroundStyle(DebridStyle.secondary)
+                    } else if claim.item.submission?.phase == .accepted {
+                        Text("The server has confirmed this submission.").font(.subheadline).foregroundStyle(DebridStyle.secondary)
+                    } else { Text("No transfer has been added.").font(.subheadline).foregroundStyle(DebridStyle.secondary) }
                 }.listRowBackground(Color.clear).listRowSeparator(.hidden)
                 if let magnet = claim.item.magnet {
                     Section("Magnet") {
@@ -215,14 +248,40 @@ private struct PendingItemReview: View {
                     }
                 }
                 if let target = claim.item.targetServerURL { Section("Saved server") { Text(target.absoluteString).font(.footnote).textSelection(.enabled) } }
+                if let addSetupMessage { Section { Label(addSetupMessage,systemImage:"exclamationmark.triangle") } }
+                if let addModel { SubmissionReviewSections(model:addModel) { action in request=ReviewRequest(action:action) } }
+                else if intake.connection == nil { Section { Text("Connect to your server to add this saved item.");Button("Connect to server") { intake.isPresented=false } } }
                 Section {
                     Button("Keep for later") { dismiss() }.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint)
-                    Button("Discard saved item",role:.destructive) { confirmation = .discard }.buttonStyle(.borderless).foregroundStyle(.red)
+                    Button("Discard saved item",role:.destructive) { confirmation = .discard }.buttonStyle(.borderless).foregroundStyle(.red).disabled(addModel.map { !$0.canDiscard } ?? (claim.item.submission?.phase == .prepared || claim.item.submission?.phase == .blocked))
                 }
             }
         }.modifier(DebridListStyle()).navigationTitle("Saved item").navigationBarTitleDisplayMode(.inline)
             .task(id:scenePhase) { if scenePhase == .active { await intake.beginReview(id,owner:owner) } else { intake.endReview(owner:owner) } }
-            .onDisappear { intake.endReview(owner:owner) }
+            .task(id:ReviewContext(token:intake.activeClaim?.token,connection:intake.connection?.connectionID,active:scenePhase == .active)) {
+                request=nil;addModel=nil;addSetupMessage=nil
+                guard scenePhase == .active,let claim=intake.activeClaim,claim.item.id==id else { return }
+                do { let created=try intake.submissionModel(claim:claim);addModel=created;await created?.load() }
+                catch { if !Task.isCancelled { addSetupMessage="This add form could not be prepared. Reconnect to your server and try again." } }
+            }
+            .task(id:request?.id) {
+                guard let request,let model=addModel else { return }
+                switch request.action {
+                case .add:await model.submit()
+                case .check:await model.reconcile()
+                case .retry:await model.retrySameSubmission()
+                case .reload:await model.load()
+                case .finish:
+                    if model.durableAcceptance { if await intake.discardReview(owner:owner) { intake.isPresented=false } }
+                    else { intake.isPresented=false }
+                case .view(let transferID):
+                    if model.durableAcceptance { _ = await intake.discardReview(owner:owner) }
+                    intake.viewTransfer(transferID,serverURL:model.serverURL)
+                }
+                await intake.refresh()
+                if model.requiresSignIn { await intake.rejectConnection(model.connectionID) }
+            }
+            .onDisappear { request=nil;intake.endReview(owner:owner) }
             .confirmationDialog(confirmation == .keep ? "Keep this saved item?" : "Discard this saved item?",isPresented:Binding(get:{ confirmation != nil },set:{ if !$0 { confirmation = nil } }),titleVisibility:.visible) {
                 if confirmation == .keep {
                     Button("Keep for another 30 days") { confirmation = nil; Task { if await intake.confirmKeep(id) { await intake.beginReview(id,owner:owner) } } }

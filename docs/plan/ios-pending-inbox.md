@@ -1,5 +1,7 @@
 # Protected pending magnet inbox
 
+This records the original milestone13 storage contract. The current format3 adds torrent payload migration and durable submission intents; see [review/add](ios-review-add.md) for migration, protected states and recovery.
+
 Roadmap 13 adds durable draft storage, with no routing, network request or automatic submission. It stores magnets only; torrent intake and payload migration belong to roadmap 15. Existing clients, NAS accounts and production data are untouched.
 
 The app declares group.dev.bhanji.debrid in XcodeGen entitlements. PendingInbox.shared resolves that real App Group container or fails closed; there is no private/defaults/plaintext fallback. The PendingInbox directory, lock and newly created snapshot files use complete iOS file protection. The directory is excluded from backup. Actual isolated App Group writes and backup exclusion passed on the entitled simulator. Physical before-first-unlock/lock transitions and signed app/extension membership remain delivery checks. The declared entitlement does not provision Apple’s group or make the staged distribution profiles release-ready; authenticated website assignment and profile regeneration remain required.

@@ -1,6 +1,8 @@
 import Foundation
 
-public struct HealthDTO: Decodable, Sendable { public let ok: Bool; public let version: String }
+public struct HealthDTO: Decodable, Sendable { public let ok: Bool; public let version: String; public let capabilities: [String]?
+ public init(ok:Bool,version:String,capabilities:[String]? = nil) { self.ok=ok;self.version=version;self.capabilities=capabilities }
+}
 public struct AuthStatusDTO: Decodable, Sendable {
     public let configured: Bool
     public let mode: String
@@ -29,7 +31,7 @@ public struct ProviderUserDTO: Decodable, Sendable {
     public let plan: String?
     public let expiresAt: Date?
 }
-public struct TorrentSettingsDTO: Decodable, Sendable {
+public struct TorrentSettingsDTO: Codable, Equatable, Sendable {
     public let minFileSize: Int64?
     public let includeRegex: String?
     public let excludeRegex: String?
