@@ -5,6 +5,7 @@ public struct AuthStatusDTO: Decodable, Sendable {
     public let configured: Bool
     public let mode: String
     public let oidcIssuer: String?
+    public let nativeSso: Bool?
 }
 public struct IdentityDTO: Decodable, Sendable {
     public let username: String?

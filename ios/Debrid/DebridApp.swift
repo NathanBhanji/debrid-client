@@ -12,9 +12,10 @@ struct DebridApp: App {
                 DesignScene(screen: screen)
             } else if ProcessInfo.processInfo.arguments.contains("-DesignGallery") {
                 DesignGallery()
-            } else { DemoRoot() }
+            } else if ProcessInfo.processInfo.arguments.contains("-Demo") { DemoRoot() }
+            else { ConnectionRoot() }
             #else
-            DemoRoot()
+            ConnectionRoot()
             #endif
         }
     }

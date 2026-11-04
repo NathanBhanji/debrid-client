@@ -27,6 +27,7 @@ targets:
       path: Debrid/Info.plist
       properties:
         CFBundleDisplayName: Debrid
+        DebridKeychainAccessGroup: $(AppIdentifierPrefix)dev.bhanji.debrid
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         ITSAppUsesNonExemptEncryption: false
