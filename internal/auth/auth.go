@@ -99,13 +99,13 @@ func (m *Manager) SetupPassword(ctx context.Context, username, password string) 
 	if err != nil {
 		return User{}, err
 	}
-	return m.createSoleUser(ctx, ModePassword, username, hash, "", "")
+	return m.createSoleUser(ctx, ModePassword, username, hash, "", "", nil)
 }
 
 // createSoleUser inserts the single local user and records the auth mode in
 // one transaction — a partial write here would otherwise brick onboarding
 // (user exists but mode unset, or vice versa). Setup is once-only.
-func (m *Manager) createSoleUser(ctx context.Context, mode Mode, username, hash, sub, email string) (User, error) {
+func (m *Manager) createSoleUser(ctx context.Context, mode Mode, username, hash, sub, email string, binding *oidcBinding) (User, error) {
 	now := store.FormatTime(m.now())
 	id := uuid.Must(uuid.NewV7()).String()
 	err := m.store.WithTx(ctx, func(q *sqlcgen.Queries) error {
@@ -115,6 +115,11 @@ func (m *Manager) createSoleUser(ctx context.Context, mode Mode, username, hash,
 		}
 		if existing != "" {
 			return ErrAlreadyConfigured
+		}
+		if binding != nil {
+			if err := checkOIDCBinding(ctx, q, *binding, ModeUnconfigured); err != nil {
+				return err
+			}
 		}
 		n, err := q.CountUsers(ctx)
 		if err != nil {
@@ -212,6 +217,10 @@ func (m *Manager) ChangePassword(ctx context.Context, userID, current, next stri
 // CreateSession issues a new session token for the user. The returned token
 // goes into the cookie; only its hash is stored.
 func (m *Manager) CreateSession(ctx context.Context, userID, userAgent string) (string, error) {
+	return m.createSession(ctx, userID, userAgent, nil)
+}
+
+func (m *Manager) createSession(ctx context.Context, userID, userAgent string, binding *oidcBinding) (string, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return "", err
@@ -221,12 +230,20 @@ func (m *Manager) CreateSession(ctx context.Context, userID, userAgent string) (
 	if len(userAgent) > 256 {
 		userAgent = userAgent[:256]
 	}
-	err := m.store.InsertSession(ctx, sqlcgen.InsertSessionParams{
+	params := sqlcgen.InsertSessionParams{
 		ID: hashToken(token), UserID: userID,
 		CreatedAt: store.FormatTime(now),
 		ExpiresAt: store.FormatTime(now.Add(SessionTTL)),
 		LastSeen:  store.FormatTime(now),
 		UserAgent: userAgent,
+	}
+	err := m.store.WithTx(ctx, func(q *sqlcgen.Queries) error {
+		if binding != nil {
+			if err := checkOIDCBinding(ctx, q, *binding, ModeOIDC); err != nil {
+				return err
+			}
+		}
+		return q.InsertSession(ctx, params)
 	})
 	if err != nil {
 		return "", err

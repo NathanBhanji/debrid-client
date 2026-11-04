@@ -25,6 +25,8 @@ type fakeIDP struct {
 	email   string
 	// lastVerifier records the PKCE code_verifier the client sent.
 	lastVerifier string
+	tokenEntered chan struct{}
+	tokenResume  chan struct{}
 }
 
 func newFakeIDP(t *testing.T) *fakeIDP {
@@ -52,6 +54,10 @@ func newFakeIDP(t *testing.T) *fakeIDP {
 		}}})
 	})
 	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		if f.tokenEntered != nil {
+			f.tokenEntered <- struct{}{}
+			<-f.tokenResume
+		}
 		_ = r.ParseForm()
 		f.lastVerifier = r.PostFormValue("code_verifier")
 		idt := f.signIDToken(t, map[string]any{

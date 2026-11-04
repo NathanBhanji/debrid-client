@@ -111,6 +111,7 @@ type authStatusOut struct {
 		Configured bool   `json:"configured" doc:"Whether onboarding has completed"`
 		Mode       string `json:"mode" doc:"Configured auth mode: password or oidc; empty until onboarding"`
 		OIDCIssuer string `json:"oidc_issuer,omitempty" doc:"Configured OIDC issuer, shown on the login/setup screens"`
+		NativeSSO  bool   `json:"native_sso" doc:"Secure native SSO exchange is available for the configured OIDC identity"`
 	}
 }
 
@@ -178,6 +179,7 @@ func (h *Handler) registerAuthRoutes(p string) {
 		out.Body.Configured = mode != auth.ModeUnconfigured
 		out.Body.Mode = string(mode)
 		out.Body.OIDCIssuer = issuer
+		out.Body.NativeSSO = mode == auth.ModeOIDC
 		return out, nil
 	})
 
@@ -273,7 +275,7 @@ func (h *Handler) mapAuthErr(err error) error {
 		return huma.NewError(http.StatusTooManyRequests, err.Error())
 	case errors.Is(err, auth.ErrAlreadyConfigured):
 		return huma.Error409Conflict(err.Error())
-	case errors.Is(err, auth.ErrNotConfigured):
+	case errors.Is(err, auth.ErrNotConfigured), errors.Is(err, auth.ErrOIDCNotConfigured):
 		return huma.Error409Conflict(err.Error())
 	case errors.Is(err, auth.ErrValidation):
 		return huma.Error422UnprocessableEntity(err.Error())

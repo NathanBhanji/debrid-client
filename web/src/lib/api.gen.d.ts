@@ -112,6 +112,40 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/auth/native/exchange': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Exchange one-time native grant with its PKCE verifier */
+    post: operations['auth-native-exchange']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/auth/native/start': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Start secure native Pocket ID sign-in */
+    post: operations['auth-native-start']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/auth/oidc/callback': {
     parameters: {
       query?: never
@@ -478,6 +512,8 @@ export interface components {
       configured: boolean
       /** @description Configured auth mode: password or oidc; empty until onboarding */
       mode: string
+      /** @description Secure native SSO exchange is available for the configured OIDC identity */
+      native_sso: boolean
       /** @description Configured OIDC issuer, shown on the login/setup screens */
       oidc_issuer?: string
     }
@@ -676,6 +712,48 @@ export interface components {
       mode: string
       /** @description Set for session requests; empty for API-key requests */
       username?: string
+    }
+    NativeExchangeInBody: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://example.com/schemas/NativeExchangeInBody.json
+       */
+      readonly $schema?: string
+      code: string
+      verifier: string
+    }
+    NativeExchangeOutBody: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://example.com/schemas/NativeExchangeOutBody.json
+       */
+      readonly $schema?: string
+      /** @description Server-bound session secret; store only in protected credential storage */
+      session_token: string
+      username: string
+    }
+    NativeStartInBody: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://example.com/schemas/NativeStartInBody.json
+       */
+      readonly $schema?: string
+      /** @description S256 challenge for an app-owned PKCE verifier */
+      challenge: string
+      /** @description App-generated random 32-byte base64url state */
+      state: string
+    }
+    NativeStartOutBody: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://example.com/schemas/NativeStartOutBody.json
+       */
+      readonly $schema?: string
+      authorization_url: string
     }
     OrganizeParsed: {
       codec?: string
@@ -1245,6 +1323,74 @@ export interface operations {
       }
     }
   }
+  'auth-native-exchange': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['NativeExchangeInBody']
+      }
+    }
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          'Cache-Control'?: string
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['NativeExchangeOutBody']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'auth-native-start': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['NativeStartInBody']
+      }
+    }
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          'Cache-Control'?: string
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['NativeStartOutBody']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
   'auth-oidc-callback': {
     parameters: {
       query?: {
@@ -1262,7 +1408,9 @@ export interface operations {
       /** @description Found */
       302: {
         headers: {
+          'Cache-Control'?: string
           Location?: string
+          'Referrer-Policy'?: string
           'Set-Cookie'?: string
           [name: string]: unknown
         }

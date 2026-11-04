@@ -39,9 +39,11 @@ type oidcCallbackIn struct {
 }
 
 type oidcCallbackOut struct {
-	Status    int
-	Location  string      `header:"Location"`
-	SetCookie http.Cookie `header:"Set-Cookie"`
+	Status         int
+	Location       string      `header:"Location"`
+	SetCookie      http.Cookie `header:"Set-Cookie"`
+	CacheControl   string      `header:"Cache-Control"`
+	ReferrerPolicy string      `header:"Referrer-Policy"`
 }
 
 // basePrefix is the operator-configured base path with no trailing slash
@@ -75,6 +77,7 @@ func (h *Handler) uiError(msg string) string {
 // registerOIDCRoutes wires the OIDC endpoints. p is the /api/v1 prefix.
 func (h *Handler) registerOIDCRoutes(p string) {
 	mgr := h.opts.Auth
+	h.registerNativeAuthRoutes(p)
 
 	// Configure the provider and get the authorization URL to finish setup.
 	// Key-only like password setup: proof of server ownership. The mode flips
@@ -128,21 +131,19 @@ func (h *Handler) registerOIDCRoutes(p string) {
 		fail := func(msg string) (*oidcCallbackOut, error) {
 			return &oidcCallbackOut{Status: http.StatusFound, Location: h.uiError(msg)}, nil
 		}
-		if in.AuthErr != "" {
-			msg := in.AuthErr
-			if in.ErrDescr != "" {
-				msg += ": " + in.ErrDescr
-			}
-			return fail(msg)
+		result, err := mgr.FinishOIDC(ctx, in.State, in.Code, in.AuthErr != "")
+		if result.NativeRedirect != "" {
+			// Generic native failures retain only the app-owned state, never provider detail.
+			return &oidcCallbackOut{Status: http.StatusFound, Location: result.NativeRedirect,
+				CacheControl: "no-store", ReferrerPolicy: "no-referrer"}, nil
 		}
-		if in.State == "" || in.Code == "" {
-			return fail("missing state or code")
-		}
-		u, err := mgr.CompleteOIDC(ctx, in.State, in.Code)
 		if err != nil {
-			h.opts.Logger.Warn("oidc callback failed", "err", err)
+			if in.AuthErr != "" {
+				return fail("sign-in was cancelled or refused; try again")
+			}
 			return fail(publicOIDCError(err))
 		}
+		u := result.User
 		token, err := mgr.CreateSession(ctx, u.ID, hc.Header("User-Agent"))
 		if err != nil {
 			h.opts.Logger.Warn("oidc session creation failed", "err", err)
