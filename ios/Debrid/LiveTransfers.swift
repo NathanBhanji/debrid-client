@@ -6,6 +6,7 @@ enum TransferRoute: Hashable { case detail(String), files(String) }
 struct LiveTransfers: View {
     let server: AuthenticatedServer
     let auth: SessionCoordinator?
+    @Environment(\.magnetIntake) private var intake
     @Environment(\.scenePhase) private var scenePhase
     @State private var model: TransferListModel?
     @State private var setupFailed = false
@@ -78,6 +79,7 @@ struct LiveTransfers: View {
                 .searchable(text:Binding(get:{ model?.search.query ?? initialQuery },set:{ initialQuery = TransferSearchIndex.bounded($0,limit:256); model?.setQuery(initialQuery) }),prompt:"Search transfers")
                 .autocorrectionDisabled().textInputAutocapitalization(.never)
                 .toolbar {
+                    if let intake { ToolbarItem(placement:.topBarTrailing) { PendingLinksButton(intake:intake) } }
                     ToolbarItem(placement:.topBarLeading) {
                         Button("Filters", systemImage:model?.search.activeFilterCount ?? 0 > 0 ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle") { showingFilters = true }
                             .disabled(model == nil).accessibilityValue("\(model?.search.activeFilterCount ?? 0) active")

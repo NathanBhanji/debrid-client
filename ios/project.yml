@@ -31,6 +31,9 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLName: dev.bhanji.debrid.auth
             CFBundleURLSchemes: [dev.bhanji.debrid]
+          - CFBundleURLName: dev.bhanji.debrid.magnet
+            CFBundleTypeRole: Editor
+            CFBundleURLSchemes: [magnet]
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         ITSAppUsesNonExemptEncryption: false

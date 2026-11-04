@@ -77,4 +77,13 @@ struct MagnetLinkTests {
         do { _ = try MagnetLink(base+"&tr="+secret+"%zz"); Issue.record("Invalid link accepted") }
         catch { #expect(!error.localizedDescription.contains(secret)) }
     }
+    @Test func previewEscapesInvisibleFormattingWithoutChangingStoredURI() throws {
+        let raw = base+"&dn=Safe\u{202e}Spoof\u{200b}"
+        let link = try MagnetLink(raw)
+        #expect(link.rawURI == raw)
+        #expect(!link.preview().unicodeScalars.contains { $0.properties.generalCategory == .format })
+        #expect(link.preview().contains("\\u{202E}") && link.preview().contains("\\u{200B}"))
+        #expect(link.preview(maxScalars:-1).isEmpty)
+    }
+
 }
