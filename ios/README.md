@@ -13,7 +13,7 @@ python3 scripts/check.py test --simulator <existing-Debrid-simulator-UUID>
 open Debrid.xcodeproj
 ```
 
-`dev.bhanji.debrid`, framework `dev.bhanji.debrid.kit`; proposed extension `dev.bhanji.debrid.share`, App Group `group.dev.bhanji.debrid`, team `ZTN995BU9H`. Only app/framework/test targets exist today. The app has an explicit private Keychain access group; there are no copied profiles, extension-shared secrets or APNs capabilities. Device builds in Xcode use automatic signing; simulator checks use ad-hoc signing and a hosted test bundle so actual Keychain operations are exercised; unsigned device checks compile/link separately. Device installation, App Group/Keychain verification, app icon, distribution profiles and App Store Connect registration are future gates. Never reuse Flux/Heimdall profiles. No TestFlight upload is possible yet.
+`dev.bhanji.debrid`, framework `dev.bhanji.debrid.kit`; proposed extension `dev.bhanji.debrid.share`, App Group `group.dev.bhanji.debrid`, team `ZTN995BU9H`. Only app/framework/test targets exist today. The app has an explicit private Keychain access group; there are no copied profiles, extension-shared secrets or APNs capabilities. Device builds in Xcode use automatic signing; simulator checks use ad-hoc signing and a hosted test bundle so actual Keychain operations are exercised; unsigned device checks compile/link separately. Physical device installation, App Group/Keychain verification, app icon, distribution profiles and App Store Connect registration are future gates. Never reuse Flux/Heimdall profiles. No TestFlight upload is possible yet.
 
 `DebridKit` is extension-safe and owns domain/transport/storage boundaries as they are added. `TransferPreview` is presentation data, not a speculative API schema. `ServerAddress` validates HTTPS roots without credentials/query fragments and preserves proxy prefixes. API DTOs, URLSession client, Keychain and protected inbox arrive separately with focused tests. Never persist secrets in defaults, design fixtures or logs.
 
@@ -108,3 +108,13 @@ Native folder navigation and path search show provider metadata and individual N
 ## Magnet intake foundation
 
 `MagnetLink` validates v1 and supported hybrid links while preserving the full original URI/encoding for later review and submission. The normalized hash and bounded display metadata are separate; descriptions/reflection are redacted. A generated Go parser corpus enforces compatible behavior and documents stricter native input checks. Routing, protected drafts and add actions follow separately; see [intake contract](../docs/plan/ios-magnet-intake.md).
+
+## Protected pending inbox
+
+`PendingInbox` stores magnets awaiting review in the declared App Group, with complete file protection, backup exclusion, bounded atomic snapshots and cross-process locks. Exact duplicates reuse an existing draft; other options/targets stay separate. Review leases and explicit expiration handling prevent competing edits without deleting saved content. No credentials, defaults, background network or automatic submission are involved. App Group writes work in the simulator; Apple website group assignment/profile regeneration and physical lock/unlock tests remain release gates. See [inbox contract and evidence](../docs/plan/ios-pending-inbox.md).
+
+```sh
+python3 ios/scripts/check-inbox-processes.py # two real macOS processes, same production storage sources
+```
+
+The host probe creates only owned temporary directories, one small binary and one module cache under the existing build directory. Compiler/probes have process-group timeouts and cleanup; it creates no simulator and does not certify iOS data protection.
