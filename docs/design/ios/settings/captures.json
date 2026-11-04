@@ -1,0 +1,122 @@
+[
+  {
+    "file": "settings-saved.png",
+    "test": "RuntimeSettingsFlowTests/testCategoriesRequireReviewAndExplicitSave()",
+    "result": "Test-Debrid-2026.11.04_19-57-53-+0000.xcresult",
+    "fixture": true,
+    "runtime": "iOS 27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178"
+  },
+  {
+    "file": "settings-review.png",
+    "test": "RuntimeSettingsFlowTests/testCategoriesRequireReviewAndExplicitSave()",
+    "result": "Test-Debrid-2026.11.04_19-57-53-+0000.xcresult",
+    "fixture": true,
+    "runtime": "iOS 27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178"
+  },
+  {
+    "file": "settings-categories.png",
+    "test": "RuntimeSettingsFlowTests/testCategoriesRequireReviewAndExplicitSave()",
+    "result": "Test-Debrid-2026.11.04_19-57-53-+0000.xcresult",
+    "fixture": true,
+    "runtime": "iOS 27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178"
+  },
+  {
+    "file": "settings-home-dark.png",
+    "test": "RuntimeSettingsFlowTests/testCategoriesRequireReviewAndExplicitSave()",
+    "result": "Test-Debrid-2026.11.04_19-57-53-+0000.xcresult",
+    "fixture": true,
+    "runtime": "iOS 27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178"
+  },
+  {
+    "file": "settings-review-actions-largest.png",
+    "test": "RuntimeSettingsFlowTests/testLargestTextReviewHasReachableSafeAndSaveActions()",
+    "result": "Test-Debrid-2026.11.04_19-57-53-+0000.xcresult",
+    "fixture": true,
+    "runtime": "iOS 27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178"
+  },
+  {
+    "file": "settings-review-largest.png",
+    "test": "RuntimeSettingsFlowTests/testLargestTextReviewHasReachableSafeAndSaveActions()",
+    "result": "Test-Debrid-2026.11.04_19-57-53-+0000.xcresult",
+    "fixture": true,
+    "runtime": "iOS 27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178"
+  },
+  {
+    "file": "settings-observed.png",
+    "test": "RuntimeSettingsFlowTests/testLostSaveOnlyObservesCurrentState()",
+    "result": "Test-Debrid-2026.11.04_19-57-53-+0000.xcresult",
+    "fixture": true,
+    "runtime": "iOS 27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178"
+  },
+  {
+    "file": "settings-unknown.png",
+    "test": "RuntimeSettingsFlowTests/testLostSaveOnlyObservesCurrentState()",
+    "result": "Test-Debrid-2026.11.04_19-57-53-+0000.xcresult",
+    "fixture": true,
+    "runtime": "iOS 27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178"
+  },
+  {
+    "file": "settings-offline.png",
+    "test": "RuntimeSettingsFlowTests/testUnsupportedAndOfflineStates()",
+    "result": "Test-Debrid-2026.11.04_19-57-53-+0000.xcresult",
+    "fixture": true,
+    "runtime": "iOS 27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178"
+  },
+  {
+    "file": "settings-update.png",
+    "test": "RuntimeSettingsFlowTests/testUnsupportedAndOfflineStates()",
+    "result": "Test-Debrid-2026.11.04_19-57-53-+0000.xcresult",
+    "fixture": true,
+    "runtime": "iOS 27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178"
+  },
+  {
+    "file": "settings-conflict.png",
+    "test": "RuntimeSettingsFlowTests/testConflictPreservesDraftAndRequiresSectionChoice()",
+    "result": "Test-Debrid-2026.11.04_20-04-58-+0000.xcresult",
+    "fixture": true,
+    "runtime": "iOS 27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178"
+  },
+  {
+    "file": "settings-organization-light.png",
+    "test": "RuntimeSettingsFlowTests/testPolicyAndLightOrganizationPreviewDoNotSave()",
+    "result": "Test-Debrid-2026.11.04_20-04-58-+0000.xcresult",
+    "fixture": true,
+    "runtime": "iOS 27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178"
+  },
+  {
+    "file": "settings-policy-light.png",
+    "test": "RuntimeSettingsFlowTests/testPolicyAndLightOrganizationPreviewDoNotSave()",
+    "result": "Test-Debrid-2026.11.04_20-04-58-+0000.xcresult",
+    "fixture": true,
+    "runtime": "iOS 27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178"
+  },
+  {
+    "file": "settings-lifecycle-review.png",
+    "test": "RuntimeSettingsFlowTests/testDeletionPolicyIsVisibleBeforeSaveAndCanBeDismissed()",
+    "result": "Test-Debrid-2026.11.04_20-02-12-+0000.xcresult",
+    "fixture": true,
+    "runtime": "iOS 27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178"
+  },
+  {
+    "file": "transfer-options-native.png",
+    "test": "NativeSubmissionFlowTests/testPerTransferOptionsStayLocalUntilExplicitAdd()",
+    "result": "Test-Debrid-2026.11.04_20-08-14-+0000.xcresult",
+    "fixture": true,
+    "runtime": "iOS 27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178"
+  }
+]

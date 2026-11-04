@@ -3,6 +3,7 @@ import Foundation
 public struct SettingsReviewDTO: Decodable, Sendable {
     public let settings: SettingsDTO
     public let revision: String
+    public init(settings: SettingsDTO, revision: String) { self.settings = settings; self.revision = revision }
 }
 public protocol SettingsReviewAPI: Sendable {
     var serverURL: URL { get }

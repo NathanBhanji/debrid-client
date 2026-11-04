@@ -335,6 +335,22 @@ final class NativeSubmissionFlowTests:XCTestCase {
         for _ in 0..<swipes where !element.isHittable { app.swipeUp() }
         XCTAssertTrue(element.isHittable)
     }
+    func testPerTransferOptionsStayLocalUntilExplicitAdd() {
+        let app=launch("submit")
+        XCTAssertTrue(app.navigationBars["Saved item"].waitForExistence(timeout:12))
+        let options=app.buttons["transfer-options"];reach(options,in:app);options.tap()
+        XCTAssertTrue(app.navigationBars["Transfer options"].waitForExistence(timeout:5))
+        let unpack=app.switches["policy-unpack"];reach(unpack,in:app)
+        unpack.coordinate(withNormalizedOffset:CGVector(dx:0.93,dy:0.5)).tap()
+        Thread.sleep(forTimeInterval:0.6)
+        let shot=XCTAttachment(screenshot:app.screenshot());shot.name="transfer-options-native";shot.lifetime = .keepAlways;add(shot)
+        app.buttons["transfer-options-apply"].tap()
+        XCTAssertTrue(app.navigationBars["Saved item"].waitForExistence(timeout:5))
+        for _ in 0..<12 where !app.staticTexts["No transfer has been added."].exists { app.swipeDown() }
+        XCTAssertTrue(app.staticTexts["No transfer has been added."].waitForExistence(timeout:5))
+        let reviewed=app.switches["review-unpack"];reach(reviewed,in:app);XCTAssertEqual(reviewed.value as? String,"0")
+        XCTAssertFalse(app.descendants(matching:.any).matching(identifier:"submission-accepted").firstMatch.exists)
+    }
     func testNativeReviewRequiresExplicitAddAndShowsConfirmation() async throws {
         let app=launch("submit")
         XCTAssertTrue(app.navigationBars["Saved item"].waitForExistence(timeout:12))

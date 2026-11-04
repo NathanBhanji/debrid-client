@@ -693,7 +693,7 @@ components:
           readOnly: true
           type: string
         movie_template:
-          description: Override the saved movie template
+          description: Override the saved movie template; explicit empty uses the built-in default
           type: string
         name:
           description: Release name to preview
@@ -701,7 +701,7 @@ components:
           minLength: 1
           type: string
         tv_template:
-          description: Override the saved TV template
+          description: Override the saved TV template; explicit empty uses the built-in default
           type: string
       required:
         - name

@@ -4,9 +4,26 @@ import SwiftUI
 struct SubmissionReviewSections:View {
     @Bindable var model:TransferAddModel
     let action:(Action)->Void
+    @State private var showingOptions = false
+    @Environment(\.scenePhase) private var scenePhase
     enum Action { case add, check, retry, reload, finish, view(String) }
     var body:some View {
         if model.isPreview { Section { Label("Preview · Fictional submission",systemImage:"viewfinder").font(.footnote);Text("This preview does not contact your server.").font(.footnote).foregroundStyle(DebridStyle.secondary) } }
+        if let settings = model.editableOverrides {
+            Section {
+                Button("Transfer options", systemImage: "slider.horizontal.3") { showingOptions = true }
+                    .buttonStyle(.borderless).foregroundStyle(DebridStyle.tint).accessibilityIdentifier("transfer-options")
+                    .sheet(isPresented: $showingOptions) {
+                        NavigationStack {
+                            TransferPolicyEditor(initial: settings, allowRules: model.filePolicy == .rules, preview: model.isPreview) { model.applyOverrides($0) }
+                                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { showingOptions = false } } }
+                        }.tint(DebridStyle.tint)
+                    }
+                    .onChange(of: model.connectionID) { showingOptions = false }
+                    .onChange(of: model.canEdit) { if !model.canEdit { showingOptions = false } }
+                    .onChange(of: scenePhase) { if scenePhase != .active { showingOptions = false } }
+            }
+        }
         Section("Destination") {
             Text(model.serverURL.absoluteString).font(.footnote).textSelection(.enabled)
             if model.canEdit {
@@ -14,10 +31,10 @@ struct SubmissionReviewSections:View {
                     Text("Choose provider").tag("")
                     ForEach(model.accounts) { account in Text(account.name+" · "+provider(account.kind)).tag(account.id) }
                 }.accessibilityIdentifier("add-provider")
-                Picker("Category",selection:$model.category) {
-                    Text("Uncategorized").tag("")
-                    ForEach(model.categories,id:\.self) { value in Text(value).tag(value) }
-                    if !model.category.isEmpty,!model.categories.contains(model.category) { Text("Saved: "+model.category).tag(model.category) }
+                Picker("Category",selection:Binding(get:{Data(model.category.utf8)},set:{if let value=String(data:$0,encoding:.utf8){model.category=value}})) {
+                    Text("Uncategorized").tag(Data())
+                    ForEach(model.categories,id:\.submissionCategoryBytes) { value in Text(value).tag(Data(value.utf8)) }
+                    if !model.category.isEmpty,!model.categories.contains(where:{Data($0.utf8)==Data(model.category.utf8)}) { Text("Saved: "+model.category).tag(Data(model.category.utf8)) }
                 }.accessibilityIdentifier("add-category")
                 if model.needsTargetConfirmation { Toggle("Use this server instead of the saved destination",isOn:$model.confirmedTargetChange) }
             } else if let options=model.visibleOptions {
@@ -106,3 +123,5 @@ struct SubmissionReviewSections:View {
         }
     }
 }
+
+private extension String { var submissionCategoryBytes: Data { Data(utf8) } }

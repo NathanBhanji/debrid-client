@@ -67,6 +67,17 @@ struct DebridTransportTests {
     }
     private func remove(_ host: String) { APIStub.states.withLock { _ = $0.removeValue(forKey: host) } }
 
+    @Test func organizationPreviewSendsExplicitEmptyTemplatesWithoutSaving() async throws {
+        let (client,host)=try setup(StubReply(data:Data(#"{"path":"Some Movie (2024)","organized":true}"#.utf8)),credential:.session("fixture_cookie"));defer {remove(host)}
+        let result=try await client.previewOrganization(name:"Some.Movie.2024",movieTemplate:"",tvTemplate:"")
+        #expect(result.organized && result.path=="Some Movie (2024)")
+        let request=try #require(APIStub.states.withLock {$0[host]?.requests.first})
+        #expect(request.httpMethod=="POST" && request.url?.path=="/debrid/api/v1/organize/preview" && request.value(forHTTPHeaderField:"Cookie")=="debrid_session=fixture_cookie")
+        let body=try #require(JSONSerialization.jsonObject(with:requestBody(request)) as? [String:String])
+        #expect(body==["name":"Some.Movie.2024","movie_template":"","tv_template":""])
+        await #expect(throws:APIError.invalidConfiguration) {_=try await client.previewOrganization(name:"",movieTemplate:"",tvTemplate:"")}
+        #expect(APIStub.states.withLock {$0[host]?.requests.count} == 1)
+    }
     @Test func settingsReviewUsesRequiredRevisionSnakeCaseAndScopedSession() async throws {
         let url=try #require(Bundle(for:APIStub.self).url(forResource:"contract",withExtension:"json",subdirectory:"ios-api"))
         let root=try #require(JSONSerialization.jsonObject(with:Data(contentsOf:url)) as? [String:Any])
