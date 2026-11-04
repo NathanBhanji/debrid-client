@@ -5,8 +5,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -164,7 +166,17 @@ func (h *harness) waitStatus(id string, want domain.TorrentStatus) domain.Torren
 	h.eng.mu.Lock()
 	jobs := len(h.eng.jobs)
 	operations := len(h.eng.operations)
+	details := make([]string, 0, 16)
+	for key, job := range h.eng.jobs {
+		if len(details) == 16 {
+			break
+		}
+		details = append(details, fmt.Sprintf("key=%s kind=%d torrent=%s", key, job.kind, job.torrentID))
+	}
 	h.eng.mu.Unlock()
+	stack := make([]byte, 64*1024)
+	n := runtime.Stack(stack, true)
+	h.t.Logf("engine timeout: jobs (first16)=%v; database pool=%+v; goroutines (capped64KiB):\n%s", details, h.eng.store.DB().Stats(), stack[:n])
 	h.t.Fatalf("torrent %s never reached %s (now %s: %s / %s; download states=%v; jobs=%d; operation slots=%d)", id, want, d.Torrent.Status, d.Torrent.StatusReason, d.Torrent.Error, states, jobs, operations)
 	return domain.Torrent{}
 }
