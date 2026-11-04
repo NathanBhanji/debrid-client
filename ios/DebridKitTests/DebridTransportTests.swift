@@ -9,6 +9,7 @@ private struct StubReply: Sendable {
     var data = Data(#"{"ok":true,"version":"fixture"}"#.utf8)
     var failure: URLError.Code?
     var holdOpen = false
+    var holdAfterData = false
     var redirectTo: URL?
 }
 private struct StubState: Sendable {
@@ -46,7 +47,7 @@ private final class APIStub: URLProtocol, @unchecked Sendable {
         }
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: reply.data)
-        client?.urlProtocolDidFinishLoading(self)
+        if !reply.holdAfterData { client?.urlProtocolDidFinishLoading(self) }
     }
     override func stopLoading() {
         guard let host = request.url?.host else { return }
@@ -235,6 +236,65 @@ struct DebridTransportTests {
         }
         let body = try JSONDecoder().decode([String:String].self,from:posted)
         #expect(body == ["code":"fixture_code","verifier":"fixture_verifier"])
+    }
+
+    @Test func eventBytesUseBoundHeaderCredentialAndIgnoreHeartbeat() async throws {
+        let bytes = Data("event: heartbeat\ndata: {}\n\nevent: torrent.updated\ndata: {}\n\nevent: future.changed\ndata: {}\n\n".utf8)
+        let (client,host) = try setup(StubReply(headers:["Content-Type":"text/event-stream"],data:bytes),credential:.session("fixture_session"))
+        defer { remove(host) }
+        var received: [ServerEvent] = []
+        for try await event in client.events() { received.append(event) }
+        #expect(received == [.connected,.changed("torrent.updated"),.changed("future.changed")])
+        let request = try #require(APIStub.states.withLock { $0[host]?.requests.first })
+        #expect(request.url?.path == "/debrid/api/v1/events" && request.url?.query == nil)
+        #expect(request.value(forHTTPHeaderField:"Cookie") == "debrid_session=fixture_session")
+        #expect(request.value(forHTTPHeaderField:"Accept") == "text/event-stream")
+    }
+    @Test func cancellingEventConsumerStopsHeldNetworkStream() async throws {
+        let bytes = Data("event: torrent.updated\ndata: {}\n\n".utf8)
+        let (client,host) = try setup(StubReply(headers:["Content-Type":"text/event-stream"],data:bytes,holdAfterData:true))
+        defer { remove(host) }
+        let (notifications,continuation) = AsyncStream<ServerEvent>.makeStream()
+        let task = Task { for try await event in client.events() { continuation.yield(event) } }
+        defer { task.cancel(); continuation.finish() }
+        var iterator = notifications.makeAsyncIterator()
+        #expect(await iterator.next() == .connected)
+        #expect(await iterator.next() == .changed("torrent.updated"))
+        task.cancel(); _ = try? await task.value
+        for _ in 0..<100 {
+            if APIStub.states.withLock({ $0[host]?.stopped == true }) { break }
+            try await Task.sleep(for:.milliseconds(10))
+        }
+        #expect(APIStub.states.withLock { $0[host]?.stopped } == true)
+    }
+    @Test func eventStatusMIMEAndFrameErrorsRemainTyped() async throws {
+        let (client,host) = try setup(StubReply(status:401))
+        defer { remove(host) }
+        await #expect(throws:APIError.unauthorized) { for try await _ in client.events() {} }
+        APIStub.states.withLock { $0[host]!.reply = StubReply() }
+        await #expect(throws:APIError.invalidContentType) { for try await _ in client.events() {} }
+        APIStub.states.withLock { $0[host]!.reply = StubReply(headers:["Content-Type":"text/event-stream"],data:Data(("data: "+String(repeating:"x",count:70000)).utf8)) }
+        await #expect(throws:APIError.responseTooLarge) { for try await _ in client.events() {} }
+    }
+    @Test func actualEventRedirectNeverSendsCredentialToTarget() async throws {
+        let (client,host) = try setup(credential:.session("fixture_session"))
+        defer { remove(host) }
+        let target = URL(string:"https://blocked-"+host+"/outside/events")!
+        APIStub.states.withLock { $0[host]!.reply = StubReply(status:302,headers:["Location":target.absoluteString],redirectTo:target) }
+        let task = Task { for try await _ in client.events() {} }
+        defer { task.cancel() }
+        for _ in 0..<100 {
+            if APIStub.states.withLock({ $0[host]?.redirectProposed == true }) { break }
+            try await Task.sleep(for:.milliseconds(10))
+        }
+        try #require(APIStub.states.withLock { $0[host]?.redirectProposed } == true)
+        // Leave time for an incorrectly accepted redirect to issue its real target request.
+        for _ in 0..<100 {
+            if APIStub.observations.withLock({ $0.contains(where: { $0.url == target }) }) { break }
+            try await Task.sleep(for:.milliseconds(10))
+        }
+        task.cancel(); _ = try? await task.value
+        #expect(APIStub.observations.withLock { !$0.contains(where: { $0.url == target }) })
     }
 
 }

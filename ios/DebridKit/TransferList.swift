@@ -74,18 +74,46 @@ public struct TransferSummary: Identifiable, Sendable {
 
 @Observable @MainActor public final class TransferListModel {
     public enum Phase: Equatable { case idle, loading, ready, failed(String) }
+    public enum LiveStatus: Equatable {
+        case paused, connecting, connected, reconnecting, unavailable
+        public var label: String {
+            switch self {
+            case .paused: "Updates paused"
+            case .connecting: "Connecting live updates"
+            case .connected: "Live updates connected"
+            case .reconnecting: "Reconnecting updates"
+            case .unavailable: "Refreshes periodically"
+            }
+        }
+    }
+    public private(set) var liveStatus: LiveStatus = .paused
+    public private(set) var isLiveActive = false
     public private(set) var phase: Phase = .idle
     public private(set) var items: [TransferSummary] = []
     public private(set) var updatedAt: Date?
     public private(set) var requiresSignIn = false
     public let profile: ServerProfile
     private let api: any TransferListing
-    private var activeRequest: Task<[TorrentDTO], any Error>?
+    private let events: (any ServerEventStreaming)?
+    private let timing: LiveUpdateTiming
+    @ObservationIgnored private var activeRequest: Task<[TorrentDTO], any Error>?
+    @ObservationIgnored private var eventTask: Task<Void, Never>?
+    @ObservationIgnored private var periodicTask: Task<Void, Never>?
+    @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    private var needsReconciliation = false
+    private var liveEpoch = 0
     private var revision = 0
-    public init(profile: ServerProfile, api: any TransferListing) { self.profile = profile; self.api = api }
-    public convenience init(server: AuthenticatedServer) throws {
-        try self.init(profile: server.profile, api: DebridAPIClient(server: ServerAddress(server.profile.serverURL.absoluteString), credential: server.credential))
+    public convenience init(profile: ServerProfile, api: any TransferListing, events: (any ServerEventStreaming)? = nil) {
+        self.init(profile: profile, api: api, events: events, timing: LiveUpdateTiming())
     }
+    init(profile: ServerProfile, api: any TransferListing, events: (any ServerEventStreaming)?, timing: LiveUpdateTiming) {
+        self.profile = profile; self.api = api; self.events = events; self.timing = timing
+    }
+    public convenience init(server: AuthenticatedServer) throws {
+        let client = try DebridAPIClient(server: ServerAddress(server.profile.serverURL.absoluteString), credential: server.credential)
+        self.init(profile: server.profile, api: client, events: client)
+    }
+    deinit { activeRequest?.cancel(); eventTask?.cancel(); periodicTask?.cancel(); refreshTask?.cancel() }
     public func reload() async {
         guard !Task.isCancelled else { return }
         revision &+= 1
@@ -95,7 +123,12 @@ public struct TransferSummary: Identifiable, Sendable {
         let api = self.api
         let task = Task { try Task.checkCancellation(); return try await api.torrents() }
         activeRequest = task
-        defer { if request == revision { activeRequest = nil } }
+        defer {
+            if request == revision {
+                activeRequest = nil
+                if needsReconciliation { requestReconciliation() }
+            }
+        }
         do {
             let transfers = try await withTaskCancellationHandler {
                 try await task.value
@@ -110,11 +143,102 @@ public struct TransferSummary: Identifiable, Sendable {
         } catch {
             guard request == revision else { return }
             guard !Task.isCancelled else { phase = items.isEmpty ? .idle : .ready; requiresSignIn = false; return }
-            requiresSignIn = error as? APIError == .unauthorized
+            let unauthorized = error as? APIError == .unauthorized
+            if unauthorized { stopLiveUpdates() }
+            requiresSignIn = unauthorized
             let message = requiresSignIn ? "Your session has expired. Sign in again." :
                 (error as? APIError == .forbidden ? "This server did not permit access to transfers." : ServerConnectionModel.message(for: error))
             phase = .failed(message)
         }
     }
     public func invalidate() { revision &+= 1; activeRequest?.cancel(); activeRequest = nil; requiresSignIn = false; phase = items.isEmpty ? .idle : .ready }
+
+    public func refreshWhileActive() async {
+        guard isLiveActive, !Task.isCancelled else { return }
+        await reload()
+    }
+
+    /// Foreground ownership: one event loop, one periodic resync, and at most one scheduled refresh.
+    public func startLiveUpdates() {
+        guard !Task.isCancelled, !isLiveActive, !requiresSignIn else { return }
+        liveEpoch &+= 1
+        let epoch = liveEpoch
+        isLiveActive = true
+        liveStatus = events == nil ? .unavailable : .connecting
+        if items.isEmpty { phase = .loading }
+        requestReconciliation(after: .zero)
+        let timing = self.timing
+        periodicTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await timing.sleep(timing.periodic) } catch { return }
+                guard self?.isCurrent(epoch) == true else { return }
+                self?.requestReconciliation()
+            }
+        }
+        guard let events else { return }
+        eventTask = Task { [weak self] in
+            var failures = 0
+            while !Task.isCancelled {
+                guard self?.isCurrent(epoch) == true else { return }
+                let began = ContinuousClock.now
+                var retryAfter: TimeInterval?
+                do {
+                    for try await event in events.events() {
+                        guard !Task.isCancelled, self?.isCurrent(epoch) == true else { return }
+                        self?.liveStatus = .connected
+                        switch event { case .connected, .changed: self?.requestReconciliation() }
+                    }
+                } catch is CancellationError { return }
+                catch {
+                    guard !Task.isCancelled, self?.isCurrent(epoch) == true else { return }
+                    if error as? APIError == .unauthorized {
+                        self?.stopLiveUpdates()
+                        self?.requiresSignIn = true
+                        self?.phase = .failed("Your session has expired. Sign in again.")
+                        return
+                    }
+                    switch error {
+                    case APIError.forbidden, APIError.redirectRefused, APIError.invalidContentType,
+                         APIError.invalidResponse, APIError.responseTooLarge, APIError.http(status: 404):
+                        self?.liveStatus = .unavailable
+                        return // Keep periodic reconciliation; retry capability on next foreground activation.
+                    case APIError.rateLimited(let delay): retryAfter = delay
+                    default: break
+                    }
+                }
+                guard !Task.isCancelled, self?.isCurrent(epoch) == true else { return }
+                if began.duration(to: .now) >= .seconds(30) { failures = 0 }
+                failures = min(32,failures + 1)
+                self?.liveStatus = .reconnecting
+                let delay = SSEReconnectPolicy.delay(failures: failures, jitter: timing.jitter(), retryAfter: retryAfter)
+                do { try await timing.sleep(delay) } catch { return }
+            }
+        }
+    }
+    private func isCurrent(_ epoch: Int) -> Bool { isLiveActive && liveEpoch == epoch }
+    private func requestReconciliation(after delay: Duration? = nil) {
+        guard isLiveActive, !requiresSignIn else { return }
+        needsReconciliation = true
+        guard activeRequest == nil, refreshTask == nil else { return }
+        let epoch = liveEpoch, timing = self.timing
+        refreshTask = Task { [weak self] in
+            do { try await timing.sleep(delay ?? timing.coalesce) }
+            catch { if self?.isCurrent(epoch) == true { self?.refreshTask = nil }; return }
+            guard !Task.isCancelled, self?.isCurrent(epoch) == true else { return }
+            self?.refreshTask = nil
+            guard self?.activeRequest == nil else { return } // Its completion schedules the pending reconciliation.
+            self?.needsReconciliation = false
+            await self?.reload()
+        }
+    }
+    public func stopLiveUpdates() {
+        liveEpoch &+= 1; isLiveActive = false
+        eventTask?.cancel(); eventTask = nil
+        periodicTask?.cancel(); periodicTask = nil
+        refreshTask?.cancel(); refreshTask = nil
+        needsReconciliation = false
+        invalidate()
+        liveStatus = .paused
+    }
+
 }

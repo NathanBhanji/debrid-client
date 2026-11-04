@@ -39,6 +39,7 @@ public final class DebridAPIClient: Sendable {
     private let server: ServerAddress
     private let credential: APICredential?
     private let session: URLSession
+    private let eventSession: URLSession
     private let maximumResponseBytes: Int
 
     public init(server: ServerAddress, credential: APICredential? = nil,
@@ -58,8 +59,11 @@ public final class DebridAPIClient: Sendable {
         self.credential = credential
         self.maximumResponseBytes = maximumResponseBytes
         self.session = URLSession(configuration: isolated, delegate: RefuseAPIRedirects(), delegateQueue: nil)
+        isolated.timeoutIntervalForRequest = 45 // Server heartbeat is every15seconds.
+        isolated.timeoutIntervalForResource = 30 * 60 // Owned foreground stream; bounded reconnect even if never interrupted.
+        self.eventSession = URLSession(configuration: isolated, delegate: RefuseAPIRedirects(), delegateQueue: nil)
     }
-    deinit { session.invalidateAndCancel() }
+    deinit { session.invalidateAndCancel(); eventSession.invalidateAndCancel() }
 
     public func health() async throws -> HealthDTO { try await get(["health"]) }
     public func authStatus() async throws -> AuthStatusDTO { try await get(["auth", "status"]) }
@@ -127,6 +131,48 @@ public final class DebridAPIClient: Sendable {
         }
     }
 
+    public func events() -> AsyncThrowingStream<ServerEvent, any Error> {
+        AsyncThrowingStream(bufferingPolicy: .bufferingNewest(16)) { continuation in
+            let task = Task { await consumeEvents(into: continuation) }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+    @concurrent private func consumeEvents(into continuation: AsyncThrowingStream<ServerEvent, any Error>.Continuation) async {
+        do {
+            try Task.checkCancellation()
+            var request = URLRequest(url: try server.endpoint("events"))
+            request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+            credential?.apply(to: &request)
+            let (bytes, response) = try await eventSession.bytes(for: request)
+            defer { bytes.task.cancel() }
+            guard let response = response as? HTTPURLResponse else { throw APIError.invalidResponse }
+            switch response.statusCode {
+            case 200: break
+            case 300...399: throw APIError.redirectRefused
+            case 401: throw APIError.unauthorized
+            case 403: throw APIError.forbidden
+            case 429: throw APIError.rateLimited(retryAfter: Self.retryAfter(response.value(forHTTPHeaderField: "Retry-After")))
+            default: throw APIError.http(status: response.statusCode)
+            }
+            guard response.mimeType?.lowercased() == "text/event-stream" else { throw APIError.invalidContentType }
+            try Task.checkCancellation()
+            continuation.yield(.connected)
+            var parser = SSEParser()
+            for try await byte in bytes {
+                try Task.checkCancellation()
+                if let frame = try parser.consume(byte), frame.event != "heartbeat" {
+                    // Changes are invalidations, not authoritative state. Do not retain/log payloads.
+                    continuation.yield(.changed(frame.event))
+                }
+            }
+            try Task.checkCancellation()
+            continuation.finish()
+        } catch is CancellationError { continuation.finish(throwing: CancellationError()) }
+        catch let error as URLError {
+            continuation.finish(throwing: error.code == .cancelled ? CancellationError() : APIError.connection(error.code))
+        } catch { continuation.finish(throwing: error) }
+    }
+
     static func retryAfter(_ raw: String?, now: Date = Date()) -> TimeInterval? {
         guard let raw else { return nil }
         if let seconds = TimeInterval(raw), seconds.isFinite, seconds >= 0 { return min(seconds, 86400) }
@@ -153,3 +199,5 @@ public final class DebridAPIClient: Sendable {
         return decoder
     }
 }
+
+extension DebridAPIClient: ServerEventStreaming {}

@@ -4,6 +4,7 @@ import SwiftUI
 struct LiveTransfers: View {
     let server: AuthenticatedServer
     let auth: SessionCoordinator?
+    @Environment(\.scenePhase) private var scenePhase
     @State private var model: TransferListModel?
     @State private var setupFailed = false
     @State private var showingServer = false
@@ -56,18 +57,26 @@ struct LiveTransfers: View {
                     ToolbarItem(placement: .primaryAction) { Button("Server", systemImage: "server.rack") { showingServer = true } }
                 }
                 .refreshable { if let model { await reload(model) } }
-                .task {
+                .task(id: scenePhase) {
+                    guard scenePhase == .active else { model?.stopLiveUpdates(); return }
                     do {
                         if model == nil { model = try TransferListModel(server: server) }
-                        if let model { await reload(model) }
+                        model?.startLiveUpdates()
                     } catch { setupFailed = true }
                 }
-                .onDisappear { model?.invalidate() }
+                .onChange(of: model?.requiresSignIn) {
+                    guard scenePhase == .active, let model, model.requiresSignIn else { return }
+                    Task {
+                        guard scenePhase == .active, model.requiresSignIn else { return }
+                        await auth?.sessionRejected(for: model.profile.id)
+                    }
+                }
+                .onDisappear { model?.stopLiveUpdates() }
                 .sheet(isPresented: $showingServer) { serverSheet }
         }.tint(DebridStyle.tint)
     }
     private func reload(_ model: TransferListModel) async {
-        await model.reload()
+        await model.refreshWhileActive()
         if !Task.isCancelled, model.requiresSignIn { await auth?.sessionRejected(for: model.profile.id) }
     }
     private func readout(_ model: TransferListModel) -> some View {
@@ -80,6 +89,7 @@ struct LiveTransfers: View {
             if let date = model.updatedAt {
                 HStack(spacing: 4) { Text("Updated"); Text(date, style: .relative); Text("ago") }.font(.footnote)
             } else { Text("Waiting for server").font(.footnote) }
+            Text(model.liveStatus.label).font(.footnote)
         }.foregroundStyle(DebridStyle.readoutText)
             .padding(20).frame(maxWidth: .infinity, alignment: .leading)
             .background(DebridStyle.readout, in: .rect(cornerRadius: 20))
