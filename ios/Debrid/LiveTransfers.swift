@@ -8,24 +8,31 @@ struct LiveTransfers: View {
     @State private var model: TransferListModel?
     @State private var setupFailed = false
     @State private var showingServer = false
+    @State private var showingFilters = false
+    @State private var initialQuery = ""
     init(server: AuthenticatedServer, auth: SessionCoordinator) { self.server = server; self.auth = auth }
     #if DEBUG
     init(preview: LiveTransfersPreviewAPI) throws {
         let profile = try ServerProfile(server: ServerAddress("https://debrid.example.test"))
         server = AuthenticatedServer(profile: profile, username: "Sample User", credential: try .session("fixture_unused"))
         auth = nil
-        _model = State(initialValue: TransferListModel(profile: profile, api: preview))
+        let model = TransferListModel(profile: profile, api: preview)
+        if ProcessInfo.processInfo.arguments.contains("-AttentionPreview") { model.search.scope = .attention }
+        _model = State(initialValue: model)
     }
     #endif
     var body: some View {
         NavigationStack {
             List {
-                Section {
-                    if auth == nil { Label("Preview · Sample transfers", systemImage: "viewfinder").font(.footnote).foregroundStyle(DebridStyle.secondary).listRowSeparator(.hidden) }
+                if auth == nil {
+                    Section { Label("Preview · Sample transfers", systemImage:"viewfinder").font(.footnote).foregroundStyle(DebridStyle.secondary) }
+                        .listRowBackground(Color.clear).listRowSeparator(.hidden)
+                }
+                if model?.search.hasCriteria != true { Section {
                     DebridWordmark().listRowSeparator(.hidden)
                     if let model { readout(model).listRowSeparator(.hidden) }
                 }.listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+                    .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0)) }
                 if let model {
                     if case .failed(let message) = model.phase {
                         Section {
@@ -41,27 +48,52 @@ struct LiveTransfers: View {
                         Section {
                             ContentUnavailableView("No transfers yet", systemImage: "tray", description: Text("Transfers added to your server will appear here."))
                         }.listRowBackground(Color.clear)
+                    } else if !model.items.isEmpty && model.visibleItems.isEmpty {
+                        Section {
+                            ContentUnavailableView {
+                                Label("No matching transfers", systemImage: "magnifyingglass")
+                            } description: { Text("Try another search or clear your filters.") }
+                            actions: { Button("Clear search and filters") { model.resetSearch() }.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint) }
+                        }.listRowBackground(Color.clear)
                     } else {
-                        Section("Your transfers") {
-                            ForEach(model.items) { item in
+                        Section {
+                            ForEach(model.visibleItems) { item in
                                 LiveTransferRow(item: item).listRowBackground(DebridStyle.surface)
                             }
+                        } header: {
+                            VStack(alignment:.leading,spacing:4) {
+                                HStack { Text("Your transfers"); Spacer(); Text("\(model.visibleItems.count) of \(model.items.count)").monospacedDigit() }
+                                if model.search.hasCriteria { Text(model.liveStatus.label).font(.caption) }
+                            }.accessibilityElement(children:.combine)
                         }
                     }
                 } else if setupFailed {
                     Section { Text("The server connection could not be prepared. Reconnect to try again.").foregroundStyle(DebridStyle.secondary) }
                 } else { ProgressView("Preparing connection…") }
-            }.modifier(DebridListStyle())
+            }.modifier(DebridListStyle()).scrollDismissesKeyboard(.interactively)
                 .navigationTitle("Transfers")
+                .searchable(text:Binding(get:{ model?.search.query ?? initialQuery },set:{ initialQuery = TransferSearchIndex.bounded($0,limit:256); model?.setQuery(initialQuery) }),prompt:"Search transfers")
+                .autocorrectionDisabled().textInputAutocapitalization(.never)
                 .toolbar {
+                    ToolbarItem(placement:.topBarLeading) {
+                        Button("Filters", systemImage:model?.search.activeFilterCount ?? 0 > 0 ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle") { showingFilters = true }
+                            .disabled(model == nil).accessibilityValue("\(model?.search.activeFilterCount ?? 0) active")
+                    }
                     ToolbarItem(placement: .primaryAction) { Button("Server", systemImage: "server.rack") { showingServer = true } }
                 }
                 .refreshable { if let model { await reload(model) } }
                 .task(id: scenePhase) {
                     guard scenePhase == .active else { model?.stopLiveUpdates(); return }
                     do {
-                        if model == nil { model = try TransferListModel(server: server) }
+                        if model == nil {
+                            let created = try TransferListModel(server: server)
+                            created.setQuery(initialQuery); model = created
+                        }
                         model?.startLiveUpdates()
+                        await model?.restoreSearchIfNeeded()
+                        #if DEBUG
+                        if auth == nil, ProcessInfo.processInfo.arguments.contains("-FiltersPreview") { showingFilters = true }
+                        #endif
                     } catch { setupFailed = true }
                 }
                 .onChange(of: model?.requiresSignIn) {
@@ -73,6 +105,7 @@ struct LiveTransfers: View {
                 }
                 .onDisappear { model?.stopLiveUpdates() }
                 .sheet(isPresented: $showingServer) { serverSheet }
+                .sheet(isPresented: $showingFilters) { if let model { TransferFiltersView(model:model,preview:auth == nil) } }
         }.tint(DebridStyle.tint)
     }
     private func reload(_ model: TransferListModel) async {
@@ -84,7 +117,7 @@ struct LiveTransfers: View {
             Text("TRANSFER STATUS").font(.caption.monospaced().weight(.medium)).tracking(1)
             Text(model.updatedAt == nil ? "Transfer information unavailable" : "\(model.items.count) transfers · \(model.items.filter { $0.stage.isActive }.count) active")
                 .font(.title3.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
-            let attention = model.items.filter { $0.stage == .failed || $0.stage == .selecting }.count
+            let attention = model.items.filter { $0.stage.needsAttention }.count
             if attention > 0 { Text("\(attention) need your attention").font(.subheadline) }
             if let date = model.updatedAt {
                 HStack(spacing: 4) { Text("Updated"); Text(date, style: .relative); Text("ago") }.font(.footnote)
@@ -154,7 +187,7 @@ private struct LiveTransferRow: View {
                     .font(.caption).monospacedDigit().foregroundStyle(DebridStyle.secondary)
             }
             HStack {
-                if let category = item.transfer.category, !category.isEmpty { Text(category) }
+                if let category = item.transfer.category, !category.isEmpty { Text(TransferSearchIndex.bounded(category,limit:128)) }
                 if item.transfer.size > 0 { Text(item.transfer.size.formatted(.byteCount(style: .file))) }
             }.font(.footnote).foregroundStyle(DebridStyle.secondary)
         }.fixedSize(horizontal: false, vertical: true).padding(.vertical, 10)
@@ -164,9 +197,15 @@ private struct LiveTransferRow: View {
 }
 
 #if DEBUG
-struct LiveTransfersPreviewAPI: TransferListing {
+struct LiveTransfersPreviewAPI: TransferListing, AccountListing {
     enum State: Sendable { case filled, empty, offline }
     let state: State
+    func accounts() async throws -> [AccountDTO] {
+        if state == .offline { throw APIError.connection(.notConnectedToInternet) }
+        let raw = "[{\"id\":\"sample-account\",\"kind\":\"torbox\",\"name\":\"Main\",\"enabled\":true,\"is_default\":true,\"created_at\":\"2026-01-02T03:04:05Z\",\"updated_at\":\"2026-01-02T03:04:05Z\"},{\"id\":\"sample-rd\",\"kind\":\"realdebrid\",\"name\":\"Archive\",\"enabled\":true,\"is_default\":false,\"created_at\":\"2026-01-02T03:04:05Z\",\"updated_at\":\"2026-01-02T03:04:05Z\"}]"
+        let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase; decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode([AccountDTO].self,from:Data(raw.utf8))
+    }
     func torrents() async throws -> [TorrentDTO] {
         if state == .offline { throw APIError.connection(.notConnectedToInternet) }
         if state == .empty { return [] }
@@ -178,7 +217,7 @@ struct LiveTransfersPreviewAPI: TransferListing {
         nas["id"] = "sample-nas"; nas["name"] = "Earth from Above"; nas["status"] = "finished"; nas["local_progress"] = 0.64
         nas["downloads"] = [["id":"sample-download","torrent_id":"sample-nas","path":"Earth.mkv","filename":"Earth.mkv","size":10_000_000_000,"bytes_done":6_400_000_000,"progress":0.64,"state":"downloading","retry_count":0,"queued_at":time]]
         var selection = base
-        selection["id"] = "sample-selection"; selection["name"] = "Field Recordings · Vol. 02"; selection["status"] = "waiting_selection"; selection["category"] = "Audio"
+        selection["id"] = "sample-selection"; selection["name"] = "Field Recordings · Vol. 02"; selection["status"] = "waiting_selection"; selection["category"] = "Audio"; selection["account_id"] = "sample-rd"
         let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase; decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode([TorrentDTO].self, from: JSONSerialization.data(withJSONObject: [provider,nas,selection]))
     }

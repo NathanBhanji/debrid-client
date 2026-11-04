@@ -1,6 +1,6 @@
 # Debrid for iPhone
 
-Native SwiftUI app, Swift 6 complete concurrency checking. **Current milestone: server connection, Pocket ID SSO and secure session lifecycle.** Normal launch restores a selected server session or opens Connect. Public discovery advertises native SSO on servers with the exchange addition (v0.2.2+). The live Transfers list is connected; details, intake and provider/settings management follow in subsequent milestones. This is not ready for daily use. Debug `-Demo` or the native design gallery use fixture data without network or mutations.
+Native SwiftUI app, Swift 6 complete concurrency checking. **Current milestone: Pocket ID connection, live Transfers, search and filters.** Normal launch restores a selected server session or opens Connect. Public discovery advertises native SSO on servers with the exchange addition (v0.2.2+). The live Transfers list uses foreground SSE reconciliation, native search and combined status/category/account filters; details, intake and provider/settings management follow in subsequent milestones. This is not ready for daily use. Debug `-Demo` or the native design gallery use fixture data without network or mutations.
 
 XcodeGen `project.yml` is the source of truth. Do not edit generated projects/Info.plists/entitlements. Xcode 27.1 (27A9275), iPhoneOS/Simulator SDK 27.1 and installed iOS 27.0 runtime verified on 2026-11-03. Minimum iOS **27.0**, provisionally matching Nathan's app fleet and the available runtime; confirm the phone's OS before device delivery. No third-party packages. Design and Swift implementation follow Emil’s `emil-design-eng`, `apple-design` and `write-swift` skills; see the [research/review](../docs/design/ios/research.md). Nathan requested the existing web identity within native iOS 27 navigation and controls, and chose Pocket ID SSO as the primary login; this requires a secure native exchange addition to the backend before live use.
 
@@ -92,3 +92,7 @@ This milestone passed 62 core tests and seven native UI flows, plus real-list li
 ## Foreground events
 
 The connected list now owns one foreground SSE subscription, bounded parsing/buffering, jittered reconnect and periodic reconciliation. Events are hints; snapshots are fetched on connect/resume and coalesced changes, with a45-second foreground safety resync. An event arriving during a GET waits for it rather than starving it with cancellation. Scene inactivity/disappearance stops network work; stale epochs and cancelled errors cannot update state or delete credentials. Read [protocol, timing and validation boundaries](../docs/plan/ios-live-updates.md).
+
+## Transfer search and filters
+
+Native searchable navigation and a Filters form combine names, hashes, category and provider-account labels. Results retain server order and display explicit empty matches. Filter/query state is server-bound and atomically saved to a bounded protected app file, with no defaults or credential sharing. Delayed restoration cannot overwrite new typing. See [search boundaries and validation](../docs/plan/ios-search.md).

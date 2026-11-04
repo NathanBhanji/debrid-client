@@ -114,3 +114,33 @@ final class LiveTransferFlowTests: XCTestCase {
         XCTAssertFalse(app.staticTexts["No transfers yet"].exists)
     }
 }
+
+@MainActor
+final class TransferSearchFlowTests: XCTestCase {
+    func testNativeSearchFindsTransferAndShowsNoMatchState() {
+        let app = XCUIApplication(); app.launchArguments = ["-TransfersPreview"]; app.launch()
+        XCTAssertTrue(app.staticTexts["The Open Ocean"].waitForExistence(timeout:10))
+        let search = app.searchFields.firstMatch
+        if !search.isHittable { app.swipeDown() }
+        XCTAssertTrue(search.waitForExistence(timeout:5))
+        search.tap(); search.typeText("missing documentary")
+        XCTAssertTrue(app.staticTexts["No matching transfers"].waitForExistence(timeout:5))
+        XCTAssertFalse(app.staticTexts["No transfers yet"].exists)
+    }
+    func testStatusFilterCanBeSelectedAndClearedWithNativePicker() {
+        let app = XCUIApplication(); app.launchArguments = ["-TransfersPreview"]; app.launch()
+        XCTAssertTrue(app.staticTexts["The Open Ocean"].waitForExistence(timeout:10))
+        app.buttons["Filters"].tap()
+        let picker = app.descendants(matching:.any).matching(identifier:"filter-status").firstMatch
+        XCTAssertTrue(picker.waitForExistence(timeout:5)); picker.tap()
+        let attention = app.descendants(matching:.any).matching(NSPredicate(format:"label == %@", "Needs attention")).firstMatch
+        XCTAssertTrue(attention.waitForExistence(timeout:5),app.debugDescription)
+        attention.tap()
+        XCTAssertTrue(app.navigationBars["Filters"].waitForExistence(timeout:5))
+        app.buttons["Done"].tap()
+        XCTAssertTrue(app.staticTexts["Field Recordings · Vol. 02"].waitForExistence(timeout:5))
+        XCTAssertFalse(app.staticTexts["The Open Ocean"].exists)
+        app.buttons["Filters"].tap(); app.buttons["Clear search and filters"].tap(); app.buttons["Done"].tap()
+        XCTAssertTrue(app.staticTexts["The Open Ocean"].waitForExistence(timeout:5))
+    }
+}
