@@ -13,7 +13,7 @@ python3 scripts/check.py test --simulator <existing-Debrid-simulator-UUID>
 open Debrid.xcodeproj
 ```
 
-`dev.bhanji.debrid`, framework `dev.bhanji.debrid.kit`; proposed extension `dev.bhanji.debrid.share`, App Group `group.dev.bhanji.debrid`, team `ZTN995BU9H`. Only app/framework/test targets exist today. No copied profiles, shared Keychain entitlements or APNs capabilities. Device builds in Xcode use automatic signing; command-line checks deliberately disable it. Device installation, App Group/Keychain verification, app icon, distribution profiles and App Store Connect registration are future gates. Never reuse Flux/Heimdall profiles. No TestFlight upload is possible yet.
+`dev.bhanji.debrid`, framework `dev.bhanji.debrid.kit`; proposed extension `dev.bhanji.debrid.share`, App Group `group.dev.bhanji.debrid`, team `ZTN995BU9H`. Only app/framework/test targets exist today. The app has an explicit private Keychain access group; there are no copied profiles, extension-shared secrets or APNs capabilities. Device builds in Xcode use automatic signing; simulator checks use ad-hoc signing and a hosted test bundle so actual Keychain operations are exercised; unsigned device checks compile/link separately. Device installation, App Group/Keychain verification, app icon, distribution profiles and App Store Connect registration are future gates. Never reuse Flux/Heimdall profiles. No TestFlight upload is possible yet.
 
 `DebridKit` is extension-safe and owns domain/transport/storage boundaries as they are added. `TransferPreview` is presentation data, not a speculative API schema. `ServerAddress` validates HTTPS roots without credentials/query fragments and preserves proxy prefixes. API DTOs, URLSession client, Keychain and protected inbox arrive separately with focused tests. Never persist secrets in defaults, design fixtures or logs.
 
@@ -50,3 +50,11 @@ python3 ios/scripts/check.py test --suite core --simulator <UUID>
 ```
 
 Use core-only tests when UI is unchanged; the default suite still includes native interaction tests. All tests/captures use the same locks/device policy. Test diagnostics collection is disabled to avoid large automatic sysdiagnose archives; one latest result and bounded log are retained.
+
+## Server profiles and session storage
+
+`SessionStore` serializes one app-owned namespace. `ServerProfile` canonicalizes HTTPS origins/proxy prefixes and hashes the canonical URL into the credential account. Non-secret profiles/selection live in defaults; each versioned session is bound again to its exact URL inside Keychain. The Keychain adapter requires an explicit entitled group on every operation, is non-synchronizable and uses `WhenUnlockedThisDeviceOnly`. There is no plaintext fallback when locked, corrupt or missing entitlements. Local logout deletes only that server’s secret; server-side revocation belongs to the live session coordinator.
+
+Metadata and Keychain are separate stores, not a two-store transaction. Removal deletes the secret first: if metadata then fails, the visible profile can remain signed out, while other servers are untouched. Own exactly one `SessionStore` per namespace. A future extension inbox coordinates files separately and does not need session credentials.
+
+Validation: 28 Swift Testing functions (including real hosted simulator Keychain read/update/delete, accessibility attributes, namespace isolation, expiry, storage failures and proxy-path boundaries) passed on the shared iOS 27.0 device. Physical-device entitlement/protection behavior remains a delivery check. Apple’s [Keychain access-group guidance](https://developer.apple.com/documentation/security/sharing-access-to-keychain-items-among-a-collection-of-apps) explains why the adapter never searches implicitly across entitled groups.

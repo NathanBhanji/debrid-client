@@ -58,7 +58,12 @@ def run(command, name):
 
 run(["xcodegen", "generate"], "generate")
 command = ["xcodebuild", "-project", "Debrid.xcodeproj", "-scheme", "Debrid", "-configuration", "Debug",
-           "-derivedDataPath", str(ROOT / ".build"), "CODE_SIGNING_ALLOWED=NO"]
+           "-derivedDataPath", str(ROOT / ".build")]
+if a.mode == "device":
+    command += ["CODE_SIGNING_ALLOWED=NO"]
+else:
+    # Ad-hoc signing gives the simulator a real app identity for Keychain tests, without a device profile.
+    command += ["CODE_SIGN_IDENTITY=-", "CODE_SIGNING_ALLOWED=YES", "DEVELOPMENT_TEAM=", "AppIdentifierPrefix=ZTN995BU9H."]
 if a.mode == "test":
     command += ["-destination", "platform=iOS Simulator,id=" + a.simulator, "-parallel-testing-enabled", "NO", "-collect-test-diagnostics", "never"]
     if a.suite == "core":
