@@ -21,6 +21,10 @@ struct LiveTransfers: View {
     @State private var path: [TransferRoute] = []
     init(server: AuthenticatedServer, auth: SessionCoordinator) { self.server = server; self.auth = auth }
     #if DEBUG
+    init(recoveryModel: TransferListModel) throws {
+        server = AuthenticatedServer(profile: recoveryModel.profile, username: "Sample User", credential: try .session("fixture_unused"))
+        auth = nil; _model = State(initialValue: recoveryModel)
+    }
     init(preview: LiveTransfersPreviewAPI) throws {
         let profile = try ServerProfile(server: ServerAddress("https://debrid.example.test"))
         server = AuthenticatedServer(profile: profile, username: "Sample User", credential: try .session("fixture_unused"))
@@ -109,12 +113,21 @@ struct LiveTransfers: View {
                 }.listRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0)) }
                 if let model {
-                    if case .failed(let message) = model.phase {
+                    if let message = model.failureMessage {
                         Section {
                             Label(message, systemImage: "exclamationmark.triangle").foregroundStyle(DebridStyle.secondary)
-                            if !model.items.isEmpty { Text("Showing the last loaded transfers.").font(.footnote).foregroundStyle(DebridStyle.secondary) }
-                            Button("Try again") { Task { await reload(model) } }
-                                .buttonStyle(.borderless).foregroundStyle(DebridStyle.tint)
+                            if !model.items.isEmpty { VStack(alignment: .leading, spacing: 4) {
+                                Text("Showing the last loaded transfers.")
+                                if let date = model.updatedAt { Text("Last confirmed \(date.formatted(date: .abbreviated, time: .shortened))") }
+                            }.font(.footnote).foregroundStyle(DebridStyle.secondary).accessibilityIdentifier("transfers-stale") }
+                            if let retry = model.retryAvailableAt {
+                                Text("Refresh available after \(retry.formatted(date: .omitted, time: .standard)).").font(.footnote).foregroundStyle(DebridStyle.secondary)
+                            }
+                            TimelineView(.periodic(from: .now, by: 1)) { _ in
+                                Button("Try again") { Task { await reload(model) } }
+                                    .disabled(model.isRefreshThrottled)
+                                    .buttonStyle(.borderless).foregroundStyle(DebridStyle.tint)
+                            }
                         }
                     }
                     if model.phase == .loading && model.items.isEmpty {
@@ -165,6 +178,9 @@ struct LiveTransfers: View {
             Text("TRANSFER STATUS").font(.caption.monospaced().weight(.medium)).tracking(1)
             Text(model.updatedAt == nil ? "Transfer information unavailable" : "\(model.items.count) transfers · \(model.items.filter { $0.stage.isActive }.count) active")
                 .font(.title3.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+            if let date = model.updatedAt {
+                Text("Last confirmed \(date.formatted(date: .abbreviated, time: .shortened))").font(.caption).foregroundStyle(DebridStyle.secondary)
+            }
             let attention = model.items.filter { $0.stage.needsAttention }.count
             if attention > 0 { Text("\(attention) need your attention").font(.subheadline) }
             if let date = model.updatedAt {

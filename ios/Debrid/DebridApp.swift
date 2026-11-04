@@ -6,7 +6,9 @@ struct DebridApp: App {
     var body: some Scene {
         WindowGroup {
             #if DEBUG
-            if let index = ProcessInfo.processInfo.arguments.firstIndex(of: "-SettingsFixture"), ProcessInfo.processInfo.arguments.indices.contains(index + 1) {
+            if let index = ProcessInfo.processInfo.arguments.firstIndex(of: "-RecoveryFixture"), ProcessInfo.processInfo.arguments.indices.contains(index + 1) {
+                RecoveryFixtureRoot(mode: ProcessInfo.processInfo.arguments[index + 1])
+            } else if let index = ProcessInfo.processInfo.arguments.firstIndex(of: "-SettingsFixture"), ProcessInfo.processInfo.arguments.indices.contains(index + 1) {
                 SettingsFixtureRoot(mode: ProcessInfo.processInfo.arguments[index + 1])
             } else if let index = ProcessInfo.processInfo.arguments.firstIndex(of: "-ProvidersFixture"), ProcessInfo.processInfo.arguments.indices.contains(index + 1) {
                 ProviderFixtureRoot(mode: ProcessInfo.processInfo.arguments[index + 1])

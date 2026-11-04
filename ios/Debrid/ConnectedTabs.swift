@@ -50,6 +50,9 @@ struct ConnectionSettings: View {
                             .disabled(auth.isBusy).accessibilityIdentifier("settings-sign-out")
                     }
                 }
+                Section("Help") {
+                    NavigationLink("Connection help") { ConnectionHelpDestination(server: server, auth: auth) }.accessibilityIdentifier("connection-help")
+                }
                 Section("About") {
                     LabeledContent("Debrid", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1")
                 }
