@@ -94,3 +94,23 @@ final class ConnectionFlowTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Enter a full HTTPS server address without credentials, a query or a fragment."].exists)
     }
 }
+
+@MainActor
+final class LiveTransferFlowTests: XCTestCase {
+    func testLiveListFixtureShowsDistinctStagesAndHonestServerSheet() {
+        let app = XCUIApplication(); app.launchArguments = ["-TransfersPreview"]; app.launch()
+        XCTAssertTrue(app.staticTexts["Downloading at provider"].waitForExistence(timeout:10))
+        XCTAssertTrue(app.staticTexts["Downloading to NAS"].exists)
+        app.buttons["Server"].tap()
+        XCTAssertTrue(app.staticTexts["Preview only. No server session exists."].waitForExistence(timeout:5))
+        app.buttons["Done"].tap()
+        XCTAssertTrue(app.navigationBars["Transfers"].waitForExistence(timeout:5))
+    }
+    func testLiveListEmptyAndOfflineDoNotLookLikeLoadedTransfers() {
+        let app = XCUIApplication(); app.launchArguments = ["-TransfersPreview","-TransfersEmpty"]; app.launch()
+        XCTAssertTrue(app.staticTexts["No transfers yet"].waitForExistence(timeout:10))
+        app.terminate(); app.launchArguments = ["-TransfersPreview","-TransfersOffline"]; app.launch()
+        XCTAssertTrue(app.staticTexts["You’re offline. Reconnect and try again."].waitForExistence(timeout:10))
+        XCTAssertFalse(app.staticTexts["No transfers yet"].exists)
+    }
+}

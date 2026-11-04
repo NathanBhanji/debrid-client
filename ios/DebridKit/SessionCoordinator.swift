@@ -5,6 +5,9 @@ public struct AuthenticatedServer: Sendable {
     public let profile: ServerProfile
     public let username: String
     public let credential: APICredential
+    public init(profile: ServerProfile, username: String, credential: APICredential) {
+        self.profile = profile; self.username = username; self.credential = credential
+    }
 }
 
 @Observable @MainActor public final class SessionCoordinator {
@@ -79,7 +82,7 @@ public struct AuthenticatedServer: Sendable {
                let api = try? makeAPI(profile, credential) { try? await api.logout() }
             if operation == generation {
                 phase = .signedOut
-                message = error is CancellationError ? nil : Self.message(for: error)
+                message = Task.isCancelled || error is CancellationError ? nil : Self.message(for: error)
             }
             if cleanupFailed { pendingLocalRemoval = profile; message = "Sign-in was interrupted, but its saved session could not be removed. Unlock the iPhone, then remove the saved session below." }
         }
@@ -114,12 +117,26 @@ public struct AuthenticatedServer: Sendable {
         } catch {
             if operation == generation {
                 phase = .signedOut
+                guard !Task.isCancelled else { message = nil; return }
                 message = error is CancellationError ? nil : Self.message(for: error)
                 if error as? APIError == .unauthorized, let restoringProfile {
                     do { try await store.signOut(restoringProfile.id) }
                     catch { pendingLocalRemoval = restoringProfile; message = "This session was revoked, but its saved copy could not be removed. Unlock the iPhone, then remove the saved session below." }
                 }
             }
+        }
+    }
+    /// A response from an old server/view can never clear the current server's session.
+    public func sessionRejected(for profileID: String) async {
+        guard !Task.isCancelled, !isBusy, case .connected(let connected) = phase, connected.profile.id == profileID else { return }
+        isBusy = true
+        defer { isBusy = false }
+        phase = .signedOut
+        message = "Your session has expired or was revoked. Sign in with Pocket ID again."
+        do { try await store.signOut(profileID) }
+        catch {
+            pendingLocalRemoval = connected.profile
+            message = "The rejected session could not be removed. Unlock the iPhone, then remove the saved session below."
         }
     }
     public func signOut() async {
