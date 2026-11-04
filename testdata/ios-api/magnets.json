@@ -1,0 +1,165 @@
+[
+  {
+    "name": "hex",
+    "uri": "magnet:?xt=urn:btih:0123456789ABCDEF0123456789ABCDEF01234567",
+    "native_accepted": true,
+    "server_accepted": true,
+    "hash": "0123456789abcdef0123456789abcdef01234567"
+  },
+  {
+    "name": "base32",
+    "uri": "magnet:?xt=urn:btih:AEBAGBAFAYDQQCIKBMGA2DQPCAIREEYU",
+    "native_accepted": true,
+    "server_accepted": true,
+    "hash": "0102030405060708090a0b0c0d0e0f1011121314"
+  },
+  {
+    "name": "case scheme",
+    "uri": "MAGNET:?xt=urn:btih:0123456789ABCDEF0123456789ABCDEF01234567",
+    "native_accepted": true,
+    "server_accepted": true,
+    "hash": "0123456789abcdef0123456789abcdef01234567"
+  },
+  {
+    "name": "surrounding whitespace",
+    "uri": " \tmagnet:?xt=urn:btih:0123456789ABCDEF0123456789ABCDEF01234567\r\n",
+    "native_accepted": true,
+    "server_accepted": true,
+    "hash": "0123456789abcdef0123456789abcdef01234567"
+  },
+  {
+    "name": "encoded hash and key",
+    "uri": "magnet:?%78%74=urn%3Abtih%3A0123456789ABCDEF0123456789ABCDEF01234567",
+    "native_accepted": true,
+    "server_accepted": true,
+    "hash": "0123456789abcdef0123456789abcdef01234567"
+  },
+  {
+    "name": "repeated trackers and plus",
+    "uri": "magnet:?xt=urn:btih:0123456789ABCDEF0123456789ABCDEF01234567\u0026dn=My+Show%2BNotes\u0026tr=udp%3A%2F%2Ftracker.example.test%3A80%2Fannounce\u0026tr=https%3a%2f%2ftracker.example.test%2fa%3fpasskey%3dfixture\u0026x.pe=peer.example.test%3A1234",
+    "native_accepted": true,
+    "server_accepted": true,
+    "hash": "0123456789abcdef0123456789abcdef01234567",
+    "display_name": "My Show+Notes"
+  },
+  {
+    "name": "first display name",
+    "uri": "magnet:?xt=urn:btih:0123456789ABCDEF0123456789ABCDEF01234567\u0026dn=First\u0026dn=Second",
+    "native_accepted": true,
+    "server_accepted": true,
+    "hash": "0123456789abcdef0123456789abcdef01234567",
+    "display_name": "First"
+  },
+  {
+    "name": "unknown topic and hybrid",
+    "uri": "magnet:?xt=urn:btih:0123456789ABCDEF0123456789ABCDEF01234567\u0026xt=urn:sha1:ignored\u0026xt=urn:btmh:12200000000000000000000000000000000000000000000000000000000000000000",
+    "native_accepted": true,
+    "server_accepted": true,
+    "hash": "0123456789abcdef0123456789abcdef01234567"
+  },
+  {
+    "name": "v2 only",
+    "uri": "magnet:?xt=urn:btmh:12200000000000000000000000000000000000000000000000000000000000000000",
+    "native_accepted": false,
+    "server_accepted": false
+  },
+  {
+    "name": "duplicate v1",
+    "uri": "magnet:?xt=urn:btih:0123456789ABCDEF0123456789ABCDEF01234567\u0026xt=urn:btih:0123456789ABCDEF0123456789ABCDEF01234567",
+    "native_accepted": false,
+    "server_accepted": false
+  },
+  {
+    "name": "duplicate v2",
+    "uri": "magnet:?xt=urn:btih:0123456789ABCDEF0123456789ABCDEF01234567\u0026xt=urn:btmh:12200000000000000000000000000000000000000000000000000000000000000000\u0026xt=urn:btmh:12200000000000000000000000000000000000000000000000000000000000000000",
+    "native_accepted": false,
+    "server_accepted": false
+  },
+  {
+    "name": "bad v2",
+    "uri": "magnet:?xt=urn:btih:0123456789ABCDEF0123456789ABCDEF01234567\u0026xt=urn:btmh:1220abcd",
+    "native_accepted": false,
+    "server_accepted": false
+  },
+  {
+    "name": "lowercase base32",
+    "uri": "magnet:?xt=urn:btih:aebagbafaydqqcikbmga2dqpcaireeyu",
+    "native_accepted": false,
+    "server_accepted": false
+  },
+  {
+    "name": "bad hex",
+    "uri": "magnet:?xt=urn:btih:zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+    "native_accepted": false,
+    "server_accepted": false
+  },
+  {
+    "name": "wrong scheme",
+    "uri": "https://example.test/?xt=urn:btih:0123456789ABCDEF0123456789ABCDEF01234567",
+    "native_accepted": false,
+    "server_accepted": false
+  },
+  {
+    "name": "missing v1",
+    "uri": "magnet:?dn=NoHash",
+    "native_accepted": false,
+    "server_accepted": false
+  },
+  {
+    "name": "uppercase topic",
+    "uri": "magnet:?xt=URN:BTIH:0123456789ABCDEF0123456789ABCDEF01234567",
+    "native_accepted": false,
+    "server_accepted": false
+  },
+  {
+    "name": "short hash",
+    "uri": "magnet:?xt=urn:btih:0123",
+    "native_accepted": false,
+    "server_accepted": false
+  },
+  {
+    "name": "fragment stricter native",
+    "uri": "magnet:?xt=urn:btih:0123456789ABCDEF0123456789ABCDEF01234567#fragment",
+    "native_accepted": false,
+    "server_accepted": true,
+    "hash": "0123456789abcdef0123456789abcdef01234567"
+  },
+  {
+    "name": "raw space stricter native",
+    "uri": "magnet:?xt=urn:btih:0123456789ABCDEF0123456789ABCDEF01234567\u0026dn=Raw Space",
+    "native_accepted": false,
+    "server_accepted": true,
+    "hash": "0123456789abcdef0123456789abcdef01234567",
+    "display_name": "Raw Space"
+  },
+  {
+    "name": "bad unknown escape stricter native",
+    "uri": "magnet:?xt=urn:btih:0123456789ABCDEF0123456789ABCDEF01234567\u0026ignored=%zz",
+    "native_accepted": false,
+    "server_accepted": true,
+    "hash": "0123456789abcdef0123456789abcdef01234567"
+  },
+  {
+    "name": "semicolon stricter native",
+    "uri": "magnet:?xt=urn:btih:0123456789ABCDEF0123456789ABCDEF01234567\u0026ignored=a;b",
+    "native_accepted": false,
+    "server_accepted": true,
+    "hash": "0123456789abcdef0123456789abcdef01234567"
+  },
+  {
+    "name": "invalid utf8 stricter native",
+    "uri": "magnet:?xt=urn:btih:0123456789ABCDEF0123456789ABCDEF01234567\u0026dn=%ff",
+    "native_accepted": false,
+    "server_accepted": true,
+    "hash": "0123456789abcdef0123456789abcdef01234567",
+    "display_name": "\ufffd"
+  },
+  {
+    "name": "encoded control stricter native",
+    "uri": "magnet:?xt=urn:btih:0123456789ABCDEF0123456789ABCDEF01234567\u0026dn=Line%0aBreak",
+    "native_accepted": false,
+    "server_accepted": true,
+    "hash": "0123456789abcdef0123456789abcdef01234567",
+    "display_name": "Line\nBreak"
+  }
+]

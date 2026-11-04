@@ -104,3 +104,7 @@ Each live row opens native detail with independent provider availability and NAS
 ## Transfer files
 
 Native folder navigation and path search show provider metadata and individual NAS download records, including selection, progress and failures. File identity survives size/selection updates. Ambiguous metadata and unmatched downloads stay explicit, with no inferred phone filesystem paths or file-open action. Index work runs off the main actor, shares the existing live snapshots and has documented limits. See [file matching, limits and validation](../docs/plan/ios-files.md).
+
+## Magnet intake foundation
+
+`MagnetLink` validates v1 and supported hybrid links while preserving the full original URI/encoding for later review and submission. The normalized hash and bounded display metadata are separate; descriptions/reflection are redacted. A generated Go parser corpus enforces compatible behavior and documents stricter native input checks. Routing, protected drafts and add actions follow separately; see [intake contract](../docs/plan/ios-magnet-intake.md).
