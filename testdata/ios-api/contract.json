@@ -1,0 +1,98 @@
+{
+  "account": {
+    "id": "fixture-account",
+    "kind": "torbox",
+    "name": "Home account",
+    "enabled": true,
+    "is_default": true,
+    "created_at": "2026-01-02T03:04:05.123456789Z",
+    "updated_at": "2026-01-02T03:04:05.123456789Z"
+  },
+  "auth_status": {
+    "$schema": "https://example.com/schemas/AuthStatusOutBody.json",
+    "configured": false,
+    "mode": ""
+  },
+  "health": {
+    "$schema": "https://example.com/schemas/HealthOutBody.json",
+    "ok": true,
+    "version": "dev"
+  },
+  "identity": {
+    "$schema": "https://example.com/schemas/MeOutBody.json",
+    "mode": "",
+    "api_key": true
+  },
+  "settings": {
+    "torrent_defaults": {
+      "download_retries": 3,
+      "torrent_retries": 1,
+      "unpack": true
+    },
+    "categories": [
+      "Documentaries",
+      "Audio"
+    ],
+    "unpack_max_depth": 2,
+    "organize": {
+      "enabled": false
+    }
+  },
+  "system_status": {
+    "version": "fixture",
+    "download_dir": "/downloads",
+    "accounts": 1,
+    "torrents": {
+      "finished": 1
+    },
+    "downloads": {
+      "downloading": 1
+    },
+    "disk_free_bytes": 500000000000,
+    "disk_total_bytes": 1000000000000
+  },
+  "torrent": {
+    "id": "fixture-transfer",
+    "account_id": "fixture-account",
+    "hash": "0000000000000000000000000000000000000000",
+    "name": "The Open Ocean",
+    "category": "Documentaries",
+    "status": "finished",
+    "provider_progress": 1,
+    "local_progress": 0.64,
+    "size": 10000000000,
+    "speed": 0,
+    "seeders": 0,
+    "files": [
+      {
+        "id": "film",
+        "path": "The Open Ocean.mkv",
+        "size": 10000000000,
+        "selected": true
+      }
+    ],
+    "settings": {
+      "download_retries": 3,
+      "torrent_retries": 1,
+      "unpack": true
+    },
+    "retry_count": 0,
+    "added_at": "2026-01-02T03:04:05.123456789Z",
+    "downloads": [
+      {
+        "id": "fixture-download",
+        "torrent_id": "fixture-transfer",
+        "file_id": "film",
+        "path": "The Open Ocean.mkv",
+        "filename": "The Open Ocean.mkv",
+        "size": 10000000000,
+        "bytes_done": 6400000000,
+        "progress": 0.64,
+        "state": "downloading",
+        "retry_count": 0,
+        "queued_at": "2026-01-02T03:04:05.123456789Z",
+        "started_at": "2026-01-02T03:04:05.123456789Z"
+      }
+    ]
+  }
+}

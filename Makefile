@@ -36,13 +36,14 @@ tidy:
 	go mod tidy
 	@git diff --exit-code go.mod go.sum || (echo "go.mod/go.sum not tidy" && exit 1)
 
-generate: ## Regenerate sqlc code, the OpenAPI spec and the Go API client
+generate: ## Regenerate sqlc, OpenAPI/client and native wire fixtures
 	cd internal/store && $(SQLC) generate
 	go run ./tools/openapi -yaml > internal/apiclient/openapi.yaml
 	cd internal/apiclient && $(OAPI) -config oapi-codegen.yaml openapi.yaml
+	go run ./tools/iosfixtures > testdata/ios-api/contract.json
 
 generate-check: generate ## Fail if generated code is stale or uncommitted
-	@git add -N internal/store/sqlcgen internal/apiclient && git diff --exit-code internal/store/sqlcgen internal/apiclient || (echo "generated code is stale: run make generate and commit" && exit 1)
+	@git add -N internal/store/sqlcgen internal/apiclient testdata/ios-api && git diff --exit-code internal/store/sqlcgen internal/apiclient testdata/ios-api || (echo "generated code is stale: run make generate and commit" && exit 1)
 
 run: build
 	./bin/debrid $(ARGS)

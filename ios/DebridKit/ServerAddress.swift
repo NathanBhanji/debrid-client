@@ -24,6 +24,10 @@ public struct ServerAddress: Equatable, Sendable {
 
     /// Route names and resource IDs are individual components, never relative path syntax.
     public func endpoint(_ components: String...) throws -> URL {
+        try endpoint(components: components)
+    }
+
+    func endpoint(components: [String]) throws -> URL {
         var result = url.appendingPathComponent("api").appendingPathComponent("v1")
         for component in components {
             guard !component.isEmpty, component != ".", component != "..",
