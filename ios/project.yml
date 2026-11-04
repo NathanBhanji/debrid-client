@@ -1,0 +1,88 @@
+name: Debrid
+options:
+  minimumXcodeGenVersion: 2.44.0
+  deploymentTarget:
+    iOS: '27.0'
+settings:
+  base:
+    SWIFT_VERSION: '6.0'
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_APPROACHABLE_CONCURRENCY: YES
+    DEVELOPMENT_TEAM: ZTN995BU9H
+    CODE_SIGN_STYLE: Automatic
+    TARGETED_DEVICE_FAMILY: '1'
+    MARKETING_VERSION: 0.1.0
+    CURRENT_PROJECT_VERSION: 1
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+targets:
+  Debrid:
+    type: application
+    platform: iOS
+    sources:
+      - path: Debrid
+        excludes: [Info.plist]
+    dependencies:
+      - target: DebridKit
+    info:
+      path: Debrid/Info.plist
+      properties:
+        CFBundleDisplayName: Debrid
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.bhanji.debrid
+        SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+  DebridKit:
+    type: framework
+    platform: iOS
+    sources:
+      - path: DebridKit
+        excludes: [Info.plist]
+    info:
+      path: DebridKit/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.bhanji.debrid.kit
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+  DebridKitTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: DebridKitTests
+        excludes: [Info.plist]
+    dependencies:
+      - target: DebridKit
+    info:
+      path: DebridKitTests/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.bhanji.debrid.kit-tests
+  DebridUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: DebridUITests
+        excludes: [Info.plist]
+    dependencies:
+      - target: Debrid
+    info:
+      path: DebridUITests/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.bhanji.debrid.ui-tests
+        TARGETED_DEVICE_FAMILY: '1'
+schemes:
+  Debrid:
+    build:
+      targets:
+        Debrid: all
+        DebridKitTests: [test]
+        DebridUITests: [test]
+    test:
+      targets: [DebridKitTests, DebridUITests]
+      gatherCoverageData: false

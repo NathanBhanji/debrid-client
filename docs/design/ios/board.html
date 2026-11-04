@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Debrid · iPhone design direction</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif;color:var(--foreground,#23241f)}.intro{padding:14px 0 24px}.eyebrow{font:11px ui-monospace,monospace;letter-spacing:1.6px;color:var(--muted-foreground,#626359);text-transform:uppercase}h1{font-size:38px;line-height:1.05;letter-spacing:-1.4px;margin:12px 0}p{line-height:1.5}.intro p{max-width:60ch;color:var(--muted-foreground,#626359)}.controls{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0}button{font:inherit;min-height:44px;padding:10px 16px;border:1px solid var(--border,#b3b0a6);border-radius:24px;background:transparent;color:inherit;cursor:pointer;touch-action:manipulation;transition:transform 140ms cubic-bezier(.23,1,.32,1)}button:active{transform:scale(.97)}button:focus-visible{outline:2px solid #e35a20;outline-offset:3px}button[aria-pressed=true]{background:#b63700;color:white;border-color:transparent}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:28px 18px}.specimen>h2{font:12px ui-monospace,monospace;letter-spacing:.5px;margin:0 0 10px}.phone{--bg:#f3f1eb;--surface:#faf9f5;--ink:#23241f;--sub:#626359;--line:#c7c4bb;--action:#b63700;--stage:#005b83;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:34px;padding:20px 16px;min-height:590px;display:flex;flex-direction:column;position:relative}.dark .phone{--bg:#181b17;--surface:#282c25;--ink:#f2f1ec;--sub:#b8bcaf;--line:#555a4a;--action:#ff9a6a;--stage:#7ad9f2}.status{display:flex;justify-content:space-between;font-size:12px;font-weight:600;padding:0 6px 24px}.nav{display:flex;justify-content:space-between;align-items:center;color:var(--action);font-size:13px;margin-bottom:14px;min-height:30px}.nav>span:last-child{border-radius:24px;padding:9px 12px;background:color-mix(in srgb,var(--surface) 70%,transparent);box-shadow:0 1px 4px #0000000d,inset 0 1px 0 #ffffff55;backdrop-filter:blur(14px)}.phone h3{font-size:29px;letter-spacing:-.7px;margin:0 0 18px}.phone h4{font-size:20px;line-height:1.25;margin:0 0 8px}.phone p{font-size:13px;color:var(--sub);margin:7px 0}.hero{padding:12px 0 20px}.kicker{font-size:11px;letter-spacing:.8px;color:var(--sub);margin:14px 2px 8px;text-transform:uppercase}.card{background:var(--surface);border-radius:20px;padding:16px;margin-bottom:10px}.row{display:flex;justify-content:space-between;gap:12px;font-size:14px;padding:12px 0;border-bottom:1px solid var(--line)}.row:last-child{border-bottom:0}.sub{color:var(--sub)}.phase{font-size:13px;color:var(--stage);margin:10px 0 6px;font-weight:500}.phase.amber{color:#765000}.dark .phase.amber{color:#ffd27a}.phase.green{color:#256b35}.dark .phase.green{color:#96e1a7}.progress{height:8px;border-radius:2px;background:repeating-linear-gradient(90deg,var(--line) 0 calc(8.333% - 3px),transparent calc(8.333% - 3px) 8.333%);margin:12px 0}.progress i{display:block;height:100%;width:66.666%;background:repeating-linear-gradient(90deg,#39c2ff 0 calc(12.5% - 3px),transparent calc(12.5% - 3px) 12.5%)}.title{font-size:16px;font-weight:600;line-height:1.4}.pill{display:inline-block;font-size:11px;padding:5px 8px;background:var(--bg);border-radius:7px;color:var(--sub)}.primary{background:var(--action);color:var(--bg);text-align:center;font-size:15px;font-weight:600;padding:15px;border-radius:26px;margin-top:14px}.secondary{text-align:center;color:var(--action);font-size:14px;padding:13px}.tabs{margin:22px 4px 0;padding:12px 8px 10px;display:flex;justify-content:space-around;gap:12px;color:var(--sub);font-size:11px;text-align:center;border-radius:32px;background:color-mix(in srgb,var(--surface) 76%,transparent);box-shadow:0 2px 14px #00000012,inset 0 1px 0 #ffffff66;backdrop-filter:blur(16px);margin-top:auto}.tabs b{color:var(--action);font-weight:600}.tabs span{font-size:20px;display:block;margin-bottom:5px}.notice{font-size:12px;color:var(--sub);border-left:2px solid #ff4f00;padding:7px 12px;margin:10px 0 16px}.field{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:13px;font-size:14px;overflow-wrap:anywhere;margin:12px 0}.symbol{font-size:34px;color:var(--action);margin:18px 0}.note{font-size:12px;line-height:1.5;color:var(--muted-foreground,#626359);margin:10px 0 0}.large .phone p,.large .row,.large .title{font-size:18px}.large .row{flex-direction:column;gap:6px}.large .phone{min-height:700px}.foot{padding:28px 0;font-size:13px;color:var(--muted-foreground,#626359)}.brand{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;letter-spacing:1.8px;margin:0 0 14px}.brand i{width:8px;height:8px;border-radius:50%;background:#ff4f00}.brand em{font-style:normal;color:#ff4f00}.readout{background:#1d211b;color:#c9f5b1;border-radius:20px;padding:18px;margin:0 0 14px}.readout .kicker{font-family:ui-monospace,monospace;color:#c9f5b1;margin-top:0;font-size:10px}.readout h4{font-size:20px;font-weight:600;letter-spacing:0}.readout p{color:#c9f5b1;font-size:12px}.lamp{display:inline-grid;place-items:center;background:#39c2ff;color:#182c29;width:27px;height:27px;border-radius:8px;float:left;margin-right:10px}.large .lamp{display:none}@media(max-width:520px){.grid{grid-template-columns:1fr}h1{font-size:34px}.phone{min-height:580px}}@media(prefers-reduced-motion:reduce){button{transition:none}button:active{transform:none}}@media(prefers-reduced-transparency:reduce){.tabs,.nav>span:last-child{background:var(--surface);backdrop-filter:none}}@media(prefers-contrast:more){.phone{--sub:var(--ink)}.card,.tabs{outline:1px solid var(--ink)}}
+</style>
+<body>
+<div class="intro">
+<div class="eyebrow">Debrid / Native iPhone / Design direction 02</div>
+<h1>Same Debrid.<br>Native on iPhone.</h1>
+<p>The orange mark, warm surfaces and status readouts from the web app. System navigation, sheets and controls from iOS 27.</p>
+<div class="controls">
+<button id="light" aria-pressed="true" onclick="theme(false)">Light</button>
+<button id="dark" aria-pressed="false" onclick="theme(true)">Dark</button>
+<button id="type" aria-pressed="false" onclick="large(this)">Large text study</button>
+</div>
+<p class="note">Fictional content. The board approximates system glass; actual materials, text scaling and gestures are verified in the SwiftUI build. Content remains matte. The large-text toggle is a layout study.</p>
+</div>
+<main class="grid">
+<section class="specimen">
+<h2>01 / CONNECT</h2>
+<div class="phone">
+<div class="status">
+<span>9:41</span>
+<span>▰ ▰</span>
+</div>
+<div class="symbol">↘</div>
+<h3>Your server.<br>Your transfers.</h3>
+<p>Connect Debrid to the service you already run. Downloads stay on your NAS.</p>
+<div class="kicker">Server address</div>
+<div class="card">
+<div class="field">https://debrid.example.ts.net</div>
+<p>Use your HTTPS address, including any server path.</p>
+</div>
+<div class="primary">Check server</div>
+<div class="notice">On a private network? Connect Tailscale on your iPhone first.</div>
+<div class="secondary">Explore with sample data</div>
+</div>
+<p class="note">Health discovery precedes authentication. Certificate, DNS and network failures get specific recovery guidance.</p>
+</section>
+<section class="specimen">
+<h2>02 / SIGN IN</h2>
+<div class="phone">
+<div class="status">
+<span>9:41</span>
+<span>▰ ▰</span>
+</div>
+<div class="nav">‹ Server<span>Secure connection</span>
+</div>
+<h3>Welcome back.</h3>
+<p>Sign in to your own Debrid server.</p>
+<div class="card">
+<div class="kicker">Pocket ID</div>
+<h4>Your usual sign-in.</h4>
+<p>Continue in your browser to sign in with your passkey. Debrid never sees your Pocket ID password.</p>
+</div>
+<div class="primary">Continue with Pocket ID ↗</div>
+<div class="notice">Your server needs native sign-in support. Older servers show an update message before continuing.</div>
+</div>
+<p class="note">Pocket ID SSO is Nathan’s chosen primary login. Existing web OIDC needs a secure native exchange; the app stores its session in Keychain.</p>
+</section>
+<section class="specimen">
+<h2>03 / TRANSFERS</h2>
+<div class="phone">
+<div class="status">
+<span>9:41</span>
+<span>▰ ▰</span>
+</div>
+<div class="nav">Sample server<span>＋ Add</span>
+</div>
+<h3>Transfers</h3>
+<div class="brand">
+<i>
+</i>DEBRID<em>.</em>
+</div>
+<div class="readout">
+<div class="kicker">Transfer status · Demo</div>
+<h4>1 downloading<br>1 needs file selection</h4>
+<p>Sample data · No server connected</p>
+</div>
+<div class="field">⌕ Search transfers</div>
+<div class="card">
+<div class="title">
+<span class="lamp">↓</span>The Open Ocean</div>
+<div class="phase">Downloading to NAS</div>
+<div class="progress">
+<i>
+</i>
+</div>
+<p>6.4 GB of 10 GB · TorBox</p>
+</div>
+<div class="card">
+<div class="title">Field Recordings · Vol. 02</div>
+<div class="phase amber">☷ Choose files</div>
+<p>12 files · Real-Debrid</p>
+</div>
+<div class="tabs">
+<b>
+<span>↓</span>Transfers</b>
+<div>
+<span>▱</span>Providers</div>
+<div>
+<span>⚙</span>Settings</div>
+</div>
+</div>
+<p class="note">No conflated percentage. Filter by stage, provider and category. Server work continues after the app closes.</p>
+</section>
+<section class="specimen">
+<h2>04 / DETAIL & FILES</h2>
+<div class="phone">
+<div class="status">
+<span>9:41</span>
+<span>▰ ▰</span>
+</div>
+<div class="nav">‹ Transfers<span>•••</span>
+</div>
+<h3>The Open Ocean</h3>
+<span class="pill">Documentaries</span>
+<div class="kicker">Transfer journey</div>
+<div class="card">
+<div class="row">
+<span>✓ Provider ready</span>
+<span class="sub">TorBox</span>
+</div>
+<div class="phase">↓ Downloading to NAS · 64%</div>
+<div class="progress">
+<i>
+</i>
+</div>
+<p>6.4 GB of 10 GB</p>
+</div>
+<div class="kicker">Files</div>
+<div class="card">
+<div class="title">The Open Ocean.mp4</div>
+<p>6.4 GB / 9.8 GB</p>
+<div class="row">
+<span>✓ Notes.pdf</span>
+<span class="sub">On NAS</span>
+</div>
+</div>
+<p>Destination · NAS / Documentaries</p>
+</div>
+<p class="note">Files on the server are labeled as such. Context actions distinguish retry, future cancellation, and removal.</p>
+</section>
+<section class="specimen">
+<h2>05 / ADD REVIEW</h2>
+<div class="phone">
+<div class="status">
+<span>9:41</span>
+<span>▰ ▰</span>
+</div>
+<div class="nav">Cancel<span>Review</span>
+</div>
+<h3>Add transfer</h3>
+<div class="card">
+<div class="title">The Open Ocean</div>
+<p>Magnet link · Name supplied by the link</p>
+<span class="pill">Original link preserved</span>
+</div>
+<div class="kicker">Destination</div>
+<div class="card">
+<div class="row">
+<span>Provider</span>
+<span class="sub">Server default ›</span>
+</div>
+<div class="row">
+<span>Category</span>
+<span class="sub">Documentaries ›</span>
+</div>
+<div class="row">
+<span>Files</span>
+<span class="sub">Choose later ›</span>
+</div>
+</div>
+<p>File names may become available after the provider fetches metadata.</p>
+<div class="primary">Add transfer</div>
+<p>Nothing is sent until you confirm.</p>
+</div>
+<p class="note">Unknown names use “Magnet transfer”. Duplicate means Open existing. Timed-out submission means reconcile, never blind resend.</p>
+</section>
+<section class="specimen">
+<h2>06 / SHARE EXTENSION</h2>
+<div class="phone">
+<div class="status">
+<span>9:41</span>
+<span>▰ ▰</span>
+</div>
+<div class="nav">Cancel<span>Debrid</span>
+</div>
+<div class="symbol">↙</div>
+<h3>Keep this for later.</h3>
+<div class="card">
+<div class="title">The Open Ocean</div>
+<p>Magnet link from shared text</p>
+<div class="row">
+<span>Category</span>
+<span>Documentaries</span>
+</div>
+</div>
+<div class="notice">Can’t reach your server. Check Tailscale, or save a draft to review in Debrid.</div>
+<div class="primary">Save draft</div>
+<div class="secondary">Try connection again</div>
+<p>Saved drafts are not submitted automatically. Open Debrid when you’re ready.</p>
+</div>
+<p class="note">The extension never relies on launching the app. Online configured state offers the same explicit add review; offline saves securely.</p>
+</section>
+<section class="specimen">
+<h2>07 / PROVIDERS</h2>
+<div class="phone">
+<div class="status">
+<span>9:41</span>
+<span>▰ ▰</span>
+</div>
+<div class="nav">Accounts<span>＋ Add</span>
+</div>
+<h3>Providers</h3>
+<p>Where your transfers begin.</p>
+<div class="card">
+<div class="title">TorBox <span class="pill">Default</span>
+</div>
+<div class="phase green">✓ Connection checked</div>
+<p>Checked just now</p>
+<div class="row">
+<span>Account details</span>
+<span>›</span>
+</div>
+</div>
+<div class="card">
+<div class="title">Real-Debrid</div>
+<p>Not checked this session</p>
+<div class="row">
+<span>Check connection</span>
+<span>↻</span>
+</div>
+</div>
+<p>Checks contact the provider. Saved credentials alone don’t confirm health.</p>
+<div class="tabs">
+<b>
+<span>↓</span>Transfers</b>
+<div>
+<span>▱</span>Providers</div>
+<div>
+<span>⚙</span>Settings</div>
+</div>
+</div>
+<p class="note">All five providers share a consistent model. Expiry, quota, disabled and failures remain separate from connectivity.</p>
+</section>
+<section class="specimen">
+<h2>08 / SETTINGS</h2>
+<div class="phone">
+<div class="status">
+<span>9:41</span>
+<span>▰ ▰</span>
+</div>
+<h3>Settings</h3>
+<div class="kicker">Your connection</div>
+<div class="card">
+<div class="row">
+<span>Server</span>
+<span class="sub">Debrid NAS ›</span>
+</div>
+<div class="row">
+<span>Authentication</span>
+<span class="sub">Pocket ID ›</span>
+</div>
+</div>
+<div class="kicker">On the server</div>
+<div class="card">
+<div class="row">
+<span>Categories</span>
+<span>›</span>
+</div>
+<div class="row">
+<span>Download policy</span>
+<span>›</span>
+</div>
+<div class="row">
+<span>Library organization</span>
+<span>Off ›</span>
+</div>
+</div>
+<div class="card">
+<div class="row">
+<span>Diagnostics & help</span>
+<span>›</span>
+</div>
+<div class="row">
+<span>About Debrid</span>
+<span>0.1</span>
+</div>
+</div>
+<div class="tabs">
+<b>
+<span>↓</span>Transfers</b>
+<div>
+<span>▱</span>Providers</div>
+<div>
+<span>⚙</span>Settings</div>
+</div>
+</div>
+<p class="note">Global edits require revision conflict handling. Per-transfer settings are full replacements of server defaults.</p>
+</section>
+<section class="specimen">
+<h2>09 / OFFLINE & STALE</h2>
+<div class="phone">
+<div class="status">
+<span>9:41</span>
+<span>▰ ▰</span>
+</div>
+<div class="nav">Last updated 14:32<span>Retry</span>
+</div>
+<h3>Transfers</h3>
+<div class="notice">
+<strong>Can’t reach your server</strong>
+<br>Check your connection and Tailscale. Showing saved results.</div>
+<div class="card">
+<div class="title">The Open Ocean</div>
+<div class="phase">Last seen downloading</div>
+<p>6.4 GB of 10 GB · 14:32</p>
+</div>
+<div class="card">
+<h4>Your drafts are safe.</h4>
+<p>You can still paste or share a magnet. Review and send it when you reconnect.</p>
+<div class="secondary">Review 1 saved draft ›</div>
+</div>
+<div class="tabs">
+<b>
+<span>↓</span>Transfers</b>
+<div>
+<span>▱</span>Providers</div>
+<div>
+<span>⚙</span>Settings</div>
+</div>
+</div>
+<p class="note">Do not claim the VPN is off from DNS failure. Cached progress is explicitly historical; reconnect does not submit drafts.</p>
+</section>
+<section class="specimen">
+<h2>10 / EMPTY & RECOVERY</h2>
+<div class="phone">
+<div class="status">
+<span>9:41</span>
+<span>▰ ▰</span>
+</div>
+<div class="nav">Transfers<span>＋ Add</span>
+</div>
+<div class="symbol">↓</div>
+<h3>A little space<br>for something good.</h3>
+<p>Your transfers will appear here. Add a magnet link or import a torrent file.</p>
+<div class="primary">Add your first transfer</div>
+<div class="secondary">Import a .torrent file</div>
+<div class="kicker">When something goes wrong</div>
+<div class="card">
+<div class="title">Transfer needs attention</div>
+<p>The provider couldn’t prepare this file. Other completed files are safe.</p>
+<div class="secondary">Review error & retry ›</div>
+</div>
+</div>
+<p class="note">Loading uses native indicators; 401 reconnects, 429 states retry timing, TLS failures keep validation intact. No automatic destructive cleanup.</p>
+</section>
+</main>
+<div class="foot">Review points: web identity within native iOS 27 navigation · Pocket ID sign-in · share review and offline drafts.<br>29 dependent delivery units. No automatic merges, live submissions or production changes.</div>
+<script>function theme(d){document.body.classList.toggle("dark",d);document.getElementById("dark").setAttribute("aria-pressed",d);document.getElementById("light").setAttribute("aria-pressed",!d)}function large(b){let v=document.body.classList.toggle("large");b.setAttribute("aria-pressed",v)}</script>
+</body>
+</html>

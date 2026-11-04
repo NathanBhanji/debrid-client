@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Debrid · native implementation review</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,sans-serif;color:var(--foreground,#23241f)}p{line-height:1.5;color:var(--muted-foreground,#626359);max-width:65ch}main{display:grid;grid-template-columns:1fr 1fr;gap:18px}figure{margin:0}figcaption{font-size:13px;padding:10px 0}img{display:block;width:100%;border-radius:24px}small{font-size:12px;color:var(--muted-foreground,#626359)}@media(max-width:500px){main{grid-template-columns:1fr}}
+</style>
+<p><strong>SwiftUI implementation · iOS 27.0 simulator.</strong><br>Debrid’s orange mark, warm surfaces, LCD status and phase colors inside native navigation, toolbar controls and floating tabs. Fictional data.</p>
+<main>
+<figure><figcaption>Light appearance</figcaption><img src="screenshots/transfers-light.png" alt="Actual Debrid SwiftUI screen in light mode with native glass navigation, orange branding, LCD status readout and colored progress segments."></figure>
+<figure><figcaption>Dark appearance</figcaption><img src="screenshots/transfers-dark.png" alt="Actual Debrid SwiftUI screen in dark mode using the same product identity and native system controls."></figure>
+</main>
+<p><small>Apple HIG and WWDC26 research; Emil’s design engineering, Apple design and Swift skills applied to design and code. Two native interaction tests and three domain test functions pass. Signed-device and full VoiceOver validation remain pending.</small></p>
+</html>

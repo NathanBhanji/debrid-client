@@ -16,3 +16,11 @@ web/dist/
 web/.tanstack/
 internal/webui/dist/*
 !internal/webui/dist/.gitkeep
+
+# Native iPhone generated projects and local verification artifacts
+/ios/*.xcodeproj/
+/ios/**/Info.plist
+/ios/**/*.entitlements
+/ios/.build/
+/ios/.artifacts/
+/ios/**/__pycache__/
