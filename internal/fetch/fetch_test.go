@@ -223,7 +223,7 @@ func TestStateIgnoredWhenETagChanges(t *testing.T) {
 	defer srv.Close()
 	dest := filepath.Join(t.TempDir(), "f")
 	// Fabricate a "complete" state for a different version of the file.
-	st := state{URL: "x", Size: int64(len(bs.data)), ETag: `"old"`, ChunkSz: MinChunkSize, Done: []bool{true, true}, Ranged: true}
+	st := state{Size: int64(len(bs.data)), ETag: `"old"`, ChunkSz: MinChunkSize, Done: []bool{true, true}, Ranged: true}
 	if err := writeAtomic(dest+".part.json", &st); err != nil {
 		t.Fatal(err)
 	}
@@ -349,7 +349,7 @@ func TestStateWithoutPartIsDiscarded(t *testing.T) {
 	srv := httptest.NewServer(bs.handler())
 	defer srv.Close()
 	dest := filepath.Join(t.TempDir(), "f")
-	st := state{URL: "x", Size: int64(len(bs.data)), ETag: bs.etag, ChunkSz: MinChunkSize, Done: []bool{true, false}, Ranged: true}
+	st := state{Size: int64(len(bs.data)), ETag: bs.etag, ChunkSz: MinChunkSize, Done: []bool{true, false}, Ranged: true}
 	if err := writeAtomic(dest+".part.json", &st); err != nil {
 		t.Fatal(err)
 	}
@@ -581,5 +581,50 @@ func TestNormalizeURL(t *testing.T) {
 		if got := normalizeURL(tc.in); got != tc.want {
 			t.Errorf("normalizeURL(%q)\n = %q\n want %q", tc.in, got, tc.want)
 		}
+	}
+}
+
+func TestResumeStateDoesNotPersistDownloadCredential(t *testing.T) {
+	bs := newBlob(2, true)
+	bs.status = http.StatusForbidden
+	srv := httptest.NewServer(bs.handler())
+	defer srv.Close()
+	dest := filepath.Join(t.TempDir(), "file")
+	_, err := Download(context.Background(), srv.URL+"/path-secret?token=query-secret", dest, Options{ChunkSize: 1})
+	if err == nil {
+		t.Fatal("expected interrupted ranged download")
+	}
+	data, err := os.ReadFile(dest + ".part.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(data, []byte("path-secret")) || bytes.Contains(data, []byte("query-secret")) {
+		t.Fatal("resume metadata exposes signed download credentials")
+	}
+}
+
+func TestLegacyResumeURLIsIgnoredAndRemoved(t *testing.T) {
+	dir := t.TempDir()
+	part, stateFile := filepath.Join(dir, "file.part"), filepath.Join(dir, "file.part.json")
+	if err := os.WriteFile(part, []byte("ab"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	legacy := []byte(`{"url":"https://example.invalid/legacy-secret?token=legacy-secret","size":2,"etag":"tag","chunk_size":1,"done":[true,false],"ranged":true}`)
+	if err := os.WriteFile(stateFile, legacy, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st, resumed := loadState(stateFile, part, probe{size: 2, etag: "tag"}, Options{ChunkSize: 1})
+	if !resumed || !st.Done[0] || st.Done[1] {
+		t.Fatal("legacy chunk progress lost")
+	}
+	if err := writeAtomic(stateFile, st); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(stateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(data, []byte("legacy-secret")) || bytes.Contains(data, []byte(`"url"`)) {
+		t.Fatal("legacy credential retained")
 	}
 }

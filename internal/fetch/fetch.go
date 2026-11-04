@@ -113,8 +113,9 @@ func (e *HTTPError) LinkExpired() bool {
 	return false
 }
 
+// Resume state describes content, not its URL: provider URLs are bearer
+// credentials and must not be persisted alongside shared download files.
 type state struct {
-	URL     string `json:"url"`
 	Size    int64  `json:"size"`
 	ETag    string `json:"etag,omitempty"`
 	ChunkSz int64  `json:"chunk_size"`
@@ -152,7 +153,7 @@ func Download(ctx context.Context, url, dest string, o Options) (Result, error) 
 		return o.streamToDest(ctx, url, part, stateFile, dest, pr.size)
 	}
 
-	st, resumed := loadState(stateFile, part, url, pr, o)
+	st, resumed := loadState(stateFile, part, pr, o)
 	f, err := os.OpenFile(part, os.O_RDWR|os.O_CREATE, 0o644)
 	if err != nil {
 		return Result{}, err
@@ -438,7 +439,7 @@ func (o Options) streamOnce(ctx context.Context, url, part string, size int64) (
 // preallocated size; otherwise a fresh map. The .part size check guards
 // against a map that outlived its data (manual cleanup, a stream attempt
 // overwriting .part, …), which would otherwise yield zero-filled chunks.
-func loadState(stateFile, part, url string, pr probe, o Options) (*state, bool) {
+func loadState(stateFile, part string, pr probe, o Options) (*state, bool) {
 	chunkSz := o.ChunkSize
 	if chunkSz <= 0 {
 		chunkSz = autoChunkSize(pr.size, o.Connections)
@@ -449,13 +450,12 @@ func loadState(stateFile, part, url string, pr probe, o Options) (*state, bool) 
 		if json.Unmarshal(b, &st) == nil && st.Size == pr.size && st.Ranged && st.ChunkSz > 0 &&
 			len(st.Done) == numChunks(st.Size, st.ChunkSz) && (st.ETag == "" || pr.etag == "" || st.ETag == pr.etag) &&
 			statErr == nil && fi.Size() == st.Size {
-			st.URL = url // URLs change between unrestricts; the content is what matters
 			return &st, true
 		}
 	}
 	_ = os.Remove(stateFile)
 	n := numChunks(pr.size, chunkSz)
-	return &state{URL: url, Size: pr.size, ETag: pr.etag, ChunkSz: chunkSz, Done: make([]bool, n), Ranged: true,
+	return &state{Size: pr.size, ETag: pr.etag, ChunkSz: chunkSz, Done: make([]bool, n), Ranged: true,
 		Created: time.Now().UTC().Format(time.RFC3339)}, false
 }
 
