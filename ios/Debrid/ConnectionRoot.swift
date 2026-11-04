@@ -42,11 +42,11 @@ struct ConnectionRoot: View {
             Form {
                 Section {
                     VStack(alignment: .leading, spacing: 16) {
-                        if preview { Label("Preview · Sample server", systemImage: "viewfinder").font(.footnote).foregroundStyle(.secondary) }
+                        if preview { Label("Preview · Sample server", systemImage: "viewfinder").font(.footnote).foregroundStyle(DebridStyle.secondary) }
                         DebridWordmark()
                         Text("Your downloads, within reach.").font(.title2.weight(.semibold))
                         Text("Connect to your self-hosted Debrid server. Downloads stay on your server.")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(DebridStyle.secondary)
                     }.padding(.vertical, 12)
                 }.listRowBackground(Color.clear).listRowSeparator(.hidden)
                 Section {
@@ -69,7 +69,7 @@ struct ConnectionRoot: View {
                 }
                 switch model.phase {
                 case .failed(let message):
-                    Section { Label(message, systemImage: "exclamationmark.triangle").foregroundStyle(.secondary).accessibilityIdentifier("connection-error") }
+                    Section { Label(message, systemImage: "exclamationmark.triangle").foregroundStyle(DebridStyle.secondary).accessibilityIdentifier("connection-error") }
                 case .discovered(let server):
                     Section("Server found") {
                         Label("Debrid \(server.version)", systemImage: "checkmark.circle.fill")
@@ -80,7 +80,7 @@ struct ConnectionRoot: View {
                                 if preview { showingPreviewNotice = true; return }
                                 guard let auth else { return }
                                 authTask = Task { await auth.signIn(to: server.profile) }
-                            }.buttonStyle(.glassProminent).tint(Color(red: 0.714, green: 0.216, blue: 0)).foregroundStyle(.white)
+                            }.buttonStyle(.glassProminent).tint(Color(red: 0.62, green: 0.17, blue: 0)).foregroundStyle(.white)
                                 .disabled(auth?.isBusy == true || auth?.pendingLocalRemoval != nil)
                                 .accessibilityIdentifier("pocket-id-sign-in")
                         }
@@ -98,7 +98,7 @@ struct ConnectionRoot: View {
                 }
                 if let message = auth?.message {
                     Section {
-                        Label(message, systemImage: "person.crop.circle.badge.exclamationmark").foregroundStyle(.secondary)
+                        Label(message, systemImage: "person.crop.circle.badge.exclamationmark").foregroundStyle(DebridStyle.secondary)
                         if let auth, let pending = auth.pendingLocalRemoval {
                             Text(pending.serverURL.absoluteString).font(.footnote)
                             Button("Remove saved session", role: .destructive) { Task { await auth.removeSavedSession() } }
@@ -112,7 +112,7 @@ struct ConnectionRoot: View {
                     }
                 }
                 if let storageError {
-                    Section { Label(storageError, systemImage: "lock.trianglebadge.exclamationmark").foregroundStyle(.secondary) }
+                    Section { Label(storageError, systemImage: "lock.trianglebadge.exclamationmark").foregroundStyle(DebridStyle.secondary) }
                 }
             }
             .modifier(DebridListStyle())
@@ -147,13 +147,13 @@ struct ConnectionRoot: View {
         case .pocketID:
             Label("Pocket ID is available", systemImage: "person.badge.key")
         case .upgradeRequired:
-            Text("Pocket ID is configured. Update the server to enable secure iPhone sign-in.").foregroundStyle(.secondary)
+            Text("Pocket ID is configured. Update the server to enable secure iPhone sign-in.").foregroundStyle(DebridStyle.secondary)
         case .webSetupRequired:
-            Text("Finish authentication setup in the server’s web interface, then check again.").foregroundStyle(.secondary)
+            Text("Finish authentication setup in the server’s web interface, then check again.").foregroundStyle(DebridStyle.secondary)
         case .passwordOnly:
-            Text("This server uses password sign-in. Use its web client for now. Pocket ID requires an administrator to change the server’s authentication setup.").foregroundStyle(.secondary)
+            Text("This server uses password sign-in. Use its web client for now. Pocket ID requires an administrator to change the server’s authentication setup.").foregroundStyle(DebridStyle.secondary)
         case .unsupported:
-            Text("This authentication method is not supported. Check the server configuration.").foregroundStyle(.secondary)
+            Text("This authentication method is not supported. Check the server configuration.").foregroundStyle(DebridStyle.secondary)
         }
     }
     private func check() {
@@ -200,7 +200,7 @@ private struct ConnectedLanding: View {
                     Button("Sign out on this iPhone", role: .destructive) { Task { await auth.signOut() } }
                         .buttonStyle(.borderless).foregroundStyle(.red).disabled(auth.isBusy)
                     if auth.isBusy { ProgressView("Signing out…") }
-                    if let message = auth.message { Text(message).foregroundStyle(.secondary) }
+                    if let message = auth.message { Text(message).foregroundStyle(DebridStyle.secondary) }
                 }
             }.modifier(DebridListStyle())
                 .navigationTitle("Debrid")
