@@ -37,6 +37,8 @@ targets:
     entitlements:
       path: Debrid/Debrid.entitlements
       properties:
+        com.apple.security.application-groups:
+          - group.dev.bhanji.debrid
         keychain-access-groups:
           - $(AppIdentifierPrefix)dev.bhanji.debrid
     settings:
