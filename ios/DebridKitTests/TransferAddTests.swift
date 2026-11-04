@@ -14,6 +14,7 @@ private actor SubmissionTestAPI:TransferSubmissionAPI {
     nonisolated let serverURL:URL
     let store:PendingInbox
     var healthy=true,supports=true,hold=false
+    var customSettings:SettingsDTO?
     var behavior:Behavior = .success
     private(set) var keys:[UUID]=[]
     private(set) var options:[SubmissionOptions]=[]
@@ -23,9 +24,10 @@ private actor SubmissionTestAPI:TransferSubmissionAPI {
     func configure(_ behavior:Behavior,hold:Bool = false) { self.behavior=behavior;self.hold=hold }
     func setReadiness(healthy:Bool = true,supports:Bool = true) { self.healthy=healthy;self.supports=supports }
     func release() { hold=false }
-    func health() async throws -> HealthDTO { HealthDTO(ok:healthy,version:"0.2.3",capabilities:supports ? ["torrent_submissions_v1","multipart_torrent_settings_v1"] : []) }
+    func health() async throws -> HealthDTO { HealthDTO(ok:healthy,version:"0.2.3",capabilities:supports ? ["torrent_submissions_v1","multipart_torrent_settings_v1","manual_file_selection_v1"] : []) }
     func accounts() async throws -> [AccountDTO] { [try submissionWire("account",as:AccountDTO.self)] }
-    func settings() async throws -> SettingsDTO { try submissionWire("settings",as:SettingsDTO.self) }
+    func setSettings(_ value:SettingsDTO) {customSettings=value}
+    func settings() async throws -> SettingsDTO { if let customSettings{return customSettings};return try submissionWire("settings",as:SettingsDTO.self) }
     func submit(_ payload:SubmissionPayload,options:SubmissionOptions,key:UUID) async throws -> TorrentDTO {
         keys.append(key);self.options.append(options)
         let records=try await store.snapshot()
@@ -116,6 +118,15 @@ private actor SubmissionTestAPI:TransferSubmissionAPI {
         #expect(try await f.store.snapshot().first?.submission?.phase == .prepared)
         await #expect(throws:PendingInboxError.submissionPending) { try await f.store.discard(f.claim.item.id,token:f.claim.token) }
     }
+    @Test func chooseAfterAddingPersistsHoldBeforeSubmission() async throws {
+        let f=try await fixture();defer {try? FileManager.default.removeItem(at:f.directory)}
+        await f.model.load();f.model.filePolicy = .choose
+        #expect(f.model.reviewedSettings?.waitForSelection == true && f.model.reviewedSettings?.manualFiles == nil)
+        await f.api.configure(.offline);await f.model.submit()
+        #expect(f.model.phase == .uncertain)
+        #expect(try await f.store.snapshot().first?.submission?.options.settings.waitForSelection == true)
+        #expect(await f.api.options.first?.settings.waitForSelection == true)
+    }
     @Test func freshRejectionCanBeReviewedButRetryOfUncertainAttemptCannotRetireIt() async throws {
         let f=try await fixture();defer { try? FileManager.default.removeItem(at:f.directory) }
         await f.model.load();await f.api.configure(.validation);await f.model.submit()
@@ -184,6 +195,20 @@ private actor SubmissionTestAPI:TransferSubmissionAPI {
         #expect(try await f.store.snapshot().first?.submission?.phase == .prepared)
         let restored=try TransferAddModel(claim:f.claim,server:f.server,store:f.store,api:f.api);await restored.load()
         #expect(restored.durableAcceptance);#expect(await f.api.keys.count==1)
+    }
+    @Test func perTransferPolicyOverridesAreFrozenWithoutUndoingKeepCopiesOrFileChoice() async throws {
+        let f=try await fixture();defer { try? FileManager.default.removeItem(at:f.directory) }
+        await f.api.setSettings(SettingsDTO(torrentDefaults:TorrentSettingsDTO(finishedAction:"remove_from_provider",downloadRetries:3,torrentRetries:1,deleteOnError:"1h",unpack:true),categories:["Caf\u{00e9}","Cafe\u{0301}"],unpackMaxDepth:1,organize:OrganizeSettingsDTO(enabled:false)))
+        await f.model.load();#expect(f.model.categories.count == 2)
+        f.model.keepCopies=true;f.model.filePolicy = .choose
+        var draft=DownloadPolicyDraft(try #require(f.model.editableOverrides));draft.downloadRetries="7";draft.unpack=false
+        f.model.applyOverrides(try draft.output())
+        #expect(f.model.filePolicy == .choose && f.model.reviewedSettings?.finishedAction == "keep" && f.model.reviewedSettings?.deleteOnError == nil)
+        await f.model.submit()
+        let sent=try #require((await f.api.options).last)
+        #expect(sent.settings.downloadRetries == 7 && !sent.settings.unpack && sent.settings.waitForSelection == true)
+        f.model.applyOverrides(TorrentSettingsDTO(downloadRetries:0,torrentRetries:0,unpack:true))
+        #expect(f.model.editableOverrides == nil && f.model.visibleSettings?.downloadRetries == 7)
     }
     @Test func originalTorrentCopyAndExplicitRuleOverridesAreUsedForAdd() async throws {
         let f=try await fixture();defer { try? FileManager.default.removeItem(at:f.directory) }

@@ -17,9 +17,9 @@ public struct TransferDetailSummary: Sendable {
         item = TransferSummary(transfer)
         let available = transfer.status == "finished" || transfer.status == "completed"
         if available { providerFraction = 1; providerLabel = "Available at provider" }
-        else if item.stage == .providerDownloading || item.stage == .providerUploading {
+        else if transfer.status == "downloading" || transfer.status == "uploading" {
             providerFraction = (transfer.size > 0 || transfer.providerProgress > 0) && transfer.providerProgress.isFinite ? min(1,max(0,transfer.providerProgress)) : nil
-            providerLabel = item.stage.label
+            providerLabel = transfer.status == "downloading" ? "Downloading at provider" : "Uploading at provider"
         } else { providerFraction = nil; providerLabel = "Availability unconfirmed" }
         var total: Int64 = 0, done: Int64 = 0
         var valid = !transfer.downloads.isEmpty
@@ -40,6 +40,8 @@ public struct TransferDetailSummary: Sendable {
         case .nasFinishing: nasLabel = "Finalizing on NAS"
         case .nasDownloading: nasLabel = "Downloading to NAS"
         case .nasQueued: nasLabel = "Queued for NAS"
+        case .selecting: nasLabel = transfer.fileSelectionState=="pending" ? "Waiting for your file selection" : "Waiting for provider selection"
+        case .cancelled: nasLabel = "Cancelled locally"
         case .failed: nasLabel = "Needs attention"
         case .unknown: nasLabel = "Unknown server state"
         default: nasLabel = "Waiting for download"
@@ -47,8 +49,10 @@ public struct TransferDetailSummary: Sendable {
         selectedFiles = transfer.files.filter(\.selected).count
         // Provider messages can contain signed URLs or credentials. Show actionable domain states,
         // never arbitrary provider error/status bodies in the native detail or accessibility tree.
-        if transfer.statusReason == "account disabled" { issue = "This provider account is disabled. Enable it to continue." }
-        else if item.stage == .selecting { issue = "Open this transfer on your server to choose which files to download." }
+        if item.stage == .cancelled { issue = "Local work has stopped. Saved files are retained; activity at your provider may continue." }
+        else if transfer.statusReason == "account disabled" { issue = "This provider account is disabled. Enable it to continue." }
+        else if transfer.fileSelectionState=="pending" {issue = "Choose files when the provider metadata is ready. NAS downloads stay on hold until you confirm."}
+        else if item.stage == .selecting { issue = "This automatic transfer is waiting for provider file selection. Check the server for details." }
         else if item.stage == .failed { issue = "The server reported a transfer error. Check the server for details before retrying." }
         else if item.stage == .unknown { issue = "This server returned a state this app does not recognize. Refresh to check for an update." }
         else if transfer.statusReason == "waiting for download links" { issue = "Waiting for the provider to make download links available." }

@@ -76,14 +76,6 @@ public struct ServerDiscoveryService: ServerDiscoveryChecking {
         }
     }
     public static func message(for error: any Error) -> String {
-        switch error {
-        case APIError.connection(.notConnectedToInternet): "You’re offline. Reconnect and try again."
-        case APIError.connection(.cannotFindHost), APIError.connection(.dnsLookupFailed): "The server name could not be found. For a tailnet-only server, check Tailscale access."
-        case APIError.connection(.timedOut), APIError.connection(.cannotConnectToHost): "The server is not responding. Check its address and your network or Tailscale connection."
-        case APIError.connection(.secureConnectionFailed), APIError.connection(.serverCertificateUntrusted), APIError.connection(.serverCertificateHasBadDate): "The secure connection could not be verified. Check the server’s HTTPS certificate."
-        case APIError.rateLimited: "Too many requests. Wait a moment before trying again."
-        case APIError.redirectRefused: "This address redirects elsewhere. Enter the final HTTPS address of your Debrid server."
-        default: "This server did not return a compatible Debrid response. Check the address and try again."
-        }
+        ConnectionIssue(error).message
     }
 }

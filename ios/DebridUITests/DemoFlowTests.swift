@@ -335,6 +335,22 @@ final class NativeSubmissionFlowTests:XCTestCase {
         for _ in 0..<swipes where !element.isHittable { app.swipeUp() }
         XCTAssertTrue(element.isHittable)
     }
+    func testPerTransferOptionsStayLocalUntilExplicitAdd() {
+        let app=launch("submit")
+        XCTAssertTrue(app.navigationBars["Saved item"].waitForExistence(timeout:12))
+        let options=app.buttons["transfer-options"];reach(options,in:app);options.tap()
+        XCTAssertTrue(app.navigationBars["Transfer options"].waitForExistence(timeout:5))
+        let unpack=app.switches["policy-unpack"];reach(unpack,in:app)
+        unpack.coordinate(withNormalizedOffset:CGVector(dx:0.93,dy:0.5)).tap()
+        Thread.sleep(forTimeInterval:0.6)
+        let shot=XCTAttachment(screenshot:app.screenshot());shot.name="transfer-options-native";shot.lifetime = .keepAlways;add(shot)
+        app.buttons["transfer-options-apply"].tap()
+        XCTAssertTrue(app.navigationBars["Saved item"].waitForExistence(timeout:5))
+        for _ in 0..<12 where !app.staticTexts["No transfer has been added."].exists { app.swipeDown() }
+        XCTAssertTrue(app.staticTexts["No transfer has been added."].waitForExistence(timeout:5))
+        let reviewed=app.switches["review-unpack"];reach(reviewed,in:app);XCTAssertEqual(reviewed.value as? String,"0")
+        XCTAssertFalse(app.descendants(matching:.any).matching(identifier:"submission-accepted").firstMatch.exists)
+    }
     func testNativeReviewRequiresExplicitAddAndShowsConfirmation() async throws {
         let app=launch("submit")
         XCTAssertTrue(app.navigationBars["Saved item"].waitForExistence(timeout:12))
@@ -379,5 +395,193 @@ final class NativeSubmissionFlowTests:XCTestCase {
         XCTAssertTrue(app.descendants(matching:.any).matching(identifier:"submission-accepted").firstMatch.waitForExistence(timeout:8))
         let finish=app.buttons["Done"];reach(finish,in:app);finish.tap()
         XCTAssertTrue(app.navigationBars["Transfers"].waitForExistence(timeout:8))
+    }
+}
+
+@MainActor final class NativeFileSelectionFlowTests:XCTestCase {
+    private func reach(_ item:XCUIElement,in app:XCUIApplication) {
+        for _ in 0..<18 where !item.isHittable {app.swipeUp()}
+        XCTAssertTrue(item.isHittable)
+    }
+    private func capture(_ app:XCUIApplication,_ name:String) {
+        Thread.sleep(forTimeInterval:1)
+        let shot=XCTAttachment(screenshot:app.screenshot());shot.name=name;shot.lifetime = .keepAlways;add(shot)
+    }
+    func testFoldersRequireExplicitSelectionAndFinalConfirmation() throws {try exercise()}
+    func testLargestTextCanReachFinalConfirmation() throws {try exercise(large:true)}
+    func testInterruptedResponseCanCheckConfirmedResult() throws {try exercise(uncertain:true)}
+    private func exercise(large:Bool = false,uncertain:Bool = false) throws {
+        let app=XCUIApplication()
+        app.launchArguments=["-DebridInboxTestNamespace",UUID().uuidString,"-DebridInboxCaptureMode",uncertain ? "selection-uncertain" : "selection"]
+        if large {app.launchArguments += ["-UIPreferredContentSizeCategoryName","UICTContentSizeCategoryAccessibilityXXXL"]}
+        app.launch()
+        XCTAssertTrue(app.navigationBars["Choose files"].waitForExistence(timeout:12))
+        XCTAssertFalse(app.buttons["review-file-selection"].isEnabled)
+        capture(app,"selection-folders")
+        let folder=app.buttons["Season 1"];reach(folder,in:app);folder.tap()
+        XCTAssertTrue(app.navigationBars["Season 1"].waitForExistence(timeout:5))
+        let file=app.buttons.containing(.staticText,identifier:"01 — The Open Ocean.mkv").firstMatch
+        XCTAssertTrue(file.waitForExistence(timeout:5));reach(file,in:app);file.tap()
+        let review=app.buttons["review-file-selection"]
+        XCTAssertTrue(review.isEnabled);capture(app,"selection-files");review.tap()
+        XCTAssertTrue(app.navigationBars["Review selection"].waitForExistence(timeout:5))
+        let confirm=app.buttons["confirm-file-selection"];reach(confirm,in:app)
+        XCTAssertTrue(confirm.isEnabled);capture(app,"selection-confirmation");confirm.tap()
+        if uncertain {
+            XCTAssertTrue(app.staticTexts["Result not confirmed"].waitForExistence(timeout:8))
+            let check=app.buttons["Check again"];reach(check,in:app);check.tap()
+        }
+        XCTAssertTrue(app.staticTexts["Selection confirmed"].waitForExistence(timeout:8))
+    }
+}
+
+
+@MainActor final class NativeShareExtensionTests:XCTestCase {
+    func testActualShareSheetOpensEmbeddedExtensionAndCanCancel() throws {try exercise()}
+    func testLargestTextCanReachShareSaveAndCancel() throws {try exercise(large:true)}
+    private func exercise(large:Bool = false) throws {
+        let app=XCUIApplication()
+        app.launchArguments=["-DebridInboxTestNamespace",UUID().uuidString,"-DebridInboxCaptureMode","share-host"]
+        if large {app.launchArguments += ["-UIPreferredContentSizeCategoryName","UICTContentSizeCategoryAccessibilityXXXL"]}
+        app.launch()
+        let share=app.buttons["share-fixture"];XCTAssertTrue(share.waitForExistence(timeout:12));share.tap()
+        let debrid=app.staticTexts["Debrid"].firstMatch
+        if !debrid.waitForExistence(timeout:5) {
+            let more=app.staticTexts["More"].firstMatch
+            XCTAssertTrue(more.waitForExistence(timeout:5));more.tap()
+        }
+        XCTAssertTrue(debrid.waitForExistence(timeout:8));debrid.tap()
+        let save=app.buttons["Save to Debrid"]
+        XCTAssertTrue(save.waitForExistence(timeout:10))
+        XCTAssertTrue(app.staticTexts["Share Fixture"].waitForExistence(timeout:8))
+        for _ in 0..<15 where !save.isHittable {app.swipeUp()}
+        XCTAssertTrue(save.isHittable)
+        let shot=XCTAttachment(screenshot:app.screenshot());shot.name="share-extension-native";shot.lifetime = .keepAlways;add(shot)
+        app.buttons["Cancel"].tap()
+        XCTAssertTrue(app.buttons["share-fixture"].waitForExistence(timeout:8))
+    }
+}
+
+@MainActor final class NativeRetryFlowTests:XCTestCase {
+    private func launch(_ mode:String,large:Bool = false)->XCUIApplication {
+        let app=XCUIApplication();app.launchArguments=["-DebridInboxTestNamespace",UUID().uuidString,"-DebridInboxCaptureMode",mode]
+        if large {app.launchArguments += ["-UIPreferredContentSizeCategoryName","UICTContentSizeCategoryAccessibilityXXXL"]}
+        app.launch();return app
+    }
+    private func reach(_ element:XCUIElement,in app:XCUIApplication) {
+        for _ in 0..<18 where !element.isHittable {app.swipeUp()}
+        XCTAssertTrue(element.isHittable)
+    }
+    private func capture(_ app:XCUIApplication,_ name:String) {
+        Thread.sleep(forTimeInterval:1)
+        let shot=XCTAttachment(screenshot:app.screenshot());shot.name=name;shot.lifetime = .keepAlways;add(shot)
+    }
+    func testWholeRetryRequiresExplicitConfirmationAndExplainsFreshFileReview() {
+        let app=launch("retry")
+        XCTAssertTrue(app.navigationBars["Retry transfer"].waitForExistence(timeout:12))
+        let confirm=app.buttons["confirm-retry"];XCTAssertTrue(confirm.waitForExistence(timeout:8))
+        XCTAssertTrue(app.staticTexts["Choose files again before NAS downloads start."].exists)
+        XCTAssertFalse(app.descendants(matching:.any).matching(identifier:"retry-accepted").firstMatch.exists)
+        reach(confirm,in:app);capture(app,"retry-transfer-review");confirm.tap()
+        XCTAssertTrue(app.descendants(matching:.any).matching(identifier:"retry-accepted").firstMatch.waitForExistence(timeout:8))
+        XCTAssertFalse(confirm.exists);capture(app,"retry-transfer-accepted")
+    }
+    func testLightAppearanceKeepsRetryWarningAndPrimaryActionReadable() {
+        let app=launch("retry-light")
+        let confirm=app.buttons["confirm-retry"];XCTAssertTrue(confirm.waitForExistence(timeout:12));reach(confirm,in:app)
+        XCTAssertTrue(app.staticTexts["Choose files again before NAS downloads start."].exists)
+        capture(app,"retry-transfer-light");confirm.tap()
+        XCTAssertTrue(app.descendants(matching:.any).matching(identifier:"retry-accepted").firstMatch.waitForExistence(timeout:8))
+    }
+    func testLostResponseOffersCheckAndKeepsFreshConfirmUnavailable() {
+        let app=launch("retry-uncertain")
+        let confirm=app.buttons["confirm-retry"];XCTAssertTrue(confirm.waitForExistence(timeout:12));reach(confirm,in:app);confirm.tap()
+        let check=app.buttons["check-retry-result"];XCTAssertTrue(check.waitForExistence(timeout:8))
+        let same=app.buttons["retry-same-request"];reach(same,in:app);XCTAssertTrue(same.isEnabled);XCTAssertFalse(confirm.exists)
+        app.swipeDown()
+        reach(check,in:app);capture(app,"retry-result-unknown");check.tap()
+        XCTAssertTrue(app.descendants(matching:.any).matching(identifier:"retry-accepted").firstMatch.waitForExistence(timeout:8))
+    }
+    func testLargestTextCanConfirmOneFailedFile() {
+        let app=launch("retry-file",large:true)
+        XCTAssertTrue(app.navigationBars["Retry file"].waitForExistence(timeout:12))
+        let confirm=app.buttons["confirm-retry"];reach(confirm,in:app)
+        XCTAssertFalse(app.staticTexts["Choose files again before NAS downloads start."].exists)
+        capture(app,"retry-file-large-text");confirm.tap()
+        XCTAssertTrue(app.descendants(matching:.any).matching(identifier:"retry-accepted").firstMatch.waitForExistence(timeout:8))
+    }
+}
+
+@MainActor final class NativeManagementFlowTests:XCTestCase {
+    private func launch(_ mode:String,large:Bool = false)->XCUIApplication {
+        let app=XCUIApplication();app.launchArguments=["-DebridInboxTestNamespace",UUID().uuidString,"-DebridInboxCaptureMode",mode]
+        if large {app.launchArguments += ["-UIPreferredContentSizeCategoryName","UICTContentSizeCategoryAccessibilityXXXL"]}
+        app.launch();return app
+    }
+    private func reach(_ element:XCUIElement,in app:XCUIApplication) {
+        for _ in 0..<20 {
+            if element.exists,element.isHittable,element.frame.minY>=120,element.frame.maxY<=app.frame.maxY-40 {break}
+            if element.exists,element.frame.minY<120 {app.swipeDown()}else{app.swipeUp()}
+        }
+        XCTAssertTrue(element.isHittable)
+    }
+    private func capture(_ app:XCUIApplication,_ name:String) {
+        Thread.sleep(forTimeInterval:1)
+        let shot=XCTAttachment(screenshot:app.screenshot());shot.name=name;shot.lifetime = .keepAlways;add(shot)
+    }
+    func testCancellationRequiresConfirmationAndRetainsFiles() {
+        let app=launch("cancel")
+        XCTAssertTrue(app.navigationBars["Cancel transfer"].waitForExistence(timeout:12))
+        let confirm=app.buttons["confirm-management"];reach(confirm,in:app)
+        XCTAssertTrue(app.staticTexts["Keep NAS files and this transfer"].exists)
+        XCTAssertFalse(app.descendants(matching:.any).matching(identifier:"management-accepted").firstMatch.exists)
+        capture(app,"cancel-review-dark");confirm.tap()
+        let accepted=app.descendants(matching:.any).matching(identifier:"management-accepted").firstMatch
+        XCTAssertTrue(accepted.waitForExistence(timeout:8));capture(app,"cancel-accepted")
+    }
+    func testLightRemovalDefaultsToKeepingFilesAndProvider() {
+        let app=launch("remove-light")
+        XCTAssertTrue(app.navigationBars["Remove transfer"].waitForExistence(timeout:12))
+        let files=app.switches["management-delete-files"],provider=app.switches["management-delete-provider"]
+        reach(files,in:app);XCTAssertEqual(files.value as? String,"0");reach(provider,in:app);XCTAssertEqual(provider.value as? String,"0")
+        let confirm=app.buttons["confirm-management"];reach(confirm,in:app);capture(app,"remove-review-light");confirm.tap()
+        XCTAssertTrue(app.descendants(matching:.any).matching(identifier:"management-accepted").firstMatch.waitForExistence(timeout:8))
+    }
+    func testLostRemovalResponseOnlyReportsObservedAbsence() {
+        let app=launch("remove-uncertain")
+        let confirm=app.buttons["confirm-management"];reach(confirm,in:app);capture(app,"remove-review-dark");confirm.tap()
+        let check=app.buttons["check-management-result"];XCTAssertTrue(check.waitForExistence(timeout:8));reach(check,in:app)
+        XCTAssertFalse(confirm.exists);capture(app,"remove-result-unknown");check.tap()
+        let absent=app.descendants(matching:.any).matching(identifier:"management-absent").firstMatch
+        XCTAssertTrue(absent.waitForExistence(timeout:8))
+        XCTAssertTrue(app.staticTexts["management-cleanup-unconfirmed"].exists)
+        XCTAssertFalse(app.descendants(matching:.any).matching(identifier:"management-accepted").firstMatch.exists)
+        capture(app,"remove-absence-unconfirmed")
+    }
+    func testLargestTextCleanupRequiresAnAdditionalConfirmation() {
+        let app=launch("remove",large:true)
+        XCTAssertTrue(app.navigationBars["Remove transfer"].waitForExistence(timeout:12))
+        let files=app.switches["management-delete-files"];reach(files,in:app)
+        // SwiftUI exposes the wrapped label and native switch as one AX row.
+        // Activate the trailing switch, rather than the centre of a large label.
+        files.coordinate(withNormalizedOffset:CGVector(dx:0.93,dy:0.5)).tap()
+        XCTAssertEqual(files.value as? String,"1")
+        capture(app,"remove-cleanup-largest-text")
+        let confirm=app.buttons["confirm-management"];reach(confirm,in:app);capture(app,"remove-primary-largest-text");confirm.tap()
+        capture(app,"remove-cleanup-dialog-largest-text")
+        let keep=app.buttons.matching(NSPredicate(format:"label == %@","Keep reviewing")).firstMatch
+        XCTAssertTrue(keep.waitForExistence(timeout:5));keep.tap()
+        XCTAssertFalse(app.descendants(matching:.any).matching(identifier:"management-accepted").firstMatch.exists)
+        reach(confirm,in:app);confirm.tap()
+        let cleanup=app.buttons.matching(NSPredicate(format:"identifier == %@ AND label == %@","confirm-management-cleanup","Remove transfer")).firstMatch
+        XCTAssertTrue(cleanup.waitForExistence(timeout:5));cleanup.tap()
+        XCTAssertTrue(app.descendants(matching:.any).matching(identifier:"management-accepted").firstMatch.waitForExistence(timeout:8))
+    }
+    func testLostCancellationResponseChecksSavedReceipt() {
+        let app=launch("cancel-uncertain")
+        let confirm=app.buttons["confirm-management"];reach(confirm,in:app);confirm.tap()
+        let check=app.buttons["check-management-result"];XCTAssertTrue(check.waitForExistence(timeout:8));reach(check,in:app);check.tap()
+        XCTAssertTrue(app.descendants(matching:.any).matching(identifier:"management-accepted").firstMatch.waitForExistence(timeout:8))
+        XCTAssertFalse(confirm.exists)
     }
 }

@@ -14,6 +14,17 @@
     "mode": "",
     "native_sso": false
   },
+  "cancellation_acceptance": {
+    "torrent_id": "fixture-transfer",
+    "accepted_at": "2026-01-02T03:04:05.123456789Z",
+    "torrent_exists": true
+  },
+  "cancellation_review": {
+    "torrent_id": "fixture-transfer",
+    "revision": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "allowed": true,
+    "provider_may_continue": true
+  },
   "health": {
     "$schema": "https://example.com/schemas/HealthOutBody.json",
     "ok": true,
@@ -21,13 +32,44 @@
     "capabilities": [
       "torrent_submissions_v1",
       "multipart_torrent_settings_v1",
-      "manual_file_selection_v1"
+      "manual_file_selection_v1",
+      "native_retry_v1",
+      "native_cancellation_v1",
+      "native_removal_precondition_v1",
+      "native_account_removal_drain_v1",
+      "native_settings_revision_v1"
     ]
   },
   "identity": {
     "$schema": "https://example.com/schemas/MeOutBody.json",
     "mode": "",
     "api_key": true
+  },
+  "missing_removal_review": {
+    "torrent_id": "fixture-removed",
+    "exists": false,
+    "provider_copy_known": false
+  },
+  "removal_review": {
+    "torrent_id": "fixture-transfer",
+    "exists": true,
+    "revision": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "provider_copy_known": true
+  },
+  "retry_acceptance": {
+    "kind": "download",
+    "resource_id": "fixture-download",
+    "torrent_id": "fixture-transfer",
+    "accepted_at": "2026-01-02T03:04:05.123456789Z",
+    "torrent_exists": true
+  },
+  "retry_review": {
+    "kind": "torrent",
+    "resource_id": "fixture-transfer",
+    "torrent_id": "fixture-transfer",
+    "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "allowed": true,
+    "wait_for_selection": true
   },
   "settings": {
     "torrent_defaults": {
@@ -43,6 +85,23 @@
     "organize": {
       "enabled": false
     }
+  },
+  "settings_review": {
+    "$schema": "https://example.com/schemas/SettingsReviewBody.json",
+    "settings": {
+      "torrent_defaults": {
+        "finished_action": "keep",
+        "download_retries": 3,
+        "torrent_retries": 1,
+        "unpack": true
+      },
+      "categories": [],
+      "unpack_max_depth": 1,
+      "organize": {
+        "enabled": false
+      }
+    },
+    "revision": "903eda72bd17c4948466fef87191aa8e5d6ea57ecef8bd2385368e585468a4bb"
   },
   "system_status": {
     "version": "fixture",

@@ -227,3 +227,37 @@ func TestOrganizePreview(t *testing.T) {
 		t.Fatalf("unparseable result: %+v", out)
 	}
 }
+
+func TestOrganizationPreviewExplicitEmptyResetsBuiltInWithoutSaving(t *testing.T) {
+	c := setup(t)
+	ctx := context.Background()
+	settings := service.DefaultSettings()
+	settings.Organize.MovieTemplate = "Saved/{title}"
+	if _, err := c.svc.UpdateSettings(ctx, settings); err != nil {
+		t.Fatal(err)
+	}
+	baseline, err := c.svc.GetSettingsReview(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		body map[string]any
+		want string
+	}{
+		{map[string]any{"name": "Some.Movie.2019.1080p"}, "Saved/Some Movie"},
+		{map[string]any{"name": "Some.Movie.2019.1080p", "movie_template": ""}, "Some Movie (2019)"},
+		{map[string]any{"name": "Some.Movie.2019.1080p", "movie_template": "Draft/{title}"}, "Draft/Some Movie"},
+	} {
+		var out struct {
+			Path string `json:"path"`
+		}
+		c.mustJSON("POST", "/api/v1/organize/preview", test.body, 200, &out)
+		if out.Path != test.want {
+			t.Fatalf("preview got %q want %q", out.Path, test.want)
+		}
+	}
+	after, err := c.svc.GetSettingsReview(ctx)
+	if err != nil || after.Revision != baseline.Revision {
+		t.Fatal("preview saved settings", err)
+	}
+}

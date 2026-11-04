@@ -136,10 +136,35 @@ Focused selectors are validated and checked for a nonzero test run; default chec
 
 Pending items now accepts explicit native paste (up to16 line-separated magnets) and the system `.torrent` document importer. It also registers alternate document viewing for externally opened torrent files. Documents are copied under security-scoped access, parsed off the main actor and saved as exact protected payloads with metadata-only review. The originals remain untouched. Cancellation, limits and partial capacity failures remain explicit; neither path adds a server transfer. [Storage migration, parser policy, limits and acceptance checks](../docs/plan/ios-document-intake.md).
 
-The inbox schema is now version2; version1 magnets retain their IDs, raw URIs, server hints and leases during atomic migration. Future/corrupt schemas preserve existing files. Framework clients now consume PendingItem with explicit magnet/torrent content, rather than assuming every pending record has a magnet URI.
+Torrent import introduced inbox version2; current format6 is described under Native cancel and remove. version1 magnets retain their IDs, raw URIs, server hints and leases during atomic migration. Future/corrupt schemas preserve existing files. Framework clients now consume PendingItem with explicit magnet/torrent content, rather than assuming every pending record has a magnet URI.
 
 ## Review and add
 
 The actual native saved-item form loads enabled provider accounts, categories and the server’s full default settings. Review or override file rules, unpacking, organization and automatic copy cleanup before explicitly adding. Magnets retain their original URI; torrent uploads retain the original bytes. Servers must advertise durable submissions; file intake also requires multipart settings parity (both ship in v0.2.3). A saved attempt freezes its server/options/key before POST. An interrupted or lost response offers receipt lookup and an explicit retry of that same request; reopening never automatically submits. Confirmed results open the existing live detail screen. See [submission state and checks](../docs/plan/ios-review-add.md).
 
 This increment offers server file rules or all files. Waiting for a provider’s file list before any download requires the focused backend policy in milestone18; it is not claimed here. Native file-selection UI follows in19, then the Share Extension in20.
+
+
+## Native retry
+
+Failed transfers and failed files have separate explicit review sheets. The app persists an immutable server/resource/parent-bound request before submission; interrupted responses reopen with receipt lookup and an explicit retry of the same request. Pending Items retains uncertain retries. Requires `native_retry_v1`; older servers show an update requirement. Retry support introduced format5; current format6 also retains native management intents while preserving earlier drafts, submissions and selections. See [retry contract and validation](../docs/plan/ios-retry-actions.md). Release signing and real-phone/App Group checks remain separate from simulator evidence.
+
+
+## Cancellation compatibility
+
+The transport supports `native_cancellation_v1` review/request/receipt calls; cancelled transfers/files render as stopped and have a dedicated filter. Receipt acceptance is historical and does not prove a later retry is still stopped. Native protected confirmation/recovery and cancel/remove controls are milestone23. See [cancellation semantics and backend downgrade gate](../docs/plan/ios-cancellation.md).
+
+
+## Native cancel and remove
+
+Live detail offers separate cancellation and removal reviews. Cancel retains the transfer/files and warns about provider activity. Removal keeps NAS files/provider copies by default; requesting cleanup adds a native confirmation. Protected inbox6 freezes the original server/ID/revision/key/options before mutation and migrates formats1–5. Pending Items checks unknown results without automatic sending; explicit retries keep the original intent. Typed absence never claims cleanup completed. See [management contract and checks](../docs/plan/ios-management-actions.md) and [actual native captures](../docs/design/ios/management/README.md).
+
+### Provider overview
+
+The connected app uses Transfers, Providers and Settings tabs. Providers reads saved metadata and shows a dated credential check only after an explicit **Check connection** action. Disabled/default accounts remain visible. Premium/expiry reflect the provider's last response; quota is not reported by the API. Offline refresh retains the last snapshot; changed accounts invalidate old health. Checks never start transfers or enable accounts. The Settings tab exposes this connection's address, Pocket ID identity and confirmed sign-out.
+
+For no-network simulator review, launch a Debug app with `-ProvidersFixture normal` (or `light`, `failure`, `empty`, `offline`). These use production views with visibly labeled fictional data. `ProviderFlowTests` captures native states on the existing shared simulator; no new devices or runtime downloads are needed. See [behavior and validation](../docs/plan/ios-provider-overview.md).
+
+### Provider editing and removal
+
+Add provider and Edit use native forms with write-only credentials. Replacement is off by default; keys are masked, cleared on leaving/background and never saved to the shared inbox or local preferences. Unknown results offer observation without automatic replay. Account removal defaults to keeping associated transfers and refuses an account still in use. Explicitly including all associated transfers requires `native_account_removal_drain_v1` and the dedicated safe removal route; filesystem/provider deletion is never requested by this flow. Accessible text sizes use a scrollable native confirmation sheet. See [semantics and validation](../docs/plan/ios-provider-management.md).

@@ -85,6 +85,9 @@ private struct TransferFileDetail: View {
     let preview: Bool
     let browser: TransferFileBrowserModel
     let fileID: String
+    @Environment(\.magnetIntake) private var intake
+    @State private var retryModel:RetryModel?
+    @State private var retryMessage:String?
     var body: some View {
         List {
             FileBrowserNotice(model:model,transferID:transferID,preview:preview)
@@ -98,13 +101,24 @@ private struct TransferFileDetail: View {
                 }
                 if file.downloads.isEmpty { Section { Text(file.status).foregroundStyle(DebridStyle.secondary) } }
                 ForEach(Array(file.downloads.enumerated()),id:\.offset) { offset,download in
-                    Section(file.downloads.count > 1 ? "NAS download \(offset+1)" : "NAS download") { DownloadRecordContent(download:download) }
+                    Section(file.downloads.count > 1 ? "NAS download \(offset+1)" : "NAS download") {
+                        DownloadRecordContent(download:download)
+                        if !preview,download.state=="error" {
+                            Button("Retry this file",systemImage:"arrow.clockwise") {
+                                do {retryModel=try intake?.retryModel(kind:.download,resourceID:download.id,torrentID:transferID,name:file.name)} catch {retryMessage="Retry review could not be opened. Check protected storage and try again."}
+                            }.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint).accessibilityIdentifier("retry-file-"+download.id)
+                        }
+                    }
                 }
                 Section { Text("These files belong to your provider and server. They have not been downloaded to this iPhone.").font(.footnote).foregroundStyle(DebridStyle.secondary) }
             } else if model.items.contains(where:{ $0.id == transferID }) {
                 Section { ContentUnavailableView("File no longer listed",systemImage:"doc.badge.ellipsis",description:Text("Return to Files to view the current metadata.")) }.listRowBackground(Color.clear)
             }
         }.modifier(DebridListStyle()).navigationTitle("File").navigationBarTitleDisplayMode(.inline)
+            .sheet(isPresented:Binding(get:{retryModel != nil},set:{if !$0 {retryModel=nil}}),onDismiss:{Task {await intake?.refresh();await model.refreshWhileActive()}}) {
+                if let retryModel {RetrySheet(model:retryModel,connectionID:intake?.connection?.connectionID).onChange(of:retryModel.requiresSignIn) {if retryModel.requiresSignIn {Task {await intake?.rejectConnection(retryModel.connectionID)}}}}
+            }
+            .alert("Retry unavailable",isPresented:Binding(get:{retryMessage != nil},set:{if !$0 {retryMessage=nil}})) {Button("OK",role:.cancel) {retryMessage=nil}} message: {Text(retryMessage ?? "")}
             .refreshable { await model.refreshWhileActive() }
             .task(id:model.updatedAt) { await browser.update(transfer:model.items.first(where:{ $0.id == transferID })?.transfer,updatedAt:model.updatedAt) }
     }
@@ -113,11 +127,11 @@ private struct DownloadRecordContent: View {
     let download: DownloadDTO
     var body: some View {
         let summary = FileDownloadSummary(download)
-        Text(summary.label).font(.subheadline).foregroundStyle(download.state == "error" ? .red : DebridStyle.secondary)
+        Text(summary.label).font(.subheadline).foregroundStyle(download.state == "error" ? Color("DangerInk") : DebridStyle.secondary)
         if let fraction = summary.fraction { ProgressView(value:fraction).tint(download.progressInk).accessibilityLabel(summary.label); Text(fraction.formatted(.percent.precision(.fractionLength(0)))).font(.subheadline.monospacedDigit()) }
         else { Text("Progress unavailable").font(.footnote).foregroundStyle(DebridStyle.secondary) }
         if let done = summary.bytesDone, download.size > 0 { Text(done.formatted(.byteCount(style:.file))+" of "+download.size.formatted(.byteCount(style:.file))).font(.footnote).foregroundStyle(DebridStyle.secondary) }
-        if download.state == "error" { Text("The server reported a file download error. Check the server for details.").font(.footnote).foregroundStyle(DebridStyle.secondary) }
+        if download.state == "error" { Text("Your server couldn’t download this file.").font(.footnote).foregroundStyle(DebridStyle.secondary) }
         if download.retryCount > 0 { LabeledContent("Retries",value:"\(download.retryCount)") }
     }
 }
@@ -143,6 +157,7 @@ private extension DownloadDTO {
         switch state {
         case "done": Color("StageGreen")
         case "error": .red
+        case "cancelled": DebridStyle.secondary
         default: Color("StageBlue")
         }
     }

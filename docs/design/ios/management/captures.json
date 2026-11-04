@@ -1,0 +1,49 @@
+{
+  "source": "Actual SwiftUI fixture on shared iOS27.0 simulator",
+  "result": "Test-Debrid-2026.11.04_17-04-16-+0000.xcresult",
+  "screens": [
+    {
+      "file": "cleanup-dialog-largest.png",
+      "capture": "remove-cleanup-dialog-largest-text",
+      "test": "NativeManagementFlowTests/testLargestTextCleanupRequiresAnAdditionalConfirmation()",
+      "result": "Test-Debrid-2026.11.04_17-11-58-+0000.xcresult"
+    },
+    {
+      "file": "remove-primary-largest.png",
+      "capture": "remove-primary-largest-text",
+      "test": "NativeManagementFlowTests/testLargestTextCleanupRequiresAnAdditionalConfirmation()",
+      "result": "Test-Debrid-2026.11.04_17-11-58-+0000.xcresult"
+    },
+    {
+      "file": "cleanup-options-largest.png",
+      "capture": "remove-cleanup-largest-text",
+      "test": "NativeManagementFlowTests/testLargestTextCleanupRequiresAnAdditionalConfirmation()",
+      "result": "Test-Debrid-2026.11.04_17-11-58-+0000.xcresult"
+    },
+    {
+      "file": "remove-light.png",
+      "capture": "remove-review-light",
+      "test": "NativeManagementFlowTests/testLightRemovalDefaultsToKeepingFilesAndProvider()"
+    },
+    {
+      "file": "removal-absence.png",
+      "capture": "remove-absence-unconfirmed",
+      "test": "NativeManagementFlowTests/testLostRemovalResponseOnlyReportsObservedAbsence()"
+    },
+    {
+      "file": "removal-unknown.png",
+      "capture": "remove-result-unknown",
+      "test": "NativeManagementFlowTests/testLostRemovalResponseOnlyReportsObservedAbsence()"
+    },
+    {
+      "file": "remove-dark.png",
+      "capture": "remove-review-dark",
+      "test": "NativeManagementFlowTests/testLostRemovalResponseOnlyReportsObservedAbsence()"
+    },
+    {
+      "file": "cancel-dark.png",
+      "capture": "cancel-review-dark",
+      "test": "NativeManagementFlowTests/testCancellationRequiresConfirmationAndRetainsFiles()"
+    }
+  ]
+}
