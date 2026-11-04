@@ -148,3 +148,8 @@ This increment offers server file rules or all files. Waiting for a provider’s
 ## Native retry
 
 Failed transfers and failed files have separate explicit review sheets. The app persists an immutable server/resource/parent-bound request before submission; interrupted responses reopen with receipt lookup and an explicit retry of the same request. Pending Items retains uncertain retries. Requires `native_retry_v1`; older servers show an update requirement. Current inbox format5 migrates formats1–4 without dropping drafts, submissions or selections. See [retry contract and validation](../docs/plan/ios-retry-actions.md). Release signing and real-phone/App Group checks remain separate from simulator evidence.
+
+
+## Cancellation compatibility
+
+The transport supports `native_cancellation_v1` review/request/receipt calls; cancelled transfers/files render as stopped and have a dedicated filter. Receipt acceptance is historical and does not prove a later retry is still stopped. Native protected confirmation/recovery and cancel/remove controls are milestone23. See [cancellation semantics and backend downgrade gate](../docs/plan/ios-cancellation.md).

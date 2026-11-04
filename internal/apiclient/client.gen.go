@@ -74,6 +74,7 @@ func (e AddAccountInBodyKind) Valid() bool {
 
 // Defines values for DownloadState.
 const (
+	DownloadStateCancelled     DownloadState = "cancelled"
 	DownloadStateDone          DownloadState = "done"
 	DownloadStateDownloaded    DownloadState = "downloaded"
 	DownloadStateDownloading   DownloadState = "downloading"
@@ -86,6 +87,8 @@ const (
 // Valid indicates whether the value is a known member of the DownloadState enum.
 func (e DownloadState) Valid() bool {
 	switch e {
+	case DownloadStateCancelled:
+		return true
 	case DownloadStateDone:
 		return true
 	case DownloadStateDownloaded:
@@ -156,6 +159,7 @@ func (e TorrentFileSelectionState) Valid() bool {
 // Defines values for TorrentStatus.
 const (
 	TorrentStatusAdding           TorrentStatus = "adding"
+	TorrentStatusCancelled        TorrentStatus = "cancelled"
 	TorrentStatusCompleted        TorrentStatus = "completed"
 	TorrentStatusDownloading      TorrentStatus = "downloading"
 	TorrentStatusError            TorrentStatus = "error"
@@ -170,6 +174,8 @@ const (
 func (e TorrentStatus) Valid() bool {
 	switch e {
 	case TorrentStatusAdding:
+		return true
+	case TorrentStatusCancelled:
 		return true
 	case TorrentStatusCompleted:
 		return true
@@ -213,6 +219,7 @@ func (e TorrentSettingsFinishedAction) Valid() bool {
 // Defines values for ListTorrentsParamsStatus.
 const (
 	ListTorrentsParamsStatusAdding           ListTorrentsParamsStatus = "adding"
+	ListTorrentsParamsStatusCancelled        ListTorrentsParamsStatus = "cancelled"
 	ListTorrentsParamsStatusCompleted        ListTorrentsParamsStatus = "completed"
 	ListTorrentsParamsStatusDownloading      ListTorrentsParamsStatus = "downloading"
 	ListTorrentsParamsStatusError            ListTorrentsParamsStatus = "error"
@@ -227,6 +234,8 @@ const (
 func (e ListTorrentsParamsStatus) Valid() bool {
 	switch e {
 	case ListTorrentsParamsStatusAdding:
+		return true
+	case ListTorrentsParamsStatusCancelled:
 		return true
 	case ListTorrentsParamsStatusCompleted:
 		return true
@@ -327,6 +336,29 @@ type AuthStatusOutBody struct {
 
 	// OidcIssuer Configured OIDC issuer, shown on the login/setup screens
 	OidcIssuer *string `json:"oidc_issuer,omitempty"`
+}
+
+// CancellationAcceptance defines model for CancellationAcceptance.
+type CancellationAcceptance struct {
+	// Schema A URL to the JSON Schema for this object.
+	//
+	// Example: https://example.com/schemas/CancellationAcceptance.json
+	Schema        *string   `json:"$schema,omitempty"`
+	AcceptedAt    time.Time `json:"accepted_at"`
+	TorrentExists bool      `json:"torrent_exists"`
+	TorrentId     string    `json:"torrent_id"`
+}
+
+// CancellationReview defines model for CancellationReview.
+type CancellationReview struct {
+	// Schema A URL to the JSON Schema for this object.
+	//
+	// Example: https://example.com/schemas/CancellationReview.json
+	Schema              *string `json:"$schema,omitempty"`
+	Allowed             bool    `json:"allowed"`
+	ProviderMayContinue bool    `json:"provider_may_continue"`
+	Revision            string  `json:"revision"`
+	TorrentId           string  `json:"torrent_id"`
 }
 
 // ChangePasswordInBody defines model for ChangePasswordInBody.
@@ -992,6 +1024,12 @@ type DeleteTorrentParams struct {
 	Provider *bool `form:"provider,omitempty" json:"provider,omitempty"`
 }
 
+// GetTorrentCancellationRequestParams defines parameters for GetTorrentCancellationRequest.
+type GetTorrentCancellationRequestParams struct {
+	// Revision Original review revision bound to this request key
+	Revision string `form:"revision" json:"revision"`
+}
+
 // GetTorrentRetryRequestParams defines parameters for GetTorrentRetryRequest.
 type GetTorrentRetryRequestParams struct {
 	// Revision Original review revision bound to this request key
@@ -1039,6 +1077,9 @@ type AddTorrentFileMultipartRequestBody AddTorrentFileMultipartBody
 
 // UpdateTorrentJSONRequestBody defines body for UpdateTorrent for application/json ContentType.
 type UpdateTorrentJSONRequestBody = UpdateTorrentInBody
+
+// RequestTorrentCancellationJSONRequestBody defines body for RequestTorrentCancellation for application/json ContentType.
+type RequestTorrentCancellationJSONRequestBody = RetryRequestInBody
 
 // ConfirmFileSelectionJSONRequestBody defines body for ConfirmFileSelection for application/json ContentType.
 type ConfirmFileSelectionJSONRequestBody = ConfirmFileSelectionInBody
@@ -1426,6 +1467,38 @@ type ClientInterface interface {
 	// Corresponds with PATCH /api/v1/torrents/{id} (the `UpdateTorrent` operationId).
 	UpdateTorrent(ctx context.Context, id string, body UpdateTorrentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// RequestTorrentCancellationWithBody Accept one durable local cancellation
+	//
+	// Persist key and original revision before POST. Replays return the original receipt even after retry/removal. Acceptance means local workers drained and stopped state committed; provider activity may continue. Completed/error races return conflict without replacing the terminal result.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/torrents/{id}/cancellation-requests (the `RequestTorrentCancellation` operationId).
+	RequestTorrentCancellationWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RequestTorrentCancellation Accept one durable local cancellation
+	//
+	// Persist key and original revision before POST. Replays return the original receipt even after retry/removal. Acceptance means local workers drained and stopped state committed; provider activity may continue. Completed/error races return conflict without replacing the terminal result.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/torrents/{id}/cancellation-requests (the `RequestTorrentCancellation` operationId).
+	RequestTorrentCancellation(ctx context.Context, id string, body RequestTorrentCancellationJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetTorrentCancellationRequest Reconcile a saved cancellation without repeating it
+	//
+	// 404 means no committed receipt is visible, not proof an original request failed. Retry only the same immutable intent/key. A receipt remains accepted after later retry or removal and does not claim the transfer is currently stopped.
+	//
+	// Corresponds with GET /api/v1/torrents/{id}/cancellation-requests/{key} (the `GetTorrentCancellationRequest` operationId).
+	GetTorrentCancellationRequest(ctx context.Context, id string, key string, params *GetTorrentCancellationRequestParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReviewTorrentCancellation Review local transfer cancellation
+	//
+	// Stops local orchestration and NAS work without removing records or files. Remote provider activity may continue. Revision binds the retry incarnation, not changing progress.
+	//
+	// Corresponds with GET /api/v1/torrents/{id}/cancellation-review (the `ReviewTorrentCancellation` operationId).
+	ReviewTorrentCancellation(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetFileSelection Review authoritative provider files before NAS download
 	//
 	// Corresponds with GET /api/v1/torrents/{id}/file-selection (the `GetFileSelection` operationId).
@@ -1459,7 +1532,7 @@ type ClientInterface interface {
 	// Corresponds with PUT /api/v1/torrents/{id}/files (the `SelectFiles` operationId).
 	SelectFiles(ctx context.Context, id string, body SelectFilesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// RetryTorrent Retry an errored or completed torrent from scratch
+	// RetryTorrent Retry an errored, completed or cancelled torrent from scratch
 	//
 	// Corresponds with POST /api/v1/torrents/{id}/retry (the `RetryTorrent` operationId).
 	RetryTorrent(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -2262,6 +2335,78 @@ func (c *Client) UpdateTorrent(ctx context.Context, id string, body UpdateTorren
 	return c.Client.Do(req)
 }
 
+// RequestTorrentCancellationWithBody Accept one durable local cancellation
+//
+// Persist key and original revision before POST. Replays return the original receipt even after retry/removal. Acceptance means local workers drained and stopped state committed; provider activity may continue. Completed/error races return conflict without replacing the terminal result.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/torrents/{id}/cancellation-requests (the `RequestTorrentCancellation` operationId).
+func (c *Client) RequestTorrentCancellationWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRequestTorrentCancellationRequestWithBody(c.Server, id, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RequestTorrentCancellation Accept one durable local cancellation
+//
+// Persist key and original revision before POST. Replays return the original receipt even after retry/removal. Acceptance means local workers drained and stopped state committed; provider activity may continue. Completed/error races return conflict without replacing the terminal result.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/torrents/{id}/cancellation-requests (the `RequestTorrentCancellation` operationId).
+func (c *Client) RequestTorrentCancellation(ctx context.Context, id string, body RequestTorrentCancellationJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRequestTorrentCancellationRequest(c.Server, id, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetTorrentCancellationRequest Reconcile a saved cancellation without repeating it
+//
+// 404 means no committed receipt is visible, not proof an original request failed. Retry only the same immutable intent/key. A receipt remains accepted after later retry or removal and does not claim the transfer is currently stopped.
+//
+// Corresponds with GET /api/v1/torrents/{id}/cancellation-requests/{key} (the `GetTorrentCancellationRequest` operationId).
+func (c *Client) GetTorrentCancellationRequest(ctx context.Context, id string, key string, params *GetTorrentCancellationRequestParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetTorrentCancellationRequestRequest(c.Server, id, key, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ReviewTorrentCancellation Review local transfer cancellation
+//
+// Stops local orchestration and NAS work without removing records or files. Remote provider activity may continue. Revision binds the retry incarnation, not changing progress.
+//
+// Corresponds with GET /api/v1/torrents/{id}/cancellation-review (the `ReviewTorrentCancellation` operationId).
+func (c *Client) ReviewTorrentCancellation(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReviewTorrentCancellationRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // GetFileSelection Review authoritative provider files before NAS download
 //
 // Corresponds with GET /api/v1/torrents/{id}/file-selection (the `GetFileSelection` operationId).
@@ -2345,7 +2490,7 @@ func (c *Client) SelectFiles(ctx context.Context, id string, body SelectFilesJSO
 	return c.Client.Do(req)
 }
 
-// RetryTorrent Retry an errored or completed torrent from scratch
+// RetryTorrent Retry an errored, completed or cancelled torrent from scratch
 //
 // Corresponds with POST /api/v1/torrents/{id}/retry (the `RetryTorrent` operationId).
 func (c *Client) RetryTorrent(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -3837,6 +3982,151 @@ func NewUpdateTorrentRequestWithBody(server string, id string, contentType strin
 	return req, nil
 }
 
+// NewRequestTorrentCancellationRequest calls the generic RequestTorrentCancellation builder with application/json body
+func NewRequestTorrentCancellationRequest(server string, id string, body RequestTorrentCancellationJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRequestTorrentCancellationRequestWithBody(server, id, "application/json", bodyReader)
+}
+
+// NewRequestTorrentCancellationRequestWithBody constructs an http.Request for the RequestTorrentCancellation method, with any body, and a specified content type
+func NewRequestTorrentCancellationRequestWithBody(server string, id string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/torrents/%s/cancellation-requests", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetTorrentCancellationRequestRequest constructs an http.Request for the GetTorrentCancellationRequest method
+func NewGetTorrentCancellationRequestRequest(server string, id string, key string, params *GetTorrentCancellationRequestParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "key", key, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/torrents/%s/cancellation-requests/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", false, "revision", params.Revision, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewReviewTorrentCancellationRequest constructs an http.Request for the ReviewTorrentCancellation method
+func NewReviewTorrentCancellationRequest(server string, id string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/torrents/%s/cancellation-review", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewGetFileSelectionRequest constructs an http.Request for the GetFileSelection method
 func NewGetFileSelectionRequest(server string, id string) (*http.Request, error) {
 	var err error
@@ -4531,6 +4821,42 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with PATCH /api/v1/torrents/{id} (the `UpdateTorrent` operationId).
 	UpdateTorrentWithResponse(ctx context.Context, id string, body UpdateTorrentJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateTorrentResponse, error)
 
+	// RequestTorrentCancellationWithBodyWithResponse Accept one durable local cancellation
+	//
+	// Persist key and original revision before POST. Replays return the original receipt even after retry/removal. Acceptance means local workers drained and stopped state committed; provider activity may continue. Completed/error races return conflict without replacing the terminal result.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/torrents/{id}/cancellation-requests (the `RequestTorrentCancellation` operationId).
+	RequestTorrentCancellationWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RequestTorrentCancellationResponse, error)
+
+	// RequestTorrentCancellationWithResponse Accept one durable local cancellation
+	//
+	// Persist key and original revision before POST. Replays return the original receipt even after retry/removal. Acceptance means local workers drained and stopped state committed; provider activity may continue. Completed/error races return conflict without replacing the terminal result.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/torrents/{id}/cancellation-requests (the `RequestTorrentCancellation` operationId).
+	RequestTorrentCancellationWithResponse(ctx context.Context, id string, body RequestTorrentCancellationJSONRequestBody, reqEditors ...RequestEditorFn) (*RequestTorrentCancellationResponse, error)
+
+	// GetTorrentCancellationRequestWithResponse Reconcile a saved cancellation without repeating it
+	//
+	// 404 means no committed receipt is visible, not proof an original request failed. Retry only the same immutable intent/key. A receipt remains accepted after later retry or removal and does not claim the transfer is currently stopped.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/torrents/{id}/cancellation-requests/{key} (the `GetTorrentCancellationRequest` operationId).
+	GetTorrentCancellationRequestWithResponse(ctx context.Context, id string, key string, params *GetTorrentCancellationRequestParams, reqEditors ...RequestEditorFn) (*GetTorrentCancellationRequestResponse, error)
+
+	// ReviewTorrentCancellationWithResponse Review local transfer cancellation
+	//
+	// Stops local orchestration and NAS work without removing records or files. Remote provider activity may continue. Revision binds the retry incarnation, not changing progress.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/torrents/{id}/cancellation-review (the `ReviewTorrentCancellation` operationId).
+	ReviewTorrentCancellationWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ReviewTorrentCancellationResponse, error)
+
 	// GetFileSelectionWithResponse Review authoritative provider files before NAS download
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -4566,7 +4892,7 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with PUT /api/v1/torrents/{id}/files (the `SelectFiles` operationId).
 	SelectFilesWithResponse(ctx context.Context, id string, body SelectFilesJSONRequestBody, reqEditors ...RequestEditorFn) (*SelectFilesResponse, error)
 
-	// RetryTorrentWithResponse Retry an errored or completed torrent from scratch
+	// RetryTorrentWithResponse Retry an errored, completed or cancelled torrent from scratch
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -6279,6 +6605,171 @@ func (r UpdateTorrentResponse) ContentType() string {
 	return ""
 }
 
+// RequestTorrentCancellationResponse200Headers the declared response headers of an HTTP 200 response for RequestTorrentCancellation
+type RequestTorrentCancellationResponse200Headers struct {
+	CacheControl *string
+}
+
+type RequestTorrentCancellationResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *CancellationAcceptance
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *RequestTorrentCancellationResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RequestTorrentCancellationResponse) GetJSON200() *CancellationAcceptance {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r RequestTorrentCancellationResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r RequestTorrentCancellationResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RequestTorrentCancellationResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RequestTorrentCancellationResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RequestTorrentCancellationResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// GetTorrentCancellationRequestResponse200Headers the declared response headers of an HTTP 200 response for GetTorrentCancellationRequest
+type GetTorrentCancellationRequestResponse200Headers struct {
+	CacheControl *string
+}
+
+type GetTorrentCancellationRequestResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *CancellationAcceptance
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *GetTorrentCancellationRequestResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetTorrentCancellationRequestResponse) GetJSON200() *CancellationAcceptance {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r GetTorrentCancellationRequestResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetTorrentCancellationRequestResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetTorrentCancellationRequestResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetTorrentCancellationRequestResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetTorrentCancellationRequestResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ReviewTorrentCancellationResponse200Headers the declared response headers of an HTTP 200 response for ReviewTorrentCancellation
+type ReviewTorrentCancellationResponse200Headers struct {
+	CacheControl *string
+}
+
+type ReviewTorrentCancellationResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *CancellationReview
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ReviewTorrentCancellationResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ReviewTorrentCancellationResponse) GetJSON200() *CancellationReview {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r ReviewTorrentCancellationResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ReviewTorrentCancellationResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ReviewTorrentCancellationResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReviewTorrentCancellationResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ReviewTorrentCancellationResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // GetFileSelectionResponse200Headers the declared response headers of an HTTP 200 response for GetFileSelection
 type GetFileSelectionResponse200Headers struct {
 	CacheControl *string
@@ -7275,6 +7766,66 @@ func (c *ClientWithResponses) UpdateTorrentWithResponse(ctx context.Context, id 
 	return ParseUpdateTorrentResponse(rsp)
 }
 
+// RequestTorrentCancellationWithBodyWithResponse Accept one durable local cancellation
+//
+// Persist key and original revision before POST. Replays return the original receipt even after retry/removal. Acceptance means local workers drained and stopped state committed; provider activity may continue. Completed/error races return conflict without replacing the terminal result.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/torrents/{id}/cancellation-requests (the `RequestTorrentCancellation` operationId).
+func (c *ClientWithResponses) RequestTorrentCancellationWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RequestTorrentCancellationResponse, error) {
+	rsp, err := c.RequestTorrentCancellationWithBody(ctx, id, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRequestTorrentCancellationResponse(rsp)
+}
+
+// RequestTorrentCancellationWithResponse Accept one durable local cancellation
+//
+// Persist key and original revision before POST. Replays return the original receipt even after retry/removal. Acceptance means local workers drained and stopped state committed; provider activity may continue. Completed/error races return conflict without replacing the terminal result.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/torrents/{id}/cancellation-requests (the `RequestTorrentCancellation` operationId).
+func (c *ClientWithResponses) RequestTorrentCancellationWithResponse(ctx context.Context, id string, body RequestTorrentCancellationJSONRequestBody, reqEditors ...RequestEditorFn) (*RequestTorrentCancellationResponse, error) {
+	rsp, err := c.RequestTorrentCancellation(ctx, id, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRequestTorrentCancellationResponse(rsp)
+}
+
+// GetTorrentCancellationRequestWithResponse Reconcile a saved cancellation without repeating it
+//
+// 404 means no committed receipt is visible, not proof an original request failed. Retry only the same immutable intent/key. A receipt remains accepted after later retry or removal and does not claim the transfer is currently stopped.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/torrents/{id}/cancellation-requests/{key} (the `GetTorrentCancellationRequest` operationId).
+func (c *ClientWithResponses) GetTorrentCancellationRequestWithResponse(ctx context.Context, id string, key string, params *GetTorrentCancellationRequestParams, reqEditors ...RequestEditorFn) (*GetTorrentCancellationRequestResponse, error) {
+	rsp, err := c.GetTorrentCancellationRequest(ctx, id, key, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetTorrentCancellationRequestResponse(rsp)
+}
+
+// ReviewTorrentCancellationWithResponse Review local transfer cancellation
+//
+// Stops local orchestration and NAS work without removing records or files. Remote provider activity may continue. Revision binds the retry incarnation, not changing progress.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/torrents/{id}/cancellation-review (the `ReviewTorrentCancellation` operationId).
+func (c *ClientWithResponses) ReviewTorrentCancellationWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ReviewTorrentCancellationResponse, error) {
+	rsp, err := c.ReviewTorrentCancellation(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReviewTorrentCancellationResponse(rsp)
+}
+
 // GetFileSelectionWithResponse Review authoritative provider files before NAS download
 //
 // Returns a wrapper object for the known response body format(s).
@@ -7340,7 +7891,7 @@ func (c *ClientWithResponses) SelectFilesWithResponse(ctx context.Context, id st
 	return ParseSelectFilesResponse(rsp)
 }
 
-// RetryTorrentWithResponse Retry an errored or completed torrent from scratch
+// RetryTorrentWithResponse Retry an errored, completed or cancelled torrent from scratch
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -8681,6 +9232,144 @@ func ParseUpdateTorrentResponse(rsp *http.Response) (*UpdateTorrentResponse, err
 		}
 		response.ApplicationproblemJSONDefault = &dest
 
+	}
+
+	return response, nil
+}
+
+// ParseRequestTorrentCancellationResponse parses an HTTP response from a RequestTorrentCancellationWithResponse call
+func ParseRequestTorrentCancellationResponse(rsp *http.Response) (*RequestTorrentCancellationResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RequestTorrentCancellationResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest CancellationAcceptance
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers RequestTorrentCancellationResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseGetTorrentCancellationRequestResponse parses an HTTP response from a GetTorrentCancellationRequestWithResponse call
+func ParseGetTorrentCancellationRequestResponse(rsp *http.Response) (*GetTorrentCancellationRequestResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetTorrentCancellationRequestResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest CancellationAcceptance
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers GetTorrentCancellationRequestResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseReviewTorrentCancellationResponse parses an HTTP response from a ReviewTorrentCancellationWithResponse call
+func ParseReviewTorrentCancellationResponse(rsp *http.Response) (*ReviewTorrentCancellationResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReviewTorrentCancellationResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest CancellationReview
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ReviewTorrentCancellationResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		response.Headers200 = &headers
 	}
 
 	return response, nil

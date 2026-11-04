@@ -157,6 +157,7 @@ private extension DownloadDTO {
         switch state {
         case "done": Color("StageGreen")
         case "error": .red
+        case "cancelled": DebridStyle.secondary
         default: Color("StageBlue")
         }
     }

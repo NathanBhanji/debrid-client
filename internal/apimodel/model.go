@@ -99,7 +99,7 @@ type Download struct {
 	Size        int64      `json:"size"`
 	BytesDone   int64      `json:"bytes_done"`
 	Progress    float64    `json:"progress" doc:"0..1"`
-	State       string     `json:"state" enum:"pending,unrestricting,downloading,downloaded,unpacking,done,error"`
+	State       string     `json:"state" enum:"pending,unrestricting,downloading,downloaded,unpacking,done,error,cancelled"`
 	Error       string     `json:"error,omitempty"`
 	RetryCount  int        `json:"retry_count"`
 	QueuedAt    time.Time  `json:"queued_at"`
@@ -117,7 +117,7 @@ type Torrent struct {
 	Category           string          `json:"category,omitempty"`
 	DirName            string          `json:"dir_name,omitempty" doc:"Folder path under the download dir ('/'-separated); frozen when local downloads start"`
 	Organized          bool            `json:"organized,omitempty" doc:"True when dir_name was produced by library organization"`
-	Status             string          `json:"status" enum:"queued,adding,processing,waiting_selection,downloading,uploading,finished,completed,error"`
+	Status             string          `json:"status" enum:"queued,adding,processing,waiting_selection,downloading,uploading,finished,completed,error,cancelled"`
 	StatusReason       string          `json:"status_reason,omitempty" doc:"Human-readable detail about the current state"`
 	Error              string          `json:"error,omitempty"`
 	ProviderProgress   float64         `json:"provider_progress" doc:"0..1 progress at the debrid provider"`

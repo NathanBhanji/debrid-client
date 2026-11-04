@@ -90,6 +90,25 @@ struct DebridTransportTests {
         await #expect(throws:APIError.invalidResponse) {_=try await wrong.requestRetry(kind:.download,id:"failed-file",key:UUID(),revision:String(repeating:"a",count:64))}
     }
 
+    @Test func cancellationUsesBoundIDAndOriginalReceiptQuery() async throws {
+        let data=Data(#"{"torrent_id":"cancel-target","accepted_at":"2026-01-02T03:04:05Z","torrent_exists":true}"#.utf8)
+        let (client,host)=try setup(StubReply(data:data),credential:.session("fixture_session"));defer {remove(host)}
+        let key=UUID(),revision=String(repeating:"c",count:64)
+        _=try await client.requestCancellation(id:"cancel-target",key:key,revision:revision)
+        _=try await client.cancellationAcceptance(id:"cancel-target",key:key,revision:revision)
+        let requests=APIStub.states.withLock {$0[host]!.requests}
+        #expect(requests[0].url?.path=="/debrid/api/v1/torrents/cancel-target/cancellation-requests")
+        #expect(requests[1].url?.lastPathComponent==key.uuidString.lowercased())
+        #expect(URLComponents(url:requests[1].url!,resolvingAgainstBaseURL:false)?.queryItems==[URLQueryItem(name:"revision",value:revision)])
+        #expect(requests.allSatisfy {$0.value(forHTTPHeaderField:"Cookie") != nil})
+        let bodyData=try requestBody(requests[0])
+        let body=try #require(JSONSerialization.jsonObject(with:bodyData) as? [String:String])
+        #expect(body==["key":key.uuidString.lowercased(),"revision":revision])
+        let (missing,missingHost)=try setup(StubReply(status:404));defer {remove(missingHost)}
+        #expect(try await missing.cancellationAcceptance(id:"cancel-target",key:key,revision:revision)==nil)
+        await #expect(throws:APIError.invalidResponse) {_=try await client.requestCancellation(id:"wrong-target",key:key,revision:revision)}
+    }
+
     @Test func healthPreservesPrefixAndHeaderCredential() async throws {
         let (client, host) = try setup(credential: .bearer("fixture-key"))
         defer { remove(host) }

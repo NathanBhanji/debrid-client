@@ -196,7 +196,7 @@ private struct LiveTransferRow: View {
         case .failed: .red
         case .selecting: Color("StageAmber")
         case .completed: Color("StageGreen")
-        case .unknown: DebridStyle.secondary
+        case .cancelled, .unknown: DebridStyle.secondary
         default: Color("StageBlue")
         }
     }
@@ -206,6 +206,7 @@ private struct LiveTransferRow: View {
         case .selecting: "checklist"
         case .completed: "checkmark.circle"
         case .unpacking: "archivebox"
+        case .cancelled: "stop.circle"
         case .unknown: "questionmark.circle"
         case .nasDownloading: "arrow.down.to.line"
         default: "arrow.down.circle"

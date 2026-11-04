@@ -41,6 +41,7 @@ public struct TransferDetailSummary: Sendable {
         case .nasDownloading: nasLabel = "Downloading to NAS"
         case .nasQueued: nasLabel = "Queued for NAS"
         case .selecting: nasLabel = transfer.fileSelectionState=="pending" ? "Waiting for your file selection" : "Waiting for provider selection"
+        case .cancelled: nasLabel = "Cancelled locally"
         case .failed: nasLabel = "Needs attention"
         case .unknown: nasLabel = "Unknown server state"
         default: nasLabel = "Waiting for download"
@@ -48,7 +49,8 @@ public struct TransferDetailSummary: Sendable {
         selectedFiles = transfer.files.filter(\.selected).count
         // Provider messages can contain signed URLs or credentials. Show actionable domain states,
         // never arbitrary provider error/status bodies in the native detail or accessibility tree.
-        if transfer.statusReason == "account disabled" { issue = "This provider account is disabled. Enable it to continue." }
+        if item.stage == .cancelled { issue = "Local work has stopped. Saved files are retained; activity at your provider may continue." }
+        else if transfer.statusReason == "account disabled" { issue = "This provider account is disabled. Enable it to continue." }
         else if transfer.fileSelectionState=="pending" {issue = "Choose files when the provider metadata is ready. NAS downloads stay on hold until you confirm."}
         else if item.stage == .selecting { issue = "This automatic transfer is waiting for provider file selection. Check the server for details." }
         else if item.stage == .failed { issue = "The server reported a transfer error. Check the server for details before retrying." }

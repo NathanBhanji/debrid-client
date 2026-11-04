@@ -485,6 +485,66 @@ export interface paths {
     patch: operations['update-torrent']
     trace?: never
   }
+  '/api/v1/torrents/{id}/cancellation-requests': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Accept one durable local cancellation
+     * @description Persist key and original revision before POST. Replays return the original receipt even after retry/removal. Acceptance means local workers drained and stopped state committed; provider activity may continue. Completed/error races return conflict without replacing the terminal result.
+     */
+    post: operations['request-torrent-cancellation']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/torrents/{id}/cancellation-requests/{key}': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Reconcile a saved cancellation without repeating it
+     * @description 404 means no committed receipt is visible, not proof an original request failed. Retry only the same immutable intent/key. A receipt remains accepted after later retry or removal and does not claim the transfer is currently stopped.
+     */
+    get: operations['get-torrent-cancellation-request']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/torrents/{id}/cancellation-review': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Review local transfer cancellation
+     * @description Stops local orchestration and NAS work without removing records or files. Remote provider activity may continue. Revision binds the retry incarnation, not changing progress.
+     */
+    get: operations['review-torrent-cancellation']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/torrents/{id}/file-selection': {
     parameters: {
       query?: never
@@ -529,7 +589,7 @@ export interface paths {
     }
     get?: never
     put?: never
-    /** Retry an errored or completed torrent from scratch */
+    /** Retry an errored, completed or cancelled torrent from scratch */
     post: operations['retry-torrent']
     delete?: never
     options?: never
@@ -663,6 +723,30 @@ export interface components {
       /** @description Configured OIDC issuer, shown on the login/setup screens */
       oidc_issuer?: string
     }
+    CancellationAcceptance: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://example.com/schemas/CancellationAcceptance.json
+       */
+      readonly $schema?: string
+      /** Format: date-time */
+      accepted_at: string
+      torrent_exists: boolean
+      torrent_id: string
+    }
+    CancellationReview: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://example.com/schemas/CancellationReview.json
+       */
+      readonly $schema?: string
+      allowed: boolean
+      provider_may_continue: boolean
+      revision: string
+      torrent_id: string
+    }
     ChangePasswordInBody: {
       /**
        * Format: uri
@@ -728,6 +812,7 @@ export interface components {
         | 'unpacking'
         | 'done'
         | 'error'
+        | 'cancelled'
       torrent_id: string
     }
     ErrorDetail: {
@@ -1170,6 +1255,7 @@ export interface components {
         | 'finished'
         | 'completed'
         | 'error'
+        | 'cancelled'
       /** @description Human-readable detail about the current state */
       status_reason?: string
     }
@@ -2264,6 +2350,7 @@ export interface operations {
           | 'finished'
           | 'completed'
           | 'error'
+          | 'cancelled'
         /** @description Account id or name */
         account?: string
         category?: string
@@ -2463,6 +2550,111 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['Torrent']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'request-torrent-cancellation': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: string
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['RetryRequestInBody']
+      }
+    }
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          'Cache-Control'?: string
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['CancellationAcceptance']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'get-torrent-cancellation-request': {
+    parameters: {
+      query: {
+        /** @description Original review revision bound to this request key */
+        revision: string
+      }
+      header?: never
+      path: {
+        id: string
+        key: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          'Cache-Control'?: string
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['CancellationAcceptance']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'review-torrent-cancellation': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        /** @description Exact resource id returned by the API (not a prefix/hash alias) */
+        id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          'Cache-Control'?: string
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['CancellationReview']
         }
       }
       /** @description Error */

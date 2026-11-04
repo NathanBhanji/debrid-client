@@ -11,6 +11,8 @@ private struct WireContract: Decodable {
     let account: AccountDTO
     let settings: SettingsDTO
     let systemStatus: SystemStatusDTO
+    let cancellationReview:CancellationReviewDTO
+    let cancellationAcceptance:CancellationAcceptanceDTO
     let retryReview:RetryReviewDTO
     let retryAcceptance:RetryAcceptanceDTO
 }
@@ -23,6 +25,8 @@ struct DebridContractTests {
     @Test func decodesGoProducedWireShapes() throws {
         let contract = try DebridAPIClient.decoder().decode(WireContract.self, from:fixture())
         #expect(contract.health.ok)
+        #expect(contract.cancellationReview.torrentId==contract.torrent.id && contract.cancellationReview.providerMayContinue && contract.cancellationReview.allowed)
+        #expect(contract.cancellationAcceptance.torrentId==contract.torrent.id && contract.cancellationAcceptance.torrentExists)
         #expect(contract.retryReview.resourceId==contract.torrent.id && contract.retryReview.kind=="torrent")
         #expect(contract.retryReview.allowed && contract.retryReview.waitForSelection && contract.retryReview.revision.utf8.count==64)
         #expect(contract.retryAcceptance.kind=="download" && contract.retryAcceptance.resourceId==contract.torrent.downloads[0].id)

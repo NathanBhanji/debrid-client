@@ -139,3 +139,16 @@ public struct RetryAcceptanceDTO:Decodable,Sendable {
     /// Parent existence only. A previously retried file row may since be gone.
     public let torrentExists:Bool
 }
+
+public struct CancellationReviewDTO:Decodable,Sendable {
+    public let torrentId:String
+    public let revision:String
+    public let allowed:Bool
+    public let providerMayContinue:Bool
+}
+public struct CancellationAcceptanceDTO:Decodable,Sendable {
+    public let torrentId:String
+    public let acceptedAt:Date
+    /// Existence only: the transfer may have been explicitly retried since acceptance.
+    public let torrentExists:Bool
+}

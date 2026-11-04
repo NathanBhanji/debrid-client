@@ -108,3 +108,33 @@ func TestProviderKind(t *testing.T) {
 		t.Fatal("expected 5 provider kinds")
 	}
 }
+
+func TestExplicitCancellationIsTerminalAndOnlyWholeRetryReleasesIt(t *testing.T) {
+	for status := range torrentTransitions {
+		if status.IsTerminal() {
+			if status.CanTransition(TorrentCancelled) {
+				t.Fatal("terminal result replaced", status)
+			}
+		} else if !status.CanTransition(TorrentCancelled) {
+			t.Fatal("active state cannot stop", status)
+		}
+	}
+	if !TorrentCancelled.IsTerminal() || TorrentCancelled.AtProvider() || !TorrentCancelled.CanTransition(TorrentQueued) || TorrentCancelled.CanTransition(TorrentFinished) {
+		t.Fatal("cancelled parent predicates")
+	}
+	for state := range downloadTransitions {
+		if state.IsTerminal() {
+			if state.CanTransition(DownloadCancelled) {
+				t.Fatal("terminal file replaced", state)
+			}
+		} else if !state.CanTransition(DownloadCancelled) {
+			t.Fatal("active file cannot stop", state)
+		}
+	}
+	if !DownloadCancelled.IsTerminal() || DownloadCancelled.CanTransition(DownloadPending) {
+		t.Fatal("individual retry must not release cancellation")
+	}
+	if TorrentStatus("future").CanTransition(TorrentCancelled) || DownloadState("future").CanTransition(DownloadCancelled) {
+		t.Fatal("unknown states accepted")
+	}
+}

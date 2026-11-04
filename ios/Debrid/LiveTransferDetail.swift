@@ -79,6 +79,7 @@ struct LiveTransferDetail: View {
         switch stage {
         case .completed: Color("StageGreen")
         case .failed: .red
+        case .cancelled: DebridStyle.secondary
         case .selecting: Color("StageAmber")
         default: Color("StageBlue")
         }

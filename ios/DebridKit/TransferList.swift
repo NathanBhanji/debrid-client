@@ -6,7 +6,7 @@ extension DebridAPIClient: TransferListing {}
 
 public enum TransferStage: Sendable, Equatable {
     case queued, adding, processing, selecting, providerDownloading, providerUploading, providerReady
-    case nasQueued, nasDownloading, nasFinishing, unpacking, completed, failed, unknown
+    case nasQueued, nasDownloading, nasFinishing, unpacking, completed, failed, cancelled, unknown
     public var label: String {
         switch self {
         case .queued: "Queued"
@@ -20,13 +20,14 @@ public enum TransferStage: Sendable, Equatable {
         case .nasDownloading: "Downloading to NAS"
         case .nasFinishing: "Finishing on NAS"
         case .unpacking: "Unpacking on NAS"
+        case .cancelled: "Cancelled locally"
         case .completed: "Complete"
         case .failed: "Needs attention"
         case .unknown: "Unknown state"
         }
     }
     public var needsAttention: Bool { self == .failed || self == .selecting || self == .unknown }
-    public var isActive: Bool { self != .completed && self != .failed && self != .selecting && self != .unknown }
+    public var isActive: Bool { self != .cancelled && self != .completed && self != .failed && self != .selecting && self != .unknown }
 }
 
 /// Presentation derives from the two distinct server lifecycles; finished is not local completion.
@@ -44,7 +45,7 @@ public struct TransferSummary: Identifiable, Sendable {
     }
     public init(_ transfer: TorrentDTO) {
         self.transfer = transfer
-        if transfer.fileSelectionState=="pending",transfer.downloads.isEmpty,transfer.status != "error",transfer.status != "completed" {stage = .selecting}
+        if transfer.fileSelectionState=="pending",transfer.downloads.isEmpty,transfer.status != "error",transfer.status != "completed",transfer.status != "cancelled" {stage = .selecting}
         else {switch transfer.status {
         case "queued": stage = .queued
         case "adding": stage = .adding
@@ -53,6 +54,7 @@ public struct TransferSummary: Identifiable, Sendable {
         case "downloading": stage = .providerDownloading
         case "uploading": stage = .providerUploading
         case "completed": stage = .completed
+        case "cancelled": stage = .cancelled
         case "error": stage = .failed
         case "finished":
             let states = Set(transfer.downloads.map(\.state))
