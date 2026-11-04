@@ -23,6 +23,9 @@ type recEngine struct {
 	cancelFn func(string) error
 }
 
+func (r *recEngine) WithTorrentOperation(_ context.Context, _ string, run func() error) error {
+	return run()
+}
 func (r *recEngine) Wake() { r.wakes++ }
 func (r *recEngine) CancelTorrent(_ context.Context, id string) error {
 	r.cancels = append(r.cancels, id)
@@ -255,10 +258,24 @@ func TestDeleteTorrentOptions(t *testing.T) {
 	_ = os.MkdirAll(dir, 0o755)
 	_ = os.WriteFile(filepath.Join(dir, "a.mkv"), []byte("x"), 0o644)
 
+	f.eng.cancelFn = func(string) error { return context.DeadlineExceeded }
+	if err := f.svc.DeleteTorrent(ctx, tor.ID, DeleteOptions{DeleteFiles: true, DeleteFromProvider: true}); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal("delete ignored drain failure", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(dir, "a.mkv")); err != nil || string(data) != "x" {
+		t.Fatal("drain failure removed files", err)
+	}
+	if len(f.fake.IDs()) != 1 {
+		t.Fatal("drain failure removed provider data")
+	}
+	if _, err := f.svc.GetTorrent(ctx, tor.ID); err != nil {
+		t.Fatal("drain failure removed record", err)
+	}
+	f.eng.cancelFn = nil
 	if err := f.svc.DeleteTorrent(ctx, tor.ID, DeleteOptions{DeleteFiles: true, DeleteFromProvider: true}); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.eng.cancels) != 1 || f.eng.cancels[0] != tor.ID {
+	if len(f.eng.cancels) != 2 || f.eng.cancels[1] != tor.ID {
 		t.Fatal("engine cancel not called")
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
@@ -283,6 +300,9 @@ func TestRetryTorrentAndDownload(t *testing.T) {
 	tor := d.Torrent
 	if _, err := f.svc.RetryTorrent(ctx, tor.ID); !errors.Is(err, ErrConflict) {
 		t.Fatal("retrying a queued torrent should conflict")
+	}
+	if len(f.eng.cancels) != 0 {
+		t.Fatal("ineligible retry canceled active work")
 	}
 	// Put it in error with a failed download.
 	tor.Status = domain.TorrentError
@@ -457,3 +477,35 @@ func TestPathsAndProgress(t *testing.T) {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+func TestRetryDrainFailureDoesNotRequeueOrDropDownloadRows(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	f.addAccount(t, "main")
+	detail, err := f.svc.AddTorrent(ctx, AddTorrentInput{Magnet: magnetA})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tor := detail.Torrent
+	tor.Status = domain.TorrentError
+	tor.Error = "fixture failure"
+	params, err := store.TorrentUpdateParams(tor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.UpdateTorrent(ctx, params); err != nil {
+		t.Fatal(err)
+	}
+	dl := domain.Download{ID: "drain-fixture", TorrentID: tor.ID, ProviderLink: "fixture", RelPath: "one.mkv", Filename: "one.mkv", State: domain.DownloadError, QueuedAt: tor.AddedAt, UpdatedAt: tor.AddedAt}
+	if _, err := f.store.InsertDownload(ctx, store.DownloadInsertParams(dl)); err != nil {
+		t.Fatal(err)
+	}
+	f.eng.cancelFn = func(string) error { return context.DeadlineExceeded }
+	if _, err := f.svc.RetryTorrent(ctx, tor.ID); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal("drain failure ignored", err)
+	}
+	current, err := f.svc.GetTorrent(ctx, tor.ID)
+	if err != nil || current.Torrent.Status != domain.TorrentError || current.Torrent.RetryCount != tor.RetryCount || len(current.Downloads) != 1 {
+		t.Fatal("failed drain mutated retry", current, err)
+	}
+}

@@ -1,0 +1,22 @@
+# Retry actions — milestone21 audit
+
+The native UI will distinguish retrying one failed NAS download from restarting a failed transfer. Whole-transfer retry clears provider identity and download rows, retains disk files and resets manual-selection acceptance while keeping the manual hold. Single-file retry requeues that failed download and may return its errored parent to finished/provider-ready state. Confirmation must explain this difference and preserve completed files.
+
+Audit findings before implementation:
+
+- POST torrent retry accepts only terminal transfers; the existing service calls engine cancellation before checking the state in its transaction. A stale or duplicate native request must not cancel active work before returning conflict. Review the worker cancellation/commit ordering before enabling the action.
+- Whole retry increments torrent RetryCount. File retry resets its retry counter to zero, so that counter cannot reconcile an uncertain user retry. A fresh GET showing error is not proof the first request failed.
+- Both POSTs lack a native durable idempotency receipt. Native actions must persist uncertainty, avoid automatic resending and prohibit blind second mutations after timeout. Decide the focused backend precondition/receipt contract before implementing a retry button that could act on a later failure.
+- Manual selections are tied to retry incarnation; never carry an old accepted revision into the new attempt. New provider metadata requires a new explicit selection.
+
+Validation will use fixture server/core worker tests only: stale action, duplicate tap, response loss, app interruption, single-file identity and parent binding, source/default compatibility, provider re-add, unchanged completed files, new manual-selection review and history/progress refresh. No production retry or example submission.
+
+## Initial backend guard implemented (draft; native retry not enabled)
+
+The engine now provides a per-torrent operation slot. Service retry waits for the slot, rereads eligibility, stops/drains old work, and commits its reset while scheduler admission for that torrent stays frozen. Scheduler passes skip busy slots and reread each eligible torrent after admission; unrelated transfers continue. Slots are released and removed after cancellation/completion.
+
+Delete-on-error cleanup owns the same slot and rereads error status, retry incarnation, completion timestamp and due policy before deletion. Its wait has a one-minute context bound. DeleteTorrent now returns cancellation failure before any provider/file/database deletion; the prior log-and-continue behavior could remove data underneath an undrained worker. This is a safety prerequisite, not the separate user-facing cancellation feature planned at22/23.
+
+Regression coverage includes ineligible retry causing no cancellation, drain failure retaining the transfer/download rows, failed delete drain preserving provider/file bytes/DB record, independent scheduler admission while an earlier torrent is busy, cancellation/reference cleanup, and stale scheduled cleanup after retry. Full service/engine race suites and pinned lint pass. Independent read-only follow-through resolved blocking scheduler admission and failed-drain deletion findings. No production operations or simulator use in this backend draft.
+
+Still required before milestone21 is merge-ready: a reviewed native retry revision/receipt contract, API capability/wire fixtures, protected immutable native action intent, single-file and whole-transfer confirmation/reconciliation, native source/visual review and appropriate full validation. POST retry must not be automatically repeated after an uncertain response. The initial guard alone does not provide durable retry idempotency. Direct user delete/cancel semantics remain the separate22/23 scope.
