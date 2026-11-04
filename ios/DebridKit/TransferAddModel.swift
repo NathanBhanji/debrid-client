@@ -7,6 +7,7 @@ import Observation
         case loading, review, sending, checking, uncertain, mismatched, rejected, duplicate(String), accepted(String,Bool), wrongServer(URL), requiresUpdate, unavailable
     }
     public enum Organization:String, CaseIterable { case inherit, on, off }
+    public enum FilePolicy:String, CaseIterable {case rules,all,choose}
     public private(set) var phase:Phase = .loading
     public private(set) var message:String?
     public private(set) var requiresSignIn = false
@@ -18,7 +19,8 @@ import Observation
     public private(set) var capabilityReady = false
     public var accountID = ""
     public var category = ""
-    public var allFiles = false
+    public var filePolicy:FilePolicy = .rules
+    public var allFiles:Bool {get {filePolicy == .all} set {filePolicy = newValue ? .all : .rules}}
     public var unpack = false
     public var organization:Organization = .inherit
     public var keepCopies = false
@@ -57,7 +59,7 @@ import Observation
         attempt=saved;accountID=saved.options.accountID;category=saved.options.category;baseSettings=saved.options.settings
         unpack=saved.options.settings.unpack
         organization=saved.options.settings.organize.map { $0 ? .on : .off } ?? .inherit
-        allFiles=false;keepCopies=false
+        filePolicy=saved.options.settings.waitForSelection == true ? .choose : .rules;keepCopies=false
     }
     public func load() async {
         guard !Task.isCancelled,!isBusy else { return }
@@ -81,9 +83,10 @@ import Observation
             async let serverSettings=api.settings()
             let (accounts,settings)=try await (providerAccounts,serverSettings);try Task.checkCancellation()
             guard accounts.count<=100,Set(accounts.map(\.id)).count==accounts.count,accounts.allSatisfy({ SubmissionIdentity.validID($0.id) }), (settings.categories?.count ?? 0)<=256 else { throw APIError.responseTooLarge }
-            self.accounts=accounts.filter { $0.enabled };categories=Array(Set((settings.categories ?? []).filter { !$0.isEmpty })).sorted()
+            self.accounts=accounts.filter { $0.enabled };categories=RuntimeSettingsDraft.byteDistinct((settings.categories ?? []).filter { !$0.isEmpty })
             if attempt == nil {
                 baseSettings=settings.torrentDefaults;unpack=settings.torrentDefaults.unpack
+                filePolicy=settings.torrentDefaults.waitForSelection == true ? .choose : .rules
                 organization=settings.torrentDefaults.organize.map { $0 ? .on : .off } ?? .inherit
                 accountID=self.accounts.first(where: \.isDefault)?.id ?? ""
             }
@@ -102,11 +105,20 @@ import Observation
         guard health.ok else { throw APIError.invalidResponse }
         let features=Set(health.capabilities ?? [])
         guard features.contains("torrent_submissions_v1"),item.torrent == nil || features.contains("multipart_torrent_settings_v1") else { phase = .requiresUpdate;return false }
+        if (inFlightOptions?.settings.waitForSelection ?? attempt?.options.settings.waitForSelection ?? (filePolicy == .choose)) && !features.contains("manual_file_selection_v1") {phase = .requiresUpdate;return false}
         capabilityReady=true;return true
+    }
+    public var editableOverrides: TorrentSettingsDTO? { canEdit ? reviewedSettings : nil }
+    public func applyOverrides(_ settings: TorrentSettingsDTO) {
+        guard canEdit else { return }
+        baseSettings = settings
+        unpack = settings.unpack
+        organization = settings.organize.map { $0 ? .on : .off } ?? .inherit
+        keepCopies = false
     }
     private func adjusted(_ base:TorrentSettingsDTO) -> TorrentSettingsDTO {
         let organize:Bool? = switch organization { case .inherit:nil;case .on:true;case .off:false }
-        return TorrentSettingsDTO(minFileSize:allFiles ? 0 : base.minFileSize,includeRegex:allFiles ? nil : base.includeRegex,excludeRegex:allFiles ? nil : base.excludeRegex,manualFiles:allFiles ? nil : base.manualFiles,finishedAction:keepCopies ? "keep" : base.finishedAction,finishedDelay:keepCopies ? nil : base.finishedDelay,downloadRetries:base.downloadRetries,torrentRetries:base.torrentRetries,deleteOnError:keepCopies ? nil : base.deleteOnError,lifetime:base.lifetime,unpack:unpack,organize:organize)
+        return TorrentSettingsDTO(minFileSize:allFiles ? 0 : base.minFileSize,includeRegex:allFiles ? nil : base.includeRegex,excludeRegex:allFiles ? nil : base.excludeRegex,manualFiles:filePolicy != .rules ? nil : base.manualFiles,finishedAction:keepCopies ? "keep" : base.finishedAction,finishedDelay:keepCopies ? nil : base.finishedDelay,downloadRetries:base.downloadRetries,torrentRetries:base.torrentRetries,deleteOnError:keepCopies ? nil : base.deleteOnError,lifetime:base.lifetime,unpack:unpack,organize:organize,waitForSelection:filePolicy == .choose ? true : (base.waitForSelection == nil ? nil : false))
     }
     public func submit() async {
         guard !Task.isCancelled,canSubmit,let settings=reviewedSettings else { return }

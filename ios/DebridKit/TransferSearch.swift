@@ -2,9 +2,9 @@ import Foundation
 
 public struct TransferSearch: Codable, Equatable, Sendable {
     public enum Scope: String, Codable, CaseIterable, Sendable {
-        case all, active, attention, completed
+        case all, active, attention, completed, cancelled
         public var label: String {
-            switch self { case .all: "All transfers"; case .active: "Active"; case .attention: "Needs attention"; case .completed: "Completed" }
+            switch self { case .all: "All transfers"; case .active: "Active"; case .attention: "Needs attention"; case .completed: "Completed"; case .cancelled: "Cancelled" }
         }
     }
     public enum Category: Codable, Hashable, Sendable { case all, uncategorized, named(String) }
@@ -63,6 +63,7 @@ public struct TransferSearchIndex: Sendable {
             case .active: guard item.stage.isActive else { return nil }
             case .attention: guard item.stage.needsAttention else { return nil }
             case .completed: guard item.stage == .completed else { return nil }
+            case .cancelled: guard item.stage == .cancelled else { return nil }
             }
             switch search.category {
             case .all: break

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,7 +24,11 @@ type recEngine struct {
 	cancelFn func(string) error
 }
 
-func (r *recEngine) Wake() { r.wakes++ }
+func (r *recEngine) WithTorrentOperation(_ context.Context, _ string, run func() error) error {
+	return run()
+}
+func (r *recEngine) ForgetProviderTorrent(string, string) {}
+func (r *recEngine) Wake()                                { r.wakes++ }
 func (r *recEngine) CancelTorrent(_ context.Context, id string) error {
 	r.cancels = append(r.cancels, id)
 	if r.cancelFn != nil {
@@ -255,10 +260,24 @@ func TestDeleteTorrentOptions(t *testing.T) {
 	_ = os.MkdirAll(dir, 0o755)
 	_ = os.WriteFile(filepath.Join(dir, "a.mkv"), []byte("x"), 0o644)
 
+	f.eng.cancelFn = func(string) error { return context.DeadlineExceeded }
+	if err := f.svc.DeleteTorrent(ctx, tor.ID, DeleteOptions{DeleteFiles: true, DeleteFromProvider: true}); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal("delete ignored drain failure", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(dir, "a.mkv")); err != nil || string(data) != "x" {
+		t.Fatal("drain failure removed files", err)
+	}
+	if len(f.fake.IDs()) != 1 {
+		t.Fatal("drain failure removed provider data")
+	}
+	if _, err := f.svc.GetTorrent(ctx, tor.ID); err != nil {
+		t.Fatal("drain failure removed record", err)
+	}
+	f.eng.cancelFn = nil
 	if err := f.svc.DeleteTorrent(ctx, tor.ID, DeleteOptions{DeleteFiles: true, DeleteFromProvider: true}); err != nil {
 		t.Fatal(err)
 	}
-	if len(f.eng.cancels) != 1 || f.eng.cancels[0] != tor.ID {
+	if len(f.eng.cancels) != 2 || f.eng.cancels[1] != tor.ID {
 		t.Fatal("engine cancel not called")
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
@@ -283,6 +302,9 @@ func TestRetryTorrentAndDownload(t *testing.T) {
 	tor := d.Torrent
 	if _, err := f.svc.RetryTorrent(ctx, tor.ID); !errors.Is(err, ErrConflict) {
 		t.Fatal("retrying a queued torrent should conflict")
+	}
+	if len(f.eng.cancels) != 0 {
+		t.Fatal("ineligible retry canceled active work")
 	}
 	// Put it in error with a failed download.
 	tor.Status = domain.TorrentError
@@ -457,3 +479,115 @@ func TestPathsAndProgress(t *testing.T) {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+func TestRetryDrainFailureDoesNotRequeueOrDropDownloadRows(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	f.addAccount(t, "main")
+	detail, err := f.svc.AddTorrent(ctx, AddTorrentInput{Magnet: magnetA})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tor := detail.Torrent
+	tor.Status = domain.TorrentError
+	tor.Error = "fixture failure"
+	params, err := store.TorrentUpdateParams(tor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.UpdateTorrent(ctx, params); err != nil {
+		t.Fatal(err)
+	}
+	dl := domain.Download{ID: "drain-fixture", TorrentID: tor.ID, ProviderLink: "fixture", RelPath: "one.mkv", Filename: "one.mkv", State: domain.DownloadError, QueuedAt: tor.AddedAt, UpdatedAt: tor.AddedAt}
+	if _, err := f.store.InsertDownload(ctx, store.DownloadInsertParams(dl)); err != nil {
+		t.Fatal(err)
+	}
+	f.eng.cancelFn = func(string) error { return context.DeadlineExceeded }
+	if _, err := f.svc.RetryTorrent(ctx, tor.ID); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal("drain failure ignored", err)
+	}
+	current, err := f.svc.GetTorrent(ctx, tor.ID)
+	if err != nil || current.Torrent.Status != domain.TorrentError || current.Torrent.RetryCount != tor.RetryCount || len(current.Downloads) != 1 {
+		t.Fatal("failed drain mutated retry", current, err)
+	}
+}
+
+func TestForcedAccountRemovalRequiresSuccessfulTransferDrain(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	account := f.addAccount(t, "home")
+	transfer, err := f.svc.AddTorrent(ctx, AddTorrentInput{Magnet: magnetA, Account: account.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stopErr := errors.New("fixture worker could not stop")
+	f.eng.cancelFn = func(string) error { return stopErr }
+	if err := f.svc.DeleteAccount(ctx, account.ID, true); !errors.Is(err, stopErr) {
+		t.Fatalf("expected stop error, got %v", err)
+	}
+	if _, err := f.svc.GetAccount(ctx, account.ID); err != nil {
+		t.Fatal("account removed after failed drain")
+	}
+	if _, err := f.svc.GetTorrent(ctx, transfer.Torrent.ID); err != nil {
+		t.Fatal("transfer removed after failed drain")
+	}
+	f.eng.cancelFn = nil
+	if err := f.svc.DeleteAccount(ctx, account.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.GetAccount(ctx, account.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("account should be absent, got %v", err)
+	}
+	if _, err := f.svc.GetTorrent(ctx, transfer.Torrent.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("transfer should be absent, got %v", err)
+	}
+}
+
+func TestAccountRemovalUsesDefaultAtFinalTransaction(t *testing.T) {
+	for _, startsDefault := range []bool{false, true} {
+		t.Run(fmt.Sprintf("startsDefault=%t", startsDefault), func(t *testing.T) {
+			f := setup(t)
+			ctx := context.Background()
+			oldest := f.addAccount(t, "oldest")
+			target := f.addAccount(t, "target")
+			other := f.addAccount(t, "other")
+			if startsDefault {
+				if _, err := f.svc.UpdateAccount(ctx, target.ID, UpdateAccountInput{SetDefault: true}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := f.svc.AddTorrent(ctx, AddTorrentInput{Magnet: magnetA, Account: target.ID}); err != nil {
+				t.Fatal(err)
+			}
+			expected := oldest.ID
+			f.eng.cancelFn = func(string) error {
+				setID := target.ID
+				if startsDefault {
+					setID = other.ID
+					expected = other.ID
+				}
+				_, err := f.svc.UpdateAccount(ctx, setID, UpdateAccountInput{SetDefault: true})
+				return err
+			}
+			if err := f.svc.DeleteAccount(ctx, target.ID, true); err != nil {
+				t.Fatal(err)
+			}
+			accounts, err := f.svc.ListAccounts(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defaults := 0
+			for _, row := range accounts {
+				if row.IsDefault {
+					defaults++
+					if row.ID != expected {
+						t.Fatal("default chosen from stale pre-drain state")
+					}
+				}
+			}
+			if defaults != 1 {
+				t.Fatalf("expected one default, got %d", defaults)
+			}
+		})
+	}
+}

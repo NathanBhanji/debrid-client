@@ -19,9 +19,10 @@ import (
 
 // Sentinel errors. API layers map these to status codes.
 var (
-	ErrNotFound   = errors.New("not found")
-	ErrConflict   = errors.New("conflict")
-	ErrValidation = errors.New("validation failed")
+	ErrNotFound     = errors.New("not found")
+	ErrConflict     = errors.New("conflict")
+	ErrPrecondition = errors.New("precondition failed")
+	ErrValidation   = errors.New("validation failed")
 )
 
 // Engine is the subset of the download engine the service drives. A no-op
@@ -31,11 +32,20 @@ type Engine interface {
 	Wake()
 	// CancelTorrent stops any in-flight downloads/unpacks for the torrent.
 	CancelTorrent(ctx context.Context, torrentID string) error
+	WithTorrentOperation(ctx context.Context, torrentID string, run func() error) error
+	// ForgetProviderTorrent invalidates cache and any older in-flight listing.
+	ForgetProviderTorrent(accountID, providerID string)
 }
 
 // NoopEngine satisfies Engine when no engine is running (tests, CLI tools).
 type NoopEngine struct{}
 
+func (NoopEngine) WithTorrentOperation(ctx context.Context, _ string, run func() error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return run()
+}
 func (NoopEngine) Wake()                                       {}
 func (NoopEngine) CancelTorrent(context.Context, string) error { return nil }
 
@@ -89,3 +99,5 @@ func (s *Service) SetEngine(e Engine) { s.engine = e }
 func validationErr(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", ErrValidation, fmt.Sprintf(format, args...))
 }
+
+func (NoopEngine) ForgetProviderTorrent(string, string) {}

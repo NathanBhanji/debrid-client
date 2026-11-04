@@ -33,6 +33,7 @@ public struct FileDownloadSummary: Sendable {
         case "downloaded": label = "Finalizing on NAS"
         case "unpacking": label = "Unpacking on NAS"
         case "done": label = "Complete on NAS"
+        case "cancelled": label = "Cancelled locally"
         case "error": label = "Download failed"
         default: label = "Unknown download state"
         }

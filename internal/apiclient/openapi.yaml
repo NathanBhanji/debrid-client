@@ -124,6 +124,50 @@ components:
         - mode
         - native_sso
       type: object
+    CancellationAcceptance:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/CancellationAcceptance.json
+          format: uri
+          readOnly: true
+          type: string
+        accepted_at:
+          format: date-time
+          type: string
+        torrent_exists:
+          type: boolean
+        torrent_id:
+          type: string
+      required:
+        - torrent_id
+        - accepted_at
+        - torrent_exists
+      type: object
+    CancellationReview:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/CancellationReview.json
+          format: uri
+          readOnly: true
+          type: string
+        allowed:
+          type: boolean
+        provider_may_continue:
+          type: boolean
+        revision:
+          type: string
+        torrent_id:
+          type: string
+      required:
+        - torrent_id
+        - revision
+        - allowed
+        - provider_may_continue
+      type: object
     ChangePasswordInBody:
       additionalProperties: false
       properties:
@@ -228,6 +272,7 @@ components:
             - unpacking
             - done
             - error
+            - cancelled
           type: string
         torrent_id:
           type: string
@@ -648,7 +693,7 @@ components:
           readOnly: true
           type: string
         movie_template:
-          description: Override the saved movie template
+          description: Override the saved movie template; explicit empty uses the built-in default
           type: string
         name:
           description: Release name to preview
@@ -656,7 +701,7 @@ components:
           minLength: 1
           type: string
         tv_template:
-          description: Override the saved TV template
+          description: Override the saved TV template; explicit empty uses the built-in default
           type: string
       required:
         - name
@@ -695,6 +740,107 @@ components:
         tv_template:
           description: TV path template; empty = '{title} ({year})/Season {season:02}'
           type: string
+      type: object
+    RemovalReview:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/RemovalReview.json
+          format: uri
+          readOnly: true
+          type: string
+        exists:
+          type: boolean
+        provider_copy_known:
+          type: boolean
+        revision:
+          type: string
+        torrent_id:
+          type: string
+      required:
+        - torrent_id
+        - exists
+        - provider_copy_known
+      type: object
+    RetryAcceptance:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/RetryAcceptance.json
+          format: uri
+          readOnly: true
+          type: string
+        accepted_at:
+          format: date-time
+          type: string
+        kind:
+          type: string
+        resource_id:
+          type: string
+        torrent_exists:
+          type: boolean
+        torrent_id:
+          type: string
+      required:
+        - kind
+        - resource_id
+        - torrent_id
+        - accepted_at
+        - torrent_exists
+      type: object
+    RetryRequestInBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/RetryRequestInBody.json
+          format: uri
+          readOnly: true
+          type: string
+        key:
+          description: Fresh UUIDv4 persisted before POST; reuse only for this immutable retry intent
+          maxLength: 38
+          minLength: 36
+          type: string
+        revision:
+          maxLength: 64
+          minLength: 64
+          pattern: ^[a-f0-9]{64}$
+          type: string
+      required:
+        - key
+        - revision
+      type: object
+    RetryReview:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/RetryReview.json
+          format: uri
+          readOnly: true
+          type: string
+        allowed:
+          type: boolean
+        kind:
+          type: string
+        resource_id:
+          type: string
+        revision:
+          type: string
+        torrent_id:
+          type: string
+        wait_for_selection:
+          type: boolean
+      required:
+        - kind
+        - resource_id
+        - torrent_id
+        - revision
+        - allowed
+        - wait_for_selection
       type: object
     SelectFilesInBody:
       additionalProperties: false
@@ -751,6 +897,26 @@ components:
           type: integer
       required:
         - torrent_defaults
+      type: object
+    SettingsReviewBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/SettingsReviewBody.json
+          format: uri
+          readOnly: true
+          type: string
+        revision:
+          maxLength: 64
+          minLength: 64
+          pattern: ^[a-f0-9]{64}$
+          type: string
+        settings:
+          $ref: "#/components/schemas/Settings"
+      required:
+        - settings
+        - revision
       type: object
     SetupOIDCInBody:
       additionalProperties: false
@@ -939,6 +1105,7 @@ components:
             - finished
             - completed
             - error
+            - cancelled
           type: string
         status_reason:
           description: Human-readable detail about the current state
@@ -1232,6 +1399,34 @@ paths:
                 $ref: "#/components/schemas/ErrorModel"
           description: Error
       summary: Update an account
+      tags:
+        - accounts
+  /api/v1/accounts/{id}/removal:
+    delete:
+      operationId: remove-account-with-drain
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - description: Also delete the account's torrents (locally)
+          explode: false
+          in: query
+          name: force
+          schema:
+            description: Also delete the account's torrents (locally)
+            type: boolean
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Remove an exact account with guarded local transfer drain
       tags:
         - accounts
   /api/v1/accounts/{id}/test:
@@ -1573,6 +1768,121 @@ paths:
       summary: Retry a failed download
       tags:
         - torrents
+  /api/v1/downloads/{id}/retry-requests:
+    post:
+      operationId: request-download-retry
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            maxLength: 256
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetryRequestInBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RetryAcceptance"
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Accept one revision-checked durable retry request
+      tags:
+        - torrents
+  /api/v1/downloads/{id}/retry-requests/{key}:
+    get:
+      operationId: get-download-retry-request
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            maxLength: 256
+            type: string
+        - in: path
+          name: key
+          required: true
+          schema:
+            maxLength: 38
+            type: string
+        - description: Original review revision bound to this request key
+          explode: false
+          in: query
+          name: revision
+          required: true
+          schema:
+            description: Original review revision bound to this request key
+            maxLength: 64
+            minLength: 64
+            pattern: ^[a-f0-9]{64}$
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RetryAcceptance"
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Check a saved retry without repeating the mutation
+      tags:
+        - torrents
+  /api/v1/downloads/{id}/retry-review:
+    get:
+      operationId: review-download-retry
+      parameters:
+        - description: Exact resource id returned by the API (not a prefix/hash alias)
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Exact resource id returned by the API (not a prefix/hash alias)
+            maxLength: 256
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RetryReview"
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Review retry eligibility and immutable revision
+      tags:
+        - torrents
   /api/v1/events:
     get:
       description: "Event names: torrent.added, torrent.updated, torrent.deleted, download.updated, account.changed, settings.changed, heartbeat (every 15s). Payloads are small notifications; re-fetch the resource. Slow consumers may miss events — re-sync on reconnect. Authenticate with the Bearer header or ?api_key= (EventSource cannot set headers)."
@@ -1811,6 +2121,72 @@ paths:
       summary: Replace runtime settings
       tags:
         - settings
+  /api/v1/settings/review:
+    get:
+      operationId: review-settings
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettingsReviewBody"
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            ETag:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Read runtime settings with an opaque write revision
+      tags:
+        - settings
+    put:
+      description: "Requires exactly one strong quoted If-Match.412 refuses stale state atomically, including changes through legacy clients and ABA changes. Missing/empty/weak/list/duplicate headers are rejected; no unconditional fallback. A lost response is not an acceptance receipt: read current settings and require fresh review, never automatically replay."
+      operationId: update-reviewed-settings
+      parameters:
+        - in: header
+          name: If-Match
+          required: true
+          schema:
+            maxLength: 66
+            minLength: 66
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Settings"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettingsReviewBody"
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            ETag:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Replace runtime settings only if the reviewed revision is current
+      tags:
+        - settings
   /api/v1/system/status:
     get:
       operationId: get-status
@@ -1881,6 +2257,7 @@ paths:
               - finished
               - completed
               - error
+              - cancelled
             type: string
         - description: Account id or name
           explode: false
@@ -2017,6 +2394,13 @@ paths:
     delete:
       operationId: delete-torrent
       parameters:
+        - description: Optional single strong quoted revision from removal-review; native clients require this. Weak/wildcard/list values are rejected.
+          in: header
+          name: If-Match
+          schema:
+            description: Optional single strong quoted revision from removal-review; native clients require this. Weak/wildcard/list values are rejected.
+            maxLength: 66
+            type: string
         - in: path
           name: id
           required: true
@@ -2102,6 +2486,124 @@ paths:
                 $ref: "#/components/schemas/ErrorModel"
           description: Error
       summary: Update a torrent's category or settings
+      tags:
+        - torrents
+  /api/v1/torrents/{id}/cancellation-requests:
+    post:
+      description: Persist key and original revision before POST. Replays return the original receipt even after retry/removal. Acceptance means local workers drained and stopped state committed; provider activity may continue. Completed/error races return conflict without replacing the terminal result.
+      operationId: request-torrent-cancellation
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            maxLength: 256
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetryRequestInBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CancellationAcceptance"
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Accept one durable local cancellation
+      tags:
+        - torrents
+  /api/v1/torrents/{id}/cancellation-requests/{key}:
+    get:
+      description: 404 means no committed receipt is visible, not proof an original request failed. Retry only the same immutable intent/key. A receipt remains accepted after later retry or removal and does not claim the transfer is currently stopped.
+      operationId: get-torrent-cancellation-request
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            maxLength: 256
+            type: string
+        - in: path
+          name: key
+          required: true
+          schema:
+            maxLength: 38
+            type: string
+        - description: Original review revision bound to this request key
+          explode: false
+          in: query
+          name: revision
+          required: true
+          schema:
+            description: Original review revision bound to this request key
+            maxLength: 64
+            minLength: 64
+            pattern: ^[a-f0-9]{64}$
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CancellationAcceptance"
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Reconcile a saved cancellation without repeating it
+      tags:
+        - torrents
+  /api/v1/torrents/{id}/cancellation-review:
+    get:
+      description: Stops local orchestration and NAS work without removing records or files. Remote provider activity may continue. Revision binds the retry incarnation, not changing progress.
+      operationId: review-torrent-cancellation
+      parameters:
+        - description: Exact resource id returned by the API (not a prefix/hash alias)
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Exact resource id returned by the API (not a prefix/hash alias)
+            maxLength: 256
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CancellationReview"
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Review local transfer cancellation
       tags:
         - torrents
   /api/v1/torrents/{id}/file-selection:
@@ -2200,6 +2702,79 @@ paths:
       summary: Select which files to download
       tags:
         - torrents
+  /api/v1/torrents/{id}/removal:
+    delete:
+      description: Requires one strong quoted If-Match from removal-review. Missing/empty/weak/duplicate headers are refused, never downgraded to unconditional legacy deletion.412 refuses a changed incarnation before cleanup.204 proves record removal only; provider/filesystem cleanup may be partial or intentionally preserved.
+      operationId: remove-reviewed-torrent
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            maxLength: 256
+            type: string
+        - explode: false
+          in: query
+          name: files
+          schema:
+            type: boolean
+        - explode: false
+          in: query
+          name: provider
+          schema:
+            type: boolean
+        - in: header
+          name: If-Match
+          required: true
+          schema:
+            maxLength: 66
+            minLength: 66
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Remove an exact transfer with a required incarnation precondition
+      tags:
+        - torrents
+  /api/v1/torrents/{id}/removal-review:
+    get:
+      description: Returns exists:false explicitly for a missing transfer. A missing HTTP route is not transfer absence. Send the original revision as a single strong quoted If-Match with DELETE;412 refuses a changed incarnation before provider/filesystem removal.204 proves record removal, not that unknown/shared/untracked provider copies or files disappeared.
+      operationId: review-torrent-removal
+      parameters:
+        - description: Exact resource id returned by the API (not a prefix/hash alias)
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Exact resource id returned by the API (not a prefix/hash alias)
+            maxLength: 256
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemovalReview"
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Review exact transfer incarnation before removal
+      tags:
+        - torrents
   /api/v1/torrents/{id}/retry:
     post:
       operationId: retry-torrent
@@ -2224,7 +2799,122 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorModel"
           description: Error
-      summary: Retry an errored or completed torrent from scratch
+      summary: Retry an errored, completed or cancelled torrent from scratch
+      tags:
+        - torrents
+  /api/v1/torrents/{id}/retry-requests:
+    post:
+      operationId: request-torrent-retry
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            maxLength: 256
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetryRequestInBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RetryAcceptance"
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Accept one revision-checked durable retry request
+      tags:
+        - torrents
+  /api/v1/torrents/{id}/retry-requests/{key}:
+    get:
+      operationId: get-torrent-retry-request
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            maxLength: 256
+            type: string
+        - in: path
+          name: key
+          required: true
+          schema:
+            maxLength: 38
+            type: string
+        - description: Original review revision bound to this request key
+          explode: false
+          in: query
+          name: revision
+          required: true
+          schema:
+            description: Original review revision bound to this request key
+            maxLength: 64
+            minLength: 64
+            pattern: ^[a-f0-9]{64}$
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RetryAcceptance"
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Check a saved retry without repeating the mutation
+      tags:
+        - torrents
+  /api/v1/torrents/{id}/retry-review:
+    get:
+      operationId: review-torrent-retry
+      parameters:
+        - description: Exact resource id returned by the API (not a prefix/hash alias)
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Exact resource id returned by the API (not a prefix/hash alias)
+            maxLength: 256
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RetryReview"
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Review retry eligibility and immutable revision
       tags:
         - torrents
 security:

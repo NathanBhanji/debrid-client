@@ -4,7 +4,7 @@ import Foundation
 
 @main enum PendingInboxProbe {
     struct Input: Decodable { var uri:String?; var data:Data?; var id:UUID?; var token:UUID? }
-    struct Output: Encodable { var id:UUID?; var token:UUID?; var count:Int?; var duplicate:Bool?; var error:String? }
+    struct Output: Encodable { var id:UUID?; var token:UUID?; var count:Int?; var duplicate:Bool?; var key:UUID?; var error:String? }
     static func emit(_ output:Output) throws {
         var data = try JSONEncoder().encode(output); data.append(10)
         FileHandle.standardOutput.write(data)
@@ -29,9 +29,33 @@ import Foundation
                 }
                 return
             }
+            if command == "snapshotManagement" {try emit(Output(count:try await store.savedManagement().count));return}
+            if command == "snapshotRetries" {try emit(Output(count:try await store.savedRetries().count));return}
             if command == "snapshot" { try emit(Output(count:try await store.snapshot().count)); return }
             let input = try JSONDecoder().decode(Input.self,from:FileHandle.standardInput.readDataToEndOfFile())
             switch command {
+            case "claimManagement":
+                let server=try ServerAddress("https://probe.example.test").url
+                let claim=try await store.claimManagement(server:server,kind:.remove,resourceID:"probe-action",name:"Fixture removal")
+                try emit(Output(id:claim.id,token:claim.token))
+            case "prepareManagement":
+                guard let id=input.id,let token=input.token else {throw PendingInboxError.unavailable}
+                let prepared=try await store.prepareManagement(id,token:token,resourceID:"probe-action",revision:String(repeating:"a",count:64),options:RemovalOptions(deleteFiles:true))
+                try emit(Output(id:id,token:token,duplicate:!prepared.wasCreated,key:prepared.intent.key))
+            case "releaseManagement":
+                guard let id=input.id,let token=input.token else {throw PendingInboxError.unavailable}
+                try await store.releaseManagement(id,token:token);try emit(Output(count:try await store.savedManagement().count))
+            case "claimRetry":
+                let server=try ServerAddress("https://probe.example.test").url
+                let claim=try await store.claimRetry(server:server,kind:.download,resourceID:"probe-file",torrentID:"probe-parent",name:"Fixture retry")
+                try emit(Output(id:claim.id,token:claim.token))
+            case "prepareRetry":
+                guard let id=input.id,let token=input.token else {throw PendingInboxError.unavailable}
+                let prepared=try await store.prepareRetry(id,token:token,review:RetryReviewDTO(kind:"download",resourceId:"probe-file",torrentId:"probe-parent",revision:String(repeating:"a",count:64),allowed:true,waitForSelection:false))
+                try emit(Output(id:id,token:token,duplicate:!prepared.wasCreated,key:prepared.intent.key))
+            case "releaseRetry":
+                guard let id=input.id,let token=input.token else {throw PendingInboxError.unavailable}
+                try await store.releaseRetry(id,token:token);try emit(Output(count:try await store.savedRetries().count))
             case "enqueue":
                 guard let uri = input.uri else { throw PendingInboxError.unavailable }
                 let receipt = try await store.enqueue(MagnetLink(uri),source:.share)

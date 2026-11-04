@@ -175,7 +175,7 @@ func newTorrentsCmd(g *globalFlags, cf *clientFlags) *cobra.Command {
 
 	retry := &cobra.Command{
 		Use:   "retry <id|hash>",
-		Short: "Retry an errored or completed torrent from scratch",
+		Short: "Retry an errored, completed or cancelled torrent from scratch",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cl, err := cf.resolve(cmd, g)

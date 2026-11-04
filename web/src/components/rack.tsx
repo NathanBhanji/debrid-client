@@ -28,6 +28,8 @@ function ledFor(t: Torrent): {
       return { kind: 'prov', label: 'SEL', segClass: 'amb' }
     case 'finished':
       return { kind: 'dl', label: 'DL', segClass: 'on' }
+    case 'cancelled':
+      return { kind: 'q', label: 'STOP', segClass: 'amb' }
     case 'completed':
       return { kind: 'done', label: 'OK', segClass: 'grn' }
     case 'error':
@@ -74,6 +76,8 @@ function statusLine(t: Torrent): string {
       return t.completed_at
         ? `completed ${formatWhen(t.completed_at)}`
         : 'completed'
+    case 'cancelled':
+      return 'cancelled locally; provider may continue'
     case 'error':
       return t.error ?? 'error'
     default: {
@@ -87,7 +91,8 @@ function Segments({ t }: { t: Torrent }) {
   const { segClass } = ledFor(t)
   const p = progressFor(t)
   const lit = Math.round(p * SEGMENTS)
-  const active = t.status !== 'completed' && t.status !== 'error'
+  const active =
+    t.status !== 'completed' && t.status !== 'error' && t.status !== 'cancelled'
   return (
     <div className="seg" aria-hidden="true">
       {Array.from({ length: SEGMENTS }, (_, i) => (
@@ -111,6 +116,7 @@ function downloadStateClass(state: string): string {
       return 'ok'
     case 'error':
       return 'bad'
+    case 'cancelled':
     case 'pending':
       return 'wait'
     default:
@@ -309,7 +315,9 @@ function Bay({ t }: { t: Torrent }) {
             ) : null}
           </div>
           <div className="bayacts">
-            {(t.status === 'error' || t.status === 'completed') && (
+            {(t.status === 'error' ||
+              t.status === 'completed' ||
+              t.status === 'cancelled') && (
               <button
                 className="key sm"
                 disabled={busy}

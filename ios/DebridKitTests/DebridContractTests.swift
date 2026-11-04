@@ -10,7 +10,14 @@ private struct WireContract: Decodable {
     let torrent: TorrentDTO
     let account: AccountDTO
     let settings: SettingsDTO
+    let settingsReview: SettingsReviewDTO
     let systemStatus: SystemStatusDTO
+    let removalReview:RemovalReviewDTO
+    let missingRemovalReview:RemovalReviewDTO
+    let cancellationReview:CancellationReviewDTO
+    let cancellationAcceptance:CancellationAcceptanceDTO
+    let retryReview:RetryReviewDTO
+    let retryAcceptance:RetryAcceptanceDTO
 }
 
 struct DebridContractTests {
@@ -21,6 +28,16 @@ struct DebridContractTests {
     @Test func decodesGoProducedWireShapes() throws {
         let contract = try DebridAPIClient.decoder().decode(WireContract.self, from:fixture())
         #expect(contract.health.ok)
+        #expect(contract.settingsReview.revision.count == 64 && contract.settingsReview.settings.categories == [])
+        #expect(contract.health.capabilities?.contains("native_settings_revision_v1") == true)
+        #expect(contract.removalReview.exists && contract.removalReview.torrentId==contract.torrent.id && contract.removalReview.providerCopyKnown)
+        #expect(!contract.missingRemovalReview.exists && contract.missingRemovalReview.revision==nil && !contract.missingRemovalReview.providerCopyKnown)
+        #expect(contract.cancellationReview.torrentId==contract.torrent.id && contract.cancellationReview.providerMayContinue && contract.cancellationReview.allowed)
+        #expect(contract.cancellationAcceptance.torrentId==contract.torrent.id && contract.cancellationAcceptance.torrentExists)
+        #expect(contract.retryReview.resourceId==contract.torrent.id && contract.retryReview.kind=="torrent")
+        #expect(contract.retryReview.allowed && contract.retryReview.waitForSelection && contract.retryReview.revision.utf8.count==64)
+        #expect(contract.retryAcceptance.kind=="download" && contract.retryAcceptance.resourceId==contract.torrent.downloads[0].id)
+        #expect(contract.retryAcceptance.torrentId==contract.torrent.id && contract.retryAcceptance.torrentExists)
         #expect(!contract.authStatus.configured)
         #expect(contract.identity.apiKey)
         #expect(contract.torrent.accountId == contract.account.id)

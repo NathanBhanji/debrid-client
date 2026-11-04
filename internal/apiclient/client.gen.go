@@ -74,6 +74,7 @@ func (e AddAccountInBodyKind) Valid() bool {
 
 // Defines values for DownloadState.
 const (
+	DownloadStateCancelled     DownloadState = "cancelled"
 	DownloadStateDone          DownloadState = "done"
 	DownloadStateDownloaded    DownloadState = "downloaded"
 	DownloadStateDownloading   DownloadState = "downloading"
@@ -86,6 +87,8 @@ const (
 // Valid indicates whether the value is a known member of the DownloadState enum.
 func (e DownloadState) Valid() bool {
 	switch e {
+	case DownloadStateCancelled:
+		return true
 	case DownloadStateDone:
 		return true
 	case DownloadStateDownloaded:
@@ -156,6 +159,7 @@ func (e TorrentFileSelectionState) Valid() bool {
 // Defines values for TorrentStatus.
 const (
 	TorrentStatusAdding           TorrentStatus = "adding"
+	TorrentStatusCancelled        TorrentStatus = "cancelled"
 	TorrentStatusCompleted        TorrentStatus = "completed"
 	TorrentStatusDownloading      TorrentStatus = "downloading"
 	TorrentStatusError            TorrentStatus = "error"
@@ -170,6 +174,8 @@ const (
 func (e TorrentStatus) Valid() bool {
 	switch e {
 	case TorrentStatusAdding:
+		return true
+	case TorrentStatusCancelled:
 		return true
 	case TorrentStatusCompleted:
 		return true
@@ -213,6 +219,7 @@ func (e TorrentSettingsFinishedAction) Valid() bool {
 // Defines values for ListTorrentsParamsStatus.
 const (
 	ListTorrentsParamsStatusAdding           ListTorrentsParamsStatus = "adding"
+	ListTorrentsParamsStatusCancelled        ListTorrentsParamsStatus = "cancelled"
 	ListTorrentsParamsStatusCompleted        ListTorrentsParamsStatus = "completed"
 	ListTorrentsParamsStatusDownloading      ListTorrentsParamsStatus = "downloading"
 	ListTorrentsParamsStatusError            ListTorrentsParamsStatus = "error"
@@ -227,6 +234,8 @@ const (
 func (e ListTorrentsParamsStatus) Valid() bool {
 	switch e {
 	case ListTorrentsParamsStatusAdding:
+		return true
+	case ListTorrentsParamsStatusCancelled:
 		return true
 	case ListTorrentsParamsStatusCompleted:
 		return true
@@ -327,6 +336,29 @@ type AuthStatusOutBody struct {
 
 	// OidcIssuer Configured OIDC issuer, shown on the login/setup screens
 	OidcIssuer *string `json:"oidc_issuer,omitempty"`
+}
+
+// CancellationAcceptance defines model for CancellationAcceptance.
+type CancellationAcceptance struct {
+	// Schema A URL to the JSON Schema for this object.
+	//
+	// Example: https://example.com/schemas/CancellationAcceptance.json
+	Schema        *string   `json:"$schema,omitempty"`
+	AcceptedAt    time.Time `json:"accepted_at"`
+	TorrentExists bool      `json:"torrent_exists"`
+	TorrentId     string    `json:"torrent_id"`
+}
+
+// CancellationReview defines model for CancellationReview.
+type CancellationReview struct {
+	// Schema A URL to the JSON Schema for this object.
+	//
+	// Example: https://example.com/schemas/CancellationReview.json
+	Schema              *string `json:"$schema,omitempty"`
+	Allowed             bool    `json:"allowed"`
+	ProviderMayContinue bool    `json:"provider_may_continue"`
+	Revision            string  `json:"revision"`
+	TorrentId           string  `json:"torrent_id"`
 }
 
 // ChangePasswordInBody defines model for ChangePasswordInBody.
@@ -621,13 +653,13 @@ type OrganizePreviewInBody struct {
 	// Example: https://example.com/schemas/OrganizePreviewInBody.json
 	Schema *string `json:"$schema,omitempty"`
 
-	// MovieTemplate Override the saved movie template
+	// MovieTemplate Override the saved movie template; explicit empty uses the built-in default
 	MovieTemplate *string `json:"movie_template,omitempty"`
 
 	// Name Release name to preview
 	Name string `json:"name"`
 
-	// TvTemplate Override the saved TV template
+	// TvTemplate Override the saved TV template; explicit empty uses the built-in default
 	TvTemplate *string `json:"tv_template,omitempty"`
 }
 
@@ -658,6 +690,57 @@ type OrganizeSettings struct {
 	TvTemplate *string `json:"tv_template,omitempty"`
 }
 
+// RemovalReview defines model for RemovalReview.
+type RemovalReview struct {
+	// Schema A URL to the JSON Schema for this object.
+	//
+	// Example: https://example.com/schemas/RemovalReview.json
+	Schema            *string `json:"$schema,omitempty"`
+	Exists            bool    `json:"exists"`
+	ProviderCopyKnown bool    `json:"provider_copy_known"`
+	Revision          *string `json:"revision,omitempty"`
+	TorrentId         string  `json:"torrent_id"`
+}
+
+// RetryAcceptance defines model for RetryAcceptance.
+type RetryAcceptance struct {
+	// Schema A URL to the JSON Schema for this object.
+	//
+	// Example: https://example.com/schemas/RetryAcceptance.json
+	Schema        *string   `json:"$schema,omitempty"`
+	AcceptedAt    time.Time `json:"accepted_at"`
+	Kind          string    `json:"kind"`
+	ResourceId    string    `json:"resource_id"`
+	TorrentExists bool      `json:"torrent_exists"`
+	TorrentId     string    `json:"torrent_id"`
+}
+
+// RetryRequestInBody defines model for RetryRequestInBody.
+type RetryRequestInBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	//
+	// Example: https://example.com/schemas/RetryRequestInBody.json
+	Schema *string `json:"$schema,omitempty"`
+
+	// Key Fresh UUIDv4 persisted before POST; reuse only for this immutable retry intent
+	Key      string `json:"key"`
+	Revision string `json:"revision"`
+}
+
+// RetryReview defines model for RetryReview.
+type RetryReview struct {
+	// Schema A URL to the JSON Schema for this object.
+	//
+	// Example: https://example.com/schemas/RetryReview.json
+	Schema           *string `json:"$schema,omitempty"`
+	Allowed          bool    `json:"allowed"`
+	Kind             string  `json:"kind"`
+	ResourceId       string  `json:"resource_id"`
+	Revision         string  `json:"revision"`
+	TorrentId        string  `json:"torrent_id"`
+	WaitForSelection bool    `json:"wait_for_selection"`
+}
+
 // SelectFilesInBody defines model for SelectFilesInBody.
 type SelectFilesInBody struct {
 	// Schema A URL to the JSON Schema for this object.
@@ -686,6 +769,16 @@ type Settings struct {
 	Organize        *OrganizeSettings `json:"organize,omitempty"`
 	TorrentDefaults TorrentSettings   `json:"torrent_defaults"`
 	UnpackMaxDepth  *int64            `json:"unpack_max_depth,omitempty"`
+}
+
+// SettingsReviewBody defines model for SettingsReviewBody.
+type SettingsReviewBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	//
+	// Example: https://example.com/schemas/SettingsReviewBody.json
+	Schema   *string  `json:"$schema,omitempty"`
+	Revision string   `json:"revision"`
+	Settings Settings `json:"settings"`
 }
 
 // SetupOIDCInBody defines model for SetupOIDCInBody.
@@ -896,12 +989,29 @@ type DeleteAccountParams struct {
 	Force *bool `form:"force,omitempty" json:"force,omitempty"`
 }
 
+// RemoveAccountWithDrainParams defines parameters for RemoveAccountWithDrain.
+type RemoveAccountWithDrainParams struct {
+	// Force Also delete the account's torrents (locally)
+	Force *bool `form:"force,omitempty" json:"force,omitempty"`
+}
+
 // AuthOidcCallbackParams defines parameters for AuthOidcCallback.
 type AuthOidcCallbackParams struct {
 	State            *string `form:"state,omitempty" json:"state,omitempty"`
 	Code             *string `form:"code,omitempty" json:"code,omitempty"`
 	Error            *string `form:"error,omitempty" json:"error,omitempty"`
 	ErrorDescription *string `form:"error_description,omitempty" json:"error_description,omitempty"`
+}
+
+// GetDownloadRetryRequestParams defines parameters for GetDownloadRetryRequest.
+type GetDownloadRetryRequestParams struct {
+	// Revision Original review revision bound to this request key
+	Revision string `form:"revision" json:"revision"`
+}
+
+// UpdateReviewedSettingsParams defines parameters for UpdateReviewedSettings.
+type UpdateReviewedSettingsParams struct {
+	IfMatch string `json:"If-Match"`
 }
 
 // ListTorrentsParams defines parameters for ListTorrents.
@@ -945,6 +1055,28 @@ type DeleteTorrentParams struct {
 
 	// Provider Delete at the debrid provider too
 	Provider *bool `form:"provider,omitempty" json:"provider,omitempty"`
+
+	// IfMatch Optional single strong quoted revision from removal-review; native clients require this. Weak/wildcard/list values are rejected.
+	IfMatch *string `json:"If-Match,omitempty"`
+}
+
+// GetTorrentCancellationRequestParams defines parameters for GetTorrentCancellationRequest.
+type GetTorrentCancellationRequestParams struct {
+	// Revision Original review revision bound to this request key
+	Revision string `form:"revision" json:"revision"`
+}
+
+// RemoveReviewedTorrentParams defines parameters for RemoveReviewedTorrent.
+type RemoveReviewedTorrentParams struct {
+	Files    *bool  `form:"files,omitempty" json:"files,omitempty"`
+	Provider *bool  `form:"provider,omitempty" json:"provider,omitempty"`
+	IfMatch  string `json:"If-Match"`
+}
+
+// GetTorrentRetryRequestParams defines parameters for GetTorrentRetryRequest.
+type GetTorrentRetryRequestParams struct {
+	// Revision Original review revision bound to this request key
+	Revision string `form:"revision" json:"revision"`
 }
 
 // AddAccountJSONRequestBody defines body for AddAccount for application/json ContentType.
@@ -971,11 +1103,17 @@ type AuthSetupOidcJSONRequestBody = SetupOIDCInBody
 // AuthSetupPasswordJSONRequestBody defines body for AuthSetupPassword for application/json ContentType.
 type AuthSetupPasswordJSONRequestBody = SetupPasswordInBody
 
+// RequestDownloadRetryJSONRequestBody defines body for RequestDownloadRetry for application/json ContentType.
+type RequestDownloadRetryJSONRequestBody = RetryRequestInBody
+
 // OrganizePreviewJSONRequestBody defines body for OrganizePreview for application/json ContentType.
 type OrganizePreviewJSONRequestBody = OrganizePreviewInBody
 
 // UpdateSettingsJSONRequestBody defines body for UpdateSettings for application/json ContentType.
 type UpdateSettingsJSONRequestBody = Settings
+
+// UpdateReviewedSettingsJSONRequestBody defines body for UpdateReviewedSettings for application/json ContentType.
+type UpdateReviewedSettingsJSONRequestBody = Settings
 
 // AddTorrentJSONRequestBody defines body for AddTorrent for application/json ContentType.
 type AddTorrentJSONRequestBody = AddTorrentInBody
@@ -986,11 +1124,17 @@ type AddTorrentFileMultipartRequestBody AddTorrentFileMultipartBody
 // UpdateTorrentJSONRequestBody defines body for UpdateTorrent for application/json ContentType.
 type UpdateTorrentJSONRequestBody = UpdateTorrentInBody
 
+// RequestTorrentCancellationJSONRequestBody defines body for RequestTorrentCancellation for application/json ContentType.
+type RequestTorrentCancellationJSONRequestBody = RetryRequestInBody
+
 // ConfirmFileSelectionJSONRequestBody defines body for ConfirmFileSelection for application/json ContentType.
 type ConfirmFileSelectionJSONRequestBody = ConfirmFileSelectionInBody
 
 // SelectFilesJSONRequestBody defines body for SelectFiles for application/json ContentType.
 type SelectFilesJSONRequestBody = SelectFilesInBody
+
+// RequestTorrentRetryJSONRequestBody defines body for RequestTorrentRetry for application/json ContentType.
+type RequestTorrentRetryJSONRequestBody = RetryRequestInBody
 
 // RequestEditorFn is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -1113,6 +1257,11 @@ type ClientInterface interface {
 	// Corresponds with PATCH /api/v1/accounts/{id} (the `UpdateAccount` operationId).
 	UpdateAccount(ctx context.Context, id string, body UpdateAccountJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// RemoveAccountWithDrain Remove an exact account with guarded local transfer drain
+	//
+	// Corresponds with DELETE /api/v1/accounts/{id}/removal (the `RemoveAccountWithDrain` operationId).
+	RemoveAccountWithDrain(ctx context.Context, id string, params *RemoveAccountWithDrainParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// TestAccount Verify an account against its provider
 	//
 	// Corresponds with POST /api/v1/accounts/{id}/test (the `TestAccount` operationId).
@@ -1232,6 +1381,30 @@ type ClientInterface interface {
 	// Corresponds with POST /api/v1/downloads/{id}/retry (the `RetryDownload` operationId).
 	RetryDownload(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// RequestDownloadRetryWithBody Accept one revision-checked durable retry request
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/downloads/{id}/retry-requests (the `RequestDownloadRetry` operationId).
+	RequestDownloadRetryWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RequestDownloadRetry Accept one revision-checked durable retry request
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/downloads/{id}/retry-requests (the `RequestDownloadRetry` operationId).
+	RequestDownloadRetry(ctx context.Context, id string, body RequestDownloadRetryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetDownloadRetryRequest Check a saved retry without repeating the mutation
+	//
+	// Corresponds with GET /api/v1/downloads/{id}/retry-requests/{key} (the `GetDownloadRetryRequest` operationId).
+	GetDownloadRetryRequest(ctx context.Context, id string, key string, params *GetDownloadRetryRequestParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReviewDownloadRetry Review retry eligibility and immutable revision
+	//
+	// Corresponds with GET /api/v1/downloads/{id}/retry-review (the `ReviewDownloadRetry` operationId).
+	ReviewDownloadRetry(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// Events Stream change events (Server-Sent Events)
 	//
 	// Event names: torrent.added, torrent.updated, torrent.deleted, download.updated, account.changed, settings.changed, heartbeat (every 15s). Payloads are small notifications; re-fetch the resource. Slow consumers may miss events — re-sync on reconnect. Authenticate with the Bearer header or ?api_key= (EventSource cannot set headers).
@@ -1276,6 +1449,29 @@ type ClientInterface interface {
 	//
 	// Corresponds with PUT /api/v1/settings (the `UpdateSettings` operationId).
 	UpdateSettings(ctx context.Context, body UpdateSettingsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReviewSettings Read runtime settings with an opaque write revision
+	//
+	// Corresponds with GET /api/v1/settings/review (the `ReviewSettings` operationId).
+	ReviewSettings(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateReviewedSettingsWithBody Replace runtime settings only if the reviewed revision is current
+	//
+	// Requires exactly one strong quoted If-Match.412 refuses stale state atomically, including changes through legacy clients and ABA changes. Missing/empty/weak/list/duplicate headers are rejected; no unconditional fallback. A lost response is not an acceptance receipt: read current settings and require fresh review, never automatically replay.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /api/v1/settings/review (the `UpdateReviewedSettings` operationId).
+	UpdateReviewedSettingsWithBody(ctx context.Context, params *UpdateReviewedSettingsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateReviewedSettings Replace runtime settings only if the reviewed revision is current
+	//
+	// Requires exactly one strong quoted If-Match.412 refuses stale state atomically, including changes through legacy clients and ABA changes. Missing/empty/weak/list/duplicate headers are rejected; no unconditional fallback. A lost response is not an acceptance receipt: read current settings and require fresh review, never automatically replay.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /api/v1/settings/review (the `UpdateReviewedSettings` operationId).
+	UpdateReviewedSettings(ctx context.Context, params *UpdateReviewedSettingsParams, body UpdateReviewedSettingsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetStatus System status
 	//
@@ -1345,6 +1541,38 @@ type ClientInterface interface {
 	// Corresponds with PATCH /api/v1/torrents/{id} (the `UpdateTorrent` operationId).
 	UpdateTorrent(ctx context.Context, id string, body UpdateTorrentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// RequestTorrentCancellationWithBody Accept one durable local cancellation
+	//
+	// Persist key and original revision before POST. Replays return the original receipt even after retry/removal. Acceptance means local workers drained and stopped state committed; provider activity may continue. Completed/error races return conflict without replacing the terminal result.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/torrents/{id}/cancellation-requests (the `RequestTorrentCancellation` operationId).
+	RequestTorrentCancellationWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RequestTorrentCancellation Accept one durable local cancellation
+	//
+	// Persist key and original revision before POST. Replays return the original receipt even after retry/removal. Acceptance means local workers drained and stopped state committed; provider activity may continue. Completed/error races return conflict without replacing the terminal result.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/torrents/{id}/cancellation-requests (the `RequestTorrentCancellation` operationId).
+	RequestTorrentCancellation(ctx context.Context, id string, body RequestTorrentCancellationJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetTorrentCancellationRequest Reconcile a saved cancellation without repeating it
+	//
+	// 404 means no committed receipt is visible, not proof an original request failed. Retry only the same immutable intent/key. A receipt remains accepted after later retry or removal and does not claim the transfer is currently stopped.
+	//
+	// Corresponds with GET /api/v1/torrents/{id}/cancellation-requests/{key} (the `GetTorrentCancellationRequest` operationId).
+	GetTorrentCancellationRequest(ctx context.Context, id string, key string, params *GetTorrentCancellationRequestParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReviewTorrentCancellation Review local transfer cancellation
+	//
+	// Stops local orchestration and NAS work without removing records or files. Remote provider activity may continue. Revision binds the retry incarnation, not changing progress.
+	//
+	// Corresponds with GET /api/v1/torrents/{id}/cancellation-review (the `ReviewTorrentCancellation` operationId).
+	ReviewTorrentCancellation(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetFileSelection Review authoritative provider files before NAS download
 	//
 	// Corresponds with GET /api/v1/torrents/{id}/file-selection (the `GetFileSelection` operationId).
@@ -1378,10 +1606,48 @@ type ClientInterface interface {
 	// Corresponds with PUT /api/v1/torrents/{id}/files (the `SelectFiles` operationId).
 	SelectFiles(ctx context.Context, id string, body SelectFilesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// RetryTorrent Retry an errored or completed torrent from scratch
+	// RemoveReviewedTorrent Remove an exact transfer with a required incarnation precondition
+	//
+	// Requires one strong quoted If-Match from removal-review. Missing/empty/weak/duplicate headers are refused, never downgraded to unconditional legacy deletion.412 refuses a changed incarnation before cleanup.204 proves record removal only; provider/filesystem cleanup may be partial or intentionally preserved.
+	//
+	// Corresponds with DELETE /api/v1/torrents/{id}/removal (the `RemoveReviewedTorrent` operationId).
+	RemoveReviewedTorrent(ctx context.Context, id string, params *RemoveReviewedTorrentParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReviewTorrentRemoval Review exact transfer incarnation before removal
+	//
+	// Returns exists:false explicitly for a missing transfer. A missing HTTP route is not transfer absence. Send the original revision as a single strong quoted If-Match with DELETE;412 refuses a changed incarnation before provider/filesystem removal.204 proves record removal, not that unknown/shared/untracked provider copies or files disappeared.
+	//
+	// Corresponds with GET /api/v1/torrents/{id}/removal-review (the `ReviewTorrentRemoval` operationId).
+	ReviewTorrentRemoval(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RetryTorrent Retry an errored, completed or cancelled torrent from scratch
 	//
 	// Corresponds with POST /api/v1/torrents/{id}/retry (the `RetryTorrent` operationId).
 	RetryTorrent(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RequestTorrentRetryWithBody Accept one revision-checked durable retry request
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/torrents/{id}/retry-requests (the `RequestTorrentRetry` operationId).
+	RequestTorrentRetryWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RequestTorrentRetry Accept one revision-checked durable retry request
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/torrents/{id}/retry-requests (the `RequestTorrentRetry` operationId).
+	RequestTorrentRetry(ctx context.Context, id string, body RequestTorrentRetryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetTorrentRetryRequest Check a saved retry without repeating the mutation
+	//
+	// Corresponds with GET /api/v1/torrents/{id}/retry-requests/{key} (the `GetTorrentRetryRequest` operationId).
+	GetTorrentRetryRequest(ctx context.Context, id string, key string, params *GetTorrentRetryRequestParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReviewTorrentRetry Review retry eligibility and immutable revision
+	//
+	// Corresponds with GET /api/v1/torrents/{id}/retry-review (the `ReviewTorrentRetry` operationId).
+	ReviewTorrentRetry(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 // ListAccounts List provider accounts
@@ -1491,6 +1757,21 @@ func (c *Client) UpdateAccountWithBody(ctx context.Context, id string, contentTy
 // Corresponds with PATCH /api/v1/accounts/{id} (the `UpdateAccount` operationId).
 func (c *Client) UpdateAccount(ctx context.Context, id string, body UpdateAccountJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUpdateAccountRequest(c.Server, id, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RemoveAccountWithDrain Remove an exact account with guarded local transfer drain
+//
+// Corresponds with DELETE /api/v1/accounts/{id}/removal (the `RemoveAccountWithDrain` operationId).
+func (c *Client) RemoveAccountWithDrain(ctx context.Context, id string, params *RemoveAccountWithDrainParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRemoveAccountWithDrainRequest(c.Server, id, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1810,6 +2091,70 @@ func (c *Client) RetryDownload(ctx context.Context, id string, reqEditors ...Req
 	return c.Client.Do(req)
 }
 
+// RequestDownloadRetryWithBody Accept one revision-checked durable retry request
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/downloads/{id}/retry-requests (the `RequestDownloadRetry` operationId).
+func (c *Client) RequestDownloadRetryWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRequestDownloadRetryRequestWithBody(c.Server, id, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RequestDownloadRetry Accept one revision-checked durable retry request
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/downloads/{id}/retry-requests (the `RequestDownloadRetry` operationId).
+func (c *Client) RequestDownloadRetry(ctx context.Context, id string, body RequestDownloadRetryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRequestDownloadRetryRequest(c.Server, id, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetDownloadRetryRequest Check a saved retry without repeating the mutation
+//
+// Corresponds with GET /api/v1/downloads/{id}/retry-requests/{key} (the `GetDownloadRetryRequest` operationId).
+func (c *Client) GetDownloadRetryRequest(ctx context.Context, id string, key string, params *GetDownloadRetryRequestParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetDownloadRetryRequestRequest(c.Server, id, key, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ReviewDownloadRetry Review retry eligibility and immutable revision
+//
+// Corresponds with GET /api/v1/downloads/{id}/retry-review (the `ReviewDownloadRetry` operationId).
+func (c *Client) ReviewDownloadRetry(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReviewDownloadRetryRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // Events Stream change events (Server-Sent Events)
 //
 // Event names: torrent.added, torrent.updated, torrent.deleted, download.updated, account.changed, settings.changed, heartbeat (every 15s). Payloads are small notifications; re-fetch the resource. Slow consumers may miss events — re-sync on reconnect. Authenticate with the Bearer header or ?api_key= (EventSource cannot set headers).
@@ -1915,6 +2260,59 @@ func (c *Client) UpdateSettingsWithBody(ctx context.Context, contentType string,
 // Corresponds with PUT /api/v1/settings (the `UpdateSettings` operationId).
 func (c *Client) UpdateSettings(ctx context.Context, body UpdateSettingsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUpdateSettingsRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ReviewSettings Read runtime settings with an opaque write revision
+//
+// Corresponds with GET /api/v1/settings/review (the `ReviewSettings` operationId).
+func (c *Client) ReviewSettings(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReviewSettingsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateReviewedSettingsWithBody Replace runtime settings only if the reviewed revision is current
+//
+// Requires exactly one strong quoted If-Match.412 refuses stale state atomically, including changes through legacy clients and ABA changes. Missing/empty/weak/list/duplicate headers are rejected; no unconditional fallback. A lost response is not an acceptance receipt: read current settings and require fresh review, never automatically replay.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /api/v1/settings/review (the `UpdateReviewedSettings` operationId).
+func (c *Client) UpdateReviewedSettingsWithBody(ctx context.Context, params *UpdateReviewedSettingsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateReviewedSettingsRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateReviewedSettings Replace runtime settings only if the reviewed revision is current
+//
+// Requires exactly one strong quoted If-Match.412 refuses stale state atomically, including changes through legacy clients and ABA changes. Missing/empty/weak/list/duplicate headers are rejected; no unconditional fallback. A lost response is not an acceptance receipt: read current settings and require fresh review, never automatically replay.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /api/v1/settings/review (the `UpdateReviewedSettings` operationId).
+func (c *Client) UpdateReviewedSettings(ctx context.Context, params *UpdateReviewedSettingsParams, body UpdateReviewedSettingsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateReviewedSettingsRequest(c.Server, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2093,6 +2491,78 @@ func (c *Client) UpdateTorrent(ctx context.Context, id string, body UpdateTorren
 	return c.Client.Do(req)
 }
 
+// RequestTorrentCancellationWithBody Accept one durable local cancellation
+//
+// Persist key and original revision before POST. Replays return the original receipt even after retry/removal. Acceptance means local workers drained and stopped state committed; provider activity may continue. Completed/error races return conflict without replacing the terminal result.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/torrents/{id}/cancellation-requests (the `RequestTorrentCancellation` operationId).
+func (c *Client) RequestTorrentCancellationWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRequestTorrentCancellationRequestWithBody(c.Server, id, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RequestTorrentCancellation Accept one durable local cancellation
+//
+// Persist key and original revision before POST. Replays return the original receipt even after retry/removal. Acceptance means local workers drained and stopped state committed; provider activity may continue. Completed/error races return conflict without replacing the terminal result.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/torrents/{id}/cancellation-requests (the `RequestTorrentCancellation` operationId).
+func (c *Client) RequestTorrentCancellation(ctx context.Context, id string, body RequestTorrentCancellationJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRequestTorrentCancellationRequest(c.Server, id, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetTorrentCancellationRequest Reconcile a saved cancellation without repeating it
+//
+// 404 means no committed receipt is visible, not proof an original request failed. Retry only the same immutable intent/key. A receipt remains accepted after later retry or removal and does not claim the transfer is currently stopped.
+//
+// Corresponds with GET /api/v1/torrents/{id}/cancellation-requests/{key} (the `GetTorrentCancellationRequest` operationId).
+func (c *Client) GetTorrentCancellationRequest(ctx context.Context, id string, key string, params *GetTorrentCancellationRequestParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetTorrentCancellationRequestRequest(c.Server, id, key, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ReviewTorrentCancellation Review local transfer cancellation
+//
+// Stops local orchestration and NAS work without removing records or files. Remote provider activity may continue. Revision binds the retry incarnation, not changing progress.
+//
+// Corresponds with GET /api/v1/torrents/{id}/cancellation-review (the `ReviewTorrentCancellation` operationId).
+func (c *Client) ReviewTorrentCancellation(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReviewTorrentCancellationRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // GetFileSelection Review authoritative provider files before NAS download
 //
 // Corresponds with GET /api/v1/torrents/{id}/file-selection (the `GetFileSelection` operationId).
@@ -2176,11 +2646,109 @@ func (c *Client) SelectFiles(ctx context.Context, id string, body SelectFilesJSO
 	return c.Client.Do(req)
 }
 
-// RetryTorrent Retry an errored or completed torrent from scratch
+// RemoveReviewedTorrent Remove an exact transfer with a required incarnation precondition
+//
+// Requires one strong quoted If-Match from removal-review. Missing/empty/weak/duplicate headers are refused, never downgraded to unconditional legacy deletion.412 refuses a changed incarnation before cleanup.204 proves record removal only; provider/filesystem cleanup may be partial or intentionally preserved.
+//
+// Corresponds with DELETE /api/v1/torrents/{id}/removal (the `RemoveReviewedTorrent` operationId).
+func (c *Client) RemoveReviewedTorrent(ctx context.Context, id string, params *RemoveReviewedTorrentParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRemoveReviewedTorrentRequest(c.Server, id, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ReviewTorrentRemoval Review exact transfer incarnation before removal
+//
+// Returns exists:false explicitly for a missing transfer. A missing HTTP route is not transfer absence. Send the original revision as a single strong quoted If-Match with DELETE;412 refuses a changed incarnation before provider/filesystem removal.204 proves record removal, not that unknown/shared/untracked provider copies or files disappeared.
+//
+// Corresponds with GET /api/v1/torrents/{id}/removal-review (the `ReviewTorrentRemoval` operationId).
+func (c *Client) ReviewTorrentRemoval(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReviewTorrentRemovalRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RetryTorrent Retry an errored, completed or cancelled torrent from scratch
 //
 // Corresponds with POST /api/v1/torrents/{id}/retry (the `RetryTorrent` operationId).
 func (c *Client) RetryTorrent(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewRetryTorrentRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RequestTorrentRetryWithBody Accept one revision-checked durable retry request
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/torrents/{id}/retry-requests (the `RequestTorrentRetry` operationId).
+func (c *Client) RequestTorrentRetryWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRequestTorrentRetryRequestWithBody(c.Server, id, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RequestTorrentRetry Accept one revision-checked durable retry request
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/torrents/{id}/retry-requests (the `RequestTorrentRetry` operationId).
+func (c *Client) RequestTorrentRetry(ctx context.Context, id string, body RequestTorrentRetryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRequestTorrentRetryRequest(c.Server, id, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetTorrentRetryRequest Check a saved retry without repeating the mutation
+//
+// Corresponds with GET /api/v1/torrents/{id}/retry-requests/{key} (the `GetTorrentRetryRequest` operationId).
+func (c *Client) GetTorrentRetryRequest(ctx context.Context, id string, key string, params *GetTorrentRetryRequestParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetTorrentRetryRequestRequest(c.Server, id, key, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ReviewTorrentRetry Review retry eligibility and immutable revision
+//
+// Corresponds with GET /api/v1/torrents/{id}/retry-review (the `ReviewTorrentRetry` operationId).
+func (c *Client) ReviewTorrentRetry(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReviewTorrentRetryRequest(c.Server, id)
 	if err != nil {
 		return nil, err
 	}
@@ -2396,6 +2964,67 @@ func NewUpdateAccountRequestWithBody(server string, id string, contentType strin
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewRemoveAccountWithDrainRequest constructs an http.Request for the RemoveAccountWithDrain method
+func NewRemoveAccountWithDrainRequest(server string, id string, params *RemoveAccountWithDrainParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/accounts/%s/removal", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Force != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", false, "force", *params.Force, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -2906,6 +3535,151 @@ func NewRetryDownloadRequest(server string, id string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewRequestDownloadRetryRequest calls the generic RequestDownloadRetry builder with application/json body
+func NewRequestDownloadRetryRequest(server string, id string, body RequestDownloadRetryJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRequestDownloadRetryRequestWithBody(server, id, "application/json", bodyReader)
+}
+
+// NewRequestDownloadRetryRequestWithBody constructs an http.Request for the RequestDownloadRetry method, with any body, and a specified content type
+func NewRequestDownloadRetryRequestWithBody(server string, id string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/downloads/%s/retry-requests", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetDownloadRetryRequestRequest constructs an http.Request for the GetDownloadRetryRequest method
+func NewGetDownloadRetryRequestRequest(server string, id string, key string, params *GetDownloadRetryRequestParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "key", key, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/downloads/%s/retry-requests/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", false, "revision", params.Revision, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewReviewDownloadRetryRequest constructs an http.Request for the ReviewDownloadRetry method
+func NewReviewDownloadRetryRequest(server string, id string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/downloads/%s/retry-review", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewEventsRequest constructs an http.Request for the Events method
 func NewEventsRequest(server string) (*http.Request, error) {
 	var err error
@@ -3063,6 +3837,86 @@ func NewUpdateSettingsRequestWithBody(server string, contentType string, body io
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewReviewSettingsRequest constructs an http.Request for the ReviewSettings method
+func NewReviewSettingsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/settings/review")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewUpdateReviewedSettingsRequest calls the generic UpdateReviewedSettings builder with application/json body
+func NewUpdateReviewedSettingsRequest(server string, params *UpdateReviewedSettingsParams, body UpdateReviewedSettingsJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdateReviewedSettingsRequestWithBody(server, params, "application/json", bodyReader)
+}
+
+// NewUpdateReviewedSettingsRequestWithBody constructs an http.Request for the UpdateReviewedSettings method, with any body, and a specified content type
+func NewUpdateReviewedSettingsRequestWithBody(server string, params *UpdateReviewedSettingsParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/settings/review")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "If-Match", params.IfMatch, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("If-Match", headerParam0)
+
+	}
 
 	return req, nil
 }
@@ -3375,6 +4229,21 @@ func NewDeleteTorrentRequest(server string, id string, params *DeleteTorrentPara
 		return nil, err
 	}
 
+	if params != nil {
+
+		if params.IfMatch != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "If-Match", *params.IfMatch, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("If-Match", headerParam0)
+		}
+
+	}
+
 	return req, nil
 }
 
@@ -3455,6 +4324,151 @@ func NewUpdateTorrentRequestWithBody(server string, id string, contentType strin
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewRequestTorrentCancellationRequest calls the generic RequestTorrentCancellation builder with application/json body
+func NewRequestTorrentCancellationRequest(server string, id string, body RequestTorrentCancellationJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRequestTorrentCancellationRequestWithBody(server, id, "application/json", bodyReader)
+}
+
+// NewRequestTorrentCancellationRequestWithBody constructs an http.Request for the RequestTorrentCancellation method, with any body, and a specified content type
+func NewRequestTorrentCancellationRequestWithBody(server string, id string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/torrents/%s/cancellation-requests", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetTorrentCancellationRequestRequest constructs an http.Request for the GetTorrentCancellationRequest method
+func NewGetTorrentCancellationRequestRequest(server string, id string, key string, params *GetTorrentCancellationRequestParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "key", key, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/torrents/%s/cancellation-requests/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", false, "revision", params.Revision, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewReviewTorrentCancellationRequest constructs an http.Request for the ReviewTorrentCancellation method
+func NewReviewTorrentCancellationRequest(server string, id string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/torrents/%s/cancellation-review", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -3587,6 +4601,126 @@ func NewSelectFilesRequestWithBody(server string, id string, contentType string,
 	return req, nil
 }
 
+// NewRemoveReviewedTorrentRequest constructs an http.Request for the RemoveReviewedTorrent method
+func NewRemoveReviewedTorrentRequest(server string, id string, params *RemoveReviewedTorrentParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/torrents/%s/removal", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Files != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", false, "files", *params.Files, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Provider != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", false, "provider", *params.Provider, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "If-Match", params.IfMatch, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("If-Match", headerParam0)
+
+	}
+
+	return req, nil
+}
+
+// NewReviewTorrentRemovalRequest constructs an http.Request for the ReviewTorrentRemoval method
+func NewReviewTorrentRemovalRequest(server string, id string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/torrents/%s/removal-review", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewRetryTorrentRequest constructs an http.Request for the RetryTorrent method
 func NewRetryTorrentRequest(server string, id string) (*http.Request, error) {
 	var err error
@@ -3614,6 +4748,151 @@ func NewRetryTorrentRequest(server string, id string) (*http.Request, error) {
 	}
 
 	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewRequestTorrentRetryRequest calls the generic RequestTorrentRetry builder with application/json body
+func NewRequestTorrentRetryRequest(server string, id string, body RequestTorrentRetryJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRequestTorrentRetryRequestWithBody(server, id, "application/json", bodyReader)
+}
+
+// NewRequestTorrentRetryRequestWithBody constructs an http.Request for the RequestTorrentRetry method, with any body, and a specified content type
+func NewRequestTorrentRetryRequestWithBody(server string, id string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/torrents/%s/retry-requests", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetTorrentRetryRequestRequest constructs an http.Request for the GetTorrentRetryRequest method
+func NewGetTorrentRetryRequestRequest(server string, id string, key string, params *GetTorrentRetryRequestParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "key", key, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/torrents/%s/retry-requests/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", false, "revision", params.Revision, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewReviewTorrentRetryRequest constructs an http.Request for the ReviewTorrentRetry method
+func NewReviewTorrentRetryRequest(server string, id string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/torrents/%s/retry-review", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -3717,6 +4996,13 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with PATCH /api/v1/accounts/{id} (the `UpdateAccount` operationId).
 	UpdateAccountWithResponse(ctx context.Context, id string, body UpdateAccountJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateAccountResponse, error)
+
+	// RemoveAccountWithDrainWithResponse Remove an exact account with guarded local transfer drain
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /api/v1/accounts/{id}/removal (the `RemoveAccountWithDrain` operationId).
+	RemoveAccountWithDrainWithResponse(ctx context.Context, id string, params *RemoveAccountWithDrainParams, reqEditors ...RequestEditorFn) (*RemoveAccountWithDrainResponse, error)
 
 	// TestAccountWithResponse Verify an account against its provider
 	//
@@ -3851,6 +5137,34 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /api/v1/downloads/{id}/retry (the `RetryDownload` operationId).
 	RetryDownloadWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*RetryDownloadResponse, error)
 
+	// RequestDownloadRetryWithBodyWithResponse Accept one revision-checked durable retry request
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/downloads/{id}/retry-requests (the `RequestDownloadRetry` operationId).
+	RequestDownloadRetryWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RequestDownloadRetryResponse, error)
+
+	// RequestDownloadRetryWithResponse Accept one revision-checked durable retry request
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/downloads/{id}/retry-requests (the `RequestDownloadRetry` operationId).
+	RequestDownloadRetryWithResponse(ctx context.Context, id string, body RequestDownloadRetryJSONRequestBody, reqEditors ...RequestEditorFn) (*RequestDownloadRetryResponse, error)
+
+	// GetDownloadRetryRequestWithResponse Check a saved retry without repeating the mutation
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/downloads/{id}/retry-requests/{key} (the `GetDownloadRetryRequest` operationId).
+	GetDownloadRetryRequestWithResponse(ctx context.Context, id string, key string, params *GetDownloadRetryRequestParams, reqEditors ...RequestEditorFn) (*GetDownloadRetryRequestResponse, error)
+
+	// ReviewDownloadRetryWithResponse Review retry eligibility and immutable revision
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/downloads/{id}/retry-review (the `ReviewDownloadRetry` operationId).
+	ReviewDownloadRetryWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ReviewDownloadRetryResponse, error)
+
 	// EventsWithResponse Stream change events (Server-Sent Events)
 	//
 	// Event names: torrent.added, torrent.updated, torrent.deleted, download.updated, account.changed, settings.changed, heartbeat (every 15s). Payloads are small notifications; re-fetch the resource. Slow consumers may miss events — re-sync on reconnect. Authenticate with the Bearer header or ?api_key= (EventSource cannot set headers).
@@ -3901,6 +5215,31 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with PUT /api/v1/settings (the `UpdateSettings` operationId).
 	UpdateSettingsWithResponse(ctx context.Context, body UpdateSettingsJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateSettingsResponse, error)
+
+	// ReviewSettingsWithResponse Read runtime settings with an opaque write revision
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/settings/review (the `ReviewSettings` operationId).
+	ReviewSettingsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ReviewSettingsResponse, error)
+
+	// UpdateReviewedSettingsWithBodyWithResponse Replace runtime settings only if the reviewed revision is current
+	//
+	// Requires exactly one strong quoted If-Match.412 refuses stale state atomically, including changes through legacy clients and ABA changes. Missing/empty/weak/list/duplicate headers are rejected; no unconditional fallback. A lost response is not an acceptance receipt: read current settings and require fresh review, never automatically replay.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /api/v1/settings/review (the `UpdateReviewedSettings` operationId).
+	UpdateReviewedSettingsWithBodyWithResponse(ctx context.Context, params *UpdateReviewedSettingsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateReviewedSettingsResponse, error)
+
+	// UpdateReviewedSettingsWithResponse Replace runtime settings only if the reviewed revision is current
+	//
+	// Requires exactly one strong quoted If-Match.412 refuses stale state atomically, including changes through legacy clients and ABA changes. Missing/empty/weak/list/duplicate headers are rejected; no unconditional fallback. A lost response is not an acceptance receipt: read current settings and require fresh review, never automatically replay.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /api/v1/settings/review (the `UpdateReviewedSettings` operationId).
+	UpdateReviewedSettingsWithResponse(ctx context.Context, params *UpdateReviewedSettingsParams, body UpdateReviewedSettingsJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateReviewedSettingsResponse, error)
 
 	// GetStatusWithResponse System status
 	//
@@ -3980,6 +5319,42 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with PATCH /api/v1/torrents/{id} (the `UpdateTorrent` operationId).
 	UpdateTorrentWithResponse(ctx context.Context, id string, body UpdateTorrentJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateTorrentResponse, error)
 
+	// RequestTorrentCancellationWithBodyWithResponse Accept one durable local cancellation
+	//
+	// Persist key and original revision before POST. Replays return the original receipt even after retry/removal. Acceptance means local workers drained and stopped state committed; provider activity may continue. Completed/error races return conflict without replacing the terminal result.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/torrents/{id}/cancellation-requests (the `RequestTorrentCancellation` operationId).
+	RequestTorrentCancellationWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RequestTorrentCancellationResponse, error)
+
+	// RequestTorrentCancellationWithResponse Accept one durable local cancellation
+	//
+	// Persist key and original revision before POST. Replays return the original receipt even after retry/removal. Acceptance means local workers drained and stopped state committed; provider activity may continue. Completed/error races return conflict without replacing the terminal result.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/torrents/{id}/cancellation-requests (the `RequestTorrentCancellation` operationId).
+	RequestTorrentCancellationWithResponse(ctx context.Context, id string, body RequestTorrentCancellationJSONRequestBody, reqEditors ...RequestEditorFn) (*RequestTorrentCancellationResponse, error)
+
+	// GetTorrentCancellationRequestWithResponse Reconcile a saved cancellation without repeating it
+	//
+	// 404 means no committed receipt is visible, not proof an original request failed. Retry only the same immutable intent/key. A receipt remains accepted after later retry or removal and does not claim the transfer is currently stopped.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/torrents/{id}/cancellation-requests/{key} (the `GetTorrentCancellationRequest` operationId).
+	GetTorrentCancellationRequestWithResponse(ctx context.Context, id string, key string, params *GetTorrentCancellationRequestParams, reqEditors ...RequestEditorFn) (*GetTorrentCancellationRequestResponse, error)
+
+	// ReviewTorrentCancellationWithResponse Review local transfer cancellation
+	//
+	// Stops local orchestration and NAS work without removing records or files. Remote provider activity may continue. Revision binds the retry incarnation, not changing progress.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/torrents/{id}/cancellation-review (the `ReviewTorrentCancellation` operationId).
+	ReviewTorrentCancellationWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ReviewTorrentCancellationResponse, error)
+
 	// GetFileSelectionWithResponse Review authoritative provider files before NAS download
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -4015,12 +5390,58 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with PUT /api/v1/torrents/{id}/files (the `SelectFiles` operationId).
 	SelectFilesWithResponse(ctx context.Context, id string, body SelectFilesJSONRequestBody, reqEditors ...RequestEditorFn) (*SelectFilesResponse, error)
 
-	// RetryTorrentWithResponse Retry an errored or completed torrent from scratch
+	// RemoveReviewedTorrentWithResponse Remove an exact transfer with a required incarnation precondition
+	//
+	// Requires one strong quoted If-Match from removal-review. Missing/empty/weak/duplicate headers are refused, never downgraded to unconditional legacy deletion.412 refuses a changed incarnation before cleanup.204 proves record removal only; provider/filesystem cleanup may be partial or intentionally preserved.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /api/v1/torrents/{id}/removal (the `RemoveReviewedTorrent` operationId).
+	RemoveReviewedTorrentWithResponse(ctx context.Context, id string, params *RemoveReviewedTorrentParams, reqEditors ...RequestEditorFn) (*RemoveReviewedTorrentResponse, error)
+
+	// ReviewTorrentRemovalWithResponse Review exact transfer incarnation before removal
+	//
+	// Returns exists:false explicitly for a missing transfer. A missing HTTP route is not transfer absence. Send the original revision as a single strong quoted If-Match with DELETE;412 refuses a changed incarnation before provider/filesystem removal.204 proves record removal, not that unknown/shared/untracked provider copies or files disappeared.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/torrents/{id}/removal-review (the `ReviewTorrentRemoval` operationId).
+	ReviewTorrentRemovalWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ReviewTorrentRemovalResponse, error)
+
+	// RetryTorrentWithResponse Retry an errored, completed or cancelled torrent from scratch
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with POST /api/v1/torrents/{id}/retry (the `RetryTorrent` operationId).
 	RetryTorrentWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*RetryTorrentResponse, error)
+
+	// RequestTorrentRetryWithBodyWithResponse Accept one revision-checked durable retry request
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/torrents/{id}/retry-requests (the `RequestTorrentRetry` operationId).
+	RequestTorrentRetryWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RequestTorrentRetryResponse, error)
+
+	// RequestTorrentRetryWithResponse Accept one revision-checked durable retry request
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/torrents/{id}/retry-requests (the `RequestTorrentRetry` operationId).
+	RequestTorrentRetryWithResponse(ctx context.Context, id string, body RequestTorrentRetryJSONRequestBody, reqEditors ...RequestEditorFn) (*RequestTorrentRetryResponse, error)
+
+	// GetTorrentRetryRequestWithResponse Check a saved retry without repeating the mutation
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/torrents/{id}/retry-requests/{key} (the `GetTorrentRetryRequest` operationId).
+	GetTorrentRetryRequestWithResponse(ctx context.Context, id string, key string, params *GetTorrentRetryRequestParams, reqEditors ...RequestEditorFn) (*GetTorrentRetryRequestResponse, error)
+
+	// ReviewTorrentRetryWithResponse Review retry eligibility and immutable revision
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/torrents/{id}/retry-review (the `ReviewTorrentRetry` operationId).
+	ReviewTorrentRetryWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ReviewTorrentRetryResponse, error)
 }
 
 type ListAccountsResponse struct {
@@ -4250,6 +5671,47 @@ func (r UpdateAccountResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r UpdateAccountResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RemoveAccountWithDrainResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r RemoveAccountWithDrainResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r RemoveAccountWithDrainResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RemoveAccountWithDrainResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RemoveAccountWithDrainResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RemoveAccountWithDrainResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -4904,6 +6366,171 @@ func (r RetryDownloadResponse) ContentType() string {
 	return ""
 }
 
+// RequestDownloadRetryResponse200Headers the declared response headers of an HTTP 200 response for RequestDownloadRetry
+type RequestDownloadRetryResponse200Headers struct {
+	CacheControl *string
+}
+
+type RequestDownloadRetryResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *RetryAcceptance
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *RequestDownloadRetryResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RequestDownloadRetryResponse) GetJSON200() *RetryAcceptance {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r RequestDownloadRetryResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r RequestDownloadRetryResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RequestDownloadRetryResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RequestDownloadRetryResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RequestDownloadRetryResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// GetDownloadRetryRequestResponse200Headers the declared response headers of an HTTP 200 response for GetDownloadRetryRequest
+type GetDownloadRetryRequestResponse200Headers struct {
+	CacheControl *string
+}
+
+type GetDownloadRetryRequestResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *RetryAcceptance
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *GetDownloadRetryRequestResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetDownloadRetryRequestResponse) GetJSON200() *RetryAcceptance {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r GetDownloadRetryRequestResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetDownloadRetryRequestResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetDownloadRetryRequestResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetDownloadRetryRequestResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetDownloadRetryRequestResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ReviewDownloadRetryResponse200Headers the declared response headers of an HTTP 200 response for ReviewDownloadRetry
+type ReviewDownloadRetryResponse200Headers struct {
+	CacheControl *string
+}
+
+type ReviewDownloadRetryResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *RetryReview
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ReviewDownloadRetryResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ReviewDownloadRetryResponse) GetJSON200() *RetryReview {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r ReviewDownloadRetryResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ReviewDownloadRetryResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ReviewDownloadRetryResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReviewDownloadRetryResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ReviewDownloadRetryResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type EventsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -5131,6 +6758,118 @@ func (r UpdateSettingsResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r UpdateSettingsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ReviewSettingsResponse200Headers the declared response headers of an HTTP 200 response for ReviewSettings
+type ReviewSettingsResponse200Headers struct {
+	CacheControl *string
+	ETag         *string
+}
+
+type ReviewSettingsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SettingsReviewBody
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ReviewSettingsResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ReviewSettingsResponse) GetJSON200() *SettingsReviewBody {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r ReviewSettingsResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ReviewSettingsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ReviewSettingsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReviewSettingsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ReviewSettingsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// UpdateReviewedSettingsResponse200Headers the declared response headers of an HTTP 200 response for UpdateReviewedSettings
+type UpdateReviewedSettingsResponse200Headers struct {
+	CacheControl *string
+	ETag         *string
+}
+
+type UpdateReviewedSettingsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SettingsReviewBody
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *UpdateReviewedSettingsResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r UpdateReviewedSettingsResponse) GetJSON200() *SettingsReviewBody {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r UpdateReviewedSettingsResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r UpdateReviewedSettingsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r UpdateReviewedSettingsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UpdateReviewedSettingsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UpdateReviewedSettingsResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -5535,6 +7274,171 @@ func (r UpdateTorrentResponse) ContentType() string {
 	return ""
 }
 
+// RequestTorrentCancellationResponse200Headers the declared response headers of an HTTP 200 response for RequestTorrentCancellation
+type RequestTorrentCancellationResponse200Headers struct {
+	CacheControl *string
+}
+
+type RequestTorrentCancellationResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *CancellationAcceptance
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *RequestTorrentCancellationResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RequestTorrentCancellationResponse) GetJSON200() *CancellationAcceptance {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r RequestTorrentCancellationResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r RequestTorrentCancellationResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RequestTorrentCancellationResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RequestTorrentCancellationResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RequestTorrentCancellationResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// GetTorrentCancellationRequestResponse200Headers the declared response headers of an HTTP 200 response for GetTorrentCancellationRequest
+type GetTorrentCancellationRequestResponse200Headers struct {
+	CacheControl *string
+}
+
+type GetTorrentCancellationRequestResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *CancellationAcceptance
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *GetTorrentCancellationRequestResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetTorrentCancellationRequestResponse) GetJSON200() *CancellationAcceptance {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r GetTorrentCancellationRequestResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetTorrentCancellationRequestResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetTorrentCancellationRequestResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetTorrentCancellationRequestResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetTorrentCancellationRequestResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ReviewTorrentCancellationResponse200Headers the declared response headers of an HTTP 200 response for ReviewTorrentCancellation
+type ReviewTorrentCancellationResponse200Headers struct {
+	CacheControl *string
+}
+
+type ReviewTorrentCancellationResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *CancellationReview
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ReviewTorrentCancellationResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ReviewTorrentCancellationResponse) GetJSON200() *CancellationReview {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r ReviewTorrentCancellationResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ReviewTorrentCancellationResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ReviewTorrentCancellationResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReviewTorrentCancellationResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ReviewTorrentCancellationResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // GetFileSelectionResponse200Headers the declared response headers of an HTTP 200 response for GetFileSelection
 type GetFileSelectionResponse200Headers struct {
 	CacheControl *string
@@ -5693,6 +7597,102 @@ func (r SelectFilesResponse) ContentType() string {
 	return ""
 }
 
+type RemoveReviewedTorrentResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r RemoveReviewedTorrentResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r RemoveReviewedTorrentResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RemoveReviewedTorrentResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RemoveReviewedTorrentResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RemoveReviewedTorrentResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ReviewTorrentRemovalResponse200Headers the declared response headers of an HTTP 200 response for ReviewTorrentRemoval
+type ReviewTorrentRemovalResponse200Headers struct {
+	CacheControl *string
+}
+
+type ReviewTorrentRemovalResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *RemovalReview
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ReviewTorrentRemovalResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ReviewTorrentRemovalResponse) GetJSON200() *RemovalReview {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r ReviewTorrentRemovalResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ReviewTorrentRemovalResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ReviewTorrentRemovalResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReviewTorrentRemovalResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ReviewTorrentRemovalResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type RetryTorrentResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -5735,6 +7735,171 @@ func (r RetryTorrentResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r RetryTorrentResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// RequestTorrentRetryResponse200Headers the declared response headers of an HTTP 200 response for RequestTorrentRetry
+type RequestTorrentRetryResponse200Headers struct {
+	CacheControl *string
+}
+
+type RequestTorrentRetryResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *RetryAcceptance
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *RequestTorrentRetryResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RequestTorrentRetryResponse) GetJSON200() *RetryAcceptance {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r RequestTorrentRetryResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r RequestTorrentRetryResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RequestTorrentRetryResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RequestTorrentRetryResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RequestTorrentRetryResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// GetTorrentRetryRequestResponse200Headers the declared response headers of an HTTP 200 response for GetTorrentRetryRequest
+type GetTorrentRetryRequestResponse200Headers struct {
+	CacheControl *string
+}
+
+type GetTorrentRetryRequestResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *RetryAcceptance
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *GetTorrentRetryRequestResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetTorrentRetryRequestResponse) GetJSON200() *RetryAcceptance {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r GetTorrentRetryRequestResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetTorrentRetryRequestResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetTorrentRetryRequestResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetTorrentRetryRequestResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetTorrentRetryRequestResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ReviewTorrentRetryResponse200Headers the declared response headers of an HTTP 200 response for ReviewTorrentRetry
+type ReviewTorrentRetryResponse200Headers struct {
+	CacheControl *string
+}
+
+type ReviewTorrentRetryResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *RetryReview
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ReviewTorrentRetryResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ReviewTorrentRetryResponse) GetJSON200() *RetryReview {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r ReviewTorrentRetryResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ReviewTorrentRetryResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ReviewTorrentRetryResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReviewTorrentRetryResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ReviewTorrentRetryResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -5834,6 +7999,19 @@ func (c *ClientWithResponses) UpdateAccountWithResponse(ctx context.Context, id 
 		return nil, err
 	}
 	return ParseUpdateAccountResponse(rsp)
+}
+
+// RemoveAccountWithDrainWithResponse Remove an exact account with guarded local transfer drain
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /api/v1/accounts/{id}/removal (the `RemoveAccountWithDrain` operationId).
+func (c *ClientWithResponses) RemoveAccountWithDrainWithResponse(ctx context.Context, id string, params *RemoveAccountWithDrainParams, reqEditors ...RequestEditorFn) (*RemoveAccountWithDrainResponse, error) {
+	rsp, err := c.RemoveAccountWithDrain(ctx, id, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRemoveAccountWithDrainResponse(rsp)
 }
 
 // TestAccountWithResponse Verify an account against its provider
@@ -6083,6 +8261,58 @@ func (c *ClientWithResponses) RetryDownloadWithResponse(ctx context.Context, id 
 	return ParseRetryDownloadResponse(rsp)
 }
 
+// RequestDownloadRetryWithBodyWithResponse Accept one revision-checked durable retry request
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/downloads/{id}/retry-requests (the `RequestDownloadRetry` operationId).
+func (c *ClientWithResponses) RequestDownloadRetryWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RequestDownloadRetryResponse, error) {
+	rsp, err := c.RequestDownloadRetryWithBody(ctx, id, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRequestDownloadRetryResponse(rsp)
+}
+
+// RequestDownloadRetryWithResponse Accept one revision-checked durable retry request
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/downloads/{id}/retry-requests (the `RequestDownloadRetry` operationId).
+func (c *ClientWithResponses) RequestDownloadRetryWithResponse(ctx context.Context, id string, body RequestDownloadRetryJSONRequestBody, reqEditors ...RequestEditorFn) (*RequestDownloadRetryResponse, error) {
+	rsp, err := c.RequestDownloadRetry(ctx, id, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRequestDownloadRetryResponse(rsp)
+}
+
+// GetDownloadRetryRequestWithResponse Check a saved retry without repeating the mutation
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/downloads/{id}/retry-requests/{key} (the `GetDownloadRetryRequest` operationId).
+func (c *ClientWithResponses) GetDownloadRetryRequestWithResponse(ctx context.Context, id string, key string, params *GetDownloadRetryRequestParams, reqEditors ...RequestEditorFn) (*GetDownloadRetryRequestResponse, error) {
+	rsp, err := c.GetDownloadRetryRequest(ctx, id, key, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetDownloadRetryRequestResponse(rsp)
+}
+
+// ReviewDownloadRetryWithResponse Review retry eligibility and immutable revision
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/downloads/{id}/retry-review (the `ReviewDownloadRetry` operationId).
+func (c *ClientWithResponses) ReviewDownloadRetryWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ReviewDownloadRetryResponse, error) {
+	rsp, err := c.ReviewDownloadRetry(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReviewDownloadRetryResponse(rsp)
+}
+
 // EventsWithResponse Stream change events (Server-Sent Events)
 //
 // Event names: torrent.added, torrent.updated, torrent.deleted, download.updated, account.changed, settings.changed, heartbeat (every 15s). Payloads are small notifications; re-fetch the resource. Slow consumers may miss events — re-sync on reconnect. Authenticate with the Bearer header or ?api_key= (EventSource cannot set headers).
@@ -6174,6 +8404,49 @@ func (c *ClientWithResponses) UpdateSettingsWithResponse(ctx context.Context, bo
 		return nil, err
 	}
 	return ParseUpdateSettingsResponse(rsp)
+}
+
+// ReviewSettingsWithResponse Read runtime settings with an opaque write revision
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/settings/review (the `ReviewSettings` operationId).
+func (c *ClientWithResponses) ReviewSettingsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ReviewSettingsResponse, error) {
+	rsp, err := c.ReviewSettings(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReviewSettingsResponse(rsp)
+}
+
+// UpdateReviewedSettingsWithBodyWithResponse Replace runtime settings only if the reviewed revision is current
+//
+// Requires exactly one strong quoted If-Match.412 refuses stale state atomically, including changes through legacy clients and ABA changes. Missing/empty/weak/list/duplicate headers are rejected; no unconditional fallback. A lost response is not an acceptance receipt: read current settings and require fresh review, never automatically replay.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /api/v1/settings/review (the `UpdateReviewedSettings` operationId).
+func (c *ClientWithResponses) UpdateReviewedSettingsWithBodyWithResponse(ctx context.Context, params *UpdateReviewedSettingsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateReviewedSettingsResponse, error) {
+	rsp, err := c.UpdateReviewedSettingsWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateReviewedSettingsResponse(rsp)
+}
+
+// UpdateReviewedSettingsWithResponse Replace runtime settings only if the reviewed revision is current
+//
+// Requires exactly one strong quoted If-Match.412 refuses stale state atomically, including changes through legacy clients and ABA changes. Missing/empty/weak/list/duplicate headers are rejected; no unconditional fallback. A lost response is not an acceptance receipt: read current settings and require fresh review, never automatically replay.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /api/v1/settings/review (the `UpdateReviewedSettings` operationId).
+func (c *ClientWithResponses) UpdateReviewedSettingsWithResponse(ctx context.Context, params *UpdateReviewedSettingsParams, body UpdateReviewedSettingsJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateReviewedSettingsResponse, error) {
+	rsp, err := c.UpdateReviewedSettings(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateReviewedSettingsResponse(rsp)
 }
 
 // GetStatusWithResponse System status
@@ -6314,6 +8587,66 @@ func (c *ClientWithResponses) UpdateTorrentWithResponse(ctx context.Context, id 
 	return ParseUpdateTorrentResponse(rsp)
 }
 
+// RequestTorrentCancellationWithBodyWithResponse Accept one durable local cancellation
+//
+// Persist key and original revision before POST. Replays return the original receipt even after retry/removal. Acceptance means local workers drained and stopped state committed; provider activity may continue. Completed/error races return conflict without replacing the terminal result.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/torrents/{id}/cancellation-requests (the `RequestTorrentCancellation` operationId).
+func (c *ClientWithResponses) RequestTorrentCancellationWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RequestTorrentCancellationResponse, error) {
+	rsp, err := c.RequestTorrentCancellationWithBody(ctx, id, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRequestTorrentCancellationResponse(rsp)
+}
+
+// RequestTorrentCancellationWithResponse Accept one durable local cancellation
+//
+// Persist key and original revision before POST. Replays return the original receipt even after retry/removal. Acceptance means local workers drained and stopped state committed; provider activity may continue. Completed/error races return conflict without replacing the terminal result.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/torrents/{id}/cancellation-requests (the `RequestTorrentCancellation` operationId).
+func (c *ClientWithResponses) RequestTorrentCancellationWithResponse(ctx context.Context, id string, body RequestTorrentCancellationJSONRequestBody, reqEditors ...RequestEditorFn) (*RequestTorrentCancellationResponse, error) {
+	rsp, err := c.RequestTorrentCancellation(ctx, id, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRequestTorrentCancellationResponse(rsp)
+}
+
+// GetTorrentCancellationRequestWithResponse Reconcile a saved cancellation without repeating it
+//
+// 404 means no committed receipt is visible, not proof an original request failed. Retry only the same immutable intent/key. A receipt remains accepted after later retry or removal and does not claim the transfer is currently stopped.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/torrents/{id}/cancellation-requests/{key} (the `GetTorrentCancellationRequest` operationId).
+func (c *ClientWithResponses) GetTorrentCancellationRequestWithResponse(ctx context.Context, id string, key string, params *GetTorrentCancellationRequestParams, reqEditors ...RequestEditorFn) (*GetTorrentCancellationRequestResponse, error) {
+	rsp, err := c.GetTorrentCancellationRequest(ctx, id, key, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetTorrentCancellationRequestResponse(rsp)
+}
+
+// ReviewTorrentCancellationWithResponse Review local transfer cancellation
+//
+// Stops local orchestration and NAS work without removing records or files. Remote provider activity may continue. Revision binds the retry incarnation, not changing progress.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/torrents/{id}/cancellation-review (the `ReviewTorrentCancellation` operationId).
+func (c *ClientWithResponses) ReviewTorrentCancellationWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ReviewTorrentCancellationResponse, error) {
+	rsp, err := c.ReviewTorrentCancellation(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReviewTorrentCancellationResponse(rsp)
+}
+
 // GetFileSelectionWithResponse Review authoritative provider files before NAS download
 //
 // Returns a wrapper object for the known response body format(s).
@@ -6379,7 +8712,37 @@ func (c *ClientWithResponses) SelectFilesWithResponse(ctx context.Context, id st
 	return ParseSelectFilesResponse(rsp)
 }
 
-// RetryTorrentWithResponse Retry an errored or completed torrent from scratch
+// RemoveReviewedTorrentWithResponse Remove an exact transfer with a required incarnation precondition
+//
+// Requires one strong quoted If-Match from removal-review. Missing/empty/weak/duplicate headers are refused, never downgraded to unconditional legacy deletion.412 refuses a changed incarnation before cleanup.204 proves record removal only; provider/filesystem cleanup may be partial or intentionally preserved.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /api/v1/torrents/{id}/removal (the `RemoveReviewedTorrent` operationId).
+func (c *ClientWithResponses) RemoveReviewedTorrentWithResponse(ctx context.Context, id string, params *RemoveReviewedTorrentParams, reqEditors ...RequestEditorFn) (*RemoveReviewedTorrentResponse, error) {
+	rsp, err := c.RemoveReviewedTorrent(ctx, id, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRemoveReviewedTorrentResponse(rsp)
+}
+
+// ReviewTorrentRemovalWithResponse Review exact transfer incarnation before removal
+//
+// Returns exists:false explicitly for a missing transfer. A missing HTTP route is not transfer absence. Send the original revision as a single strong quoted If-Match with DELETE;412 refuses a changed incarnation before provider/filesystem removal.204 proves record removal, not that unknown/shared/untracked provider copies or files disappeared.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/torrents/{id}/removal-review (the `ReviewTorrentRemoval` operationId).
+func (c *ClientWithResponses) ReviewTorrentRemovalWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ReviewTorrentRemovalResponse, error) {
+	rsp, err := c.ReviewTorrentRemoval(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReviewTorrentRemovalResponse(rsp)
+}
+
+// RetryTorrentWithResponse Retry an errored, completed or cancelled torrent from scratch
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -6390,6 +8753,58 @@ func (c *ClientWithResponses) RetryTorrentWithResponse(ctx context.Context, id s
 		return nil, err
 	}
 	return ParseRetryTorrentResponse(rsp)
+}
+
+// RequestTorrentRetryWithBodyWithResponse Accept one revision-checked durable retry request
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/torrents/{id}/retry-requests (the `RequestTorrentRetry` operationId).
+func (c *ClientWithResponses) RequestTorrentRetryWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RequestTorrentRetryResponse, error) {
+	rsp, err := c.RequestTorrentRetryWithBody(ctx, id, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRequestTorrentRetryResponse(rsp)
+}
+
+// RequestTorrentRetryWithResponse Accept one revision-checked durable retry request
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/torrents/{id}/retry-requests (the `RequestTorrentRetry` operationId).
+func (c *ClientWithResponses) RequestTorrentRetryWithResponse(ctx context.Context, id string, body RequestTorrentRetryJSONRequestBody, reqEditors ...RequestEditorFn) (*RequestTorrentRetryResponse, error) {
+	rsp, err := c.RequestTorrentRetry(ctx, id, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRequestTorrentRetryResponse(rsp)
+}
+
+// GetTorrentRetryRequestWithResponse Check a saved retry without repeating the mutation
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/torrents/{id}/retry-requests/{key} (the `GetTorrentRetryRequest` operationId).
+func (c *ClientWithResponses) GetTorrentRetryRequestWithResponse(ctx context.Context, id string, key string, params *GetTorrentRetryRequestParams, reqEditors ...RequestEditorFn) (*GetTorrentRetryRequestResponse, error) {
+	rsp, err := c.GetTorrentRetryRequest(ctx, id, key, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetTorrentRetryRequestResponse(rsp)
+}
+
+// ReviewTorrentRetryWithResponse Review retry eligibility and immutable revision
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/torrents/{id}/retry-review (the `ReviewTorrentRetry` operationId).
+func (c *ClientWithResponses) ReviewTorrentRetryWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ReviewTorrentRetryResponse, error) {
+	rsp, err := c.ReviewTorrentRetry(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReviewTorrentRetryResponse(rsp)
 }
 
 // ParseListAccountsResponse parses an HTTP response from a ListAccountsWithResponse call
@@ -6540,6 +8955,35 @@ func ParseUpdateAccountResponse(rsp *http.Response) (*UpdateAccountResponse, err
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRemoveAccountWithDrainResponse parses an HTTP response from a RemoveAccountWithDrainWithResponse call
+func ParseRemoveAccountWithDrainResponse(rsp *http.Response) (*RemoveAccountWithDrainResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RemoveAccountWithDrainResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest ErrorModel
@@ -7078,6 +9522,144 @@ func ParseRetryDownloadResponse(rsp *http.Response) (*RetryDownloadResponse, err
 	return response, nil
 }
 
+// ParseRequestDownloadRetryResponse parses an HTTP response from a RequestDownloadRetryWithResponse call
+func ParseRequestDownloadRetryResponse(rsp *http.Response) (*RequestDownloadRetryResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RequestDownloadRetryResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RetryAcceptance
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers RequestDownloadRetryResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseGetDownloadRetryRequestResponse parses an HTTP response from a GetDownloadRetryRequestWithResponse call
+func ParseGetDownloadRetryRequestResponse(rsp *http.Response) (*GetDownloadRetryRequestResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetDownloadRetryRequestResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RetryAcceptance
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers GetDownloadRetryRequestResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseReviewDownloadRetryResponse parses an HTTP response from a ReviewDownloadRetryWithResponse call
+func ParseReviewDownloadRetryResponse(rsp *http.Response) (*ReviewDownloadRetryResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReviewDownloadRetryResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RetryReview
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ReviewDownloadRetryResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
 // ParseEventsResponse parses an HTTP response from a EventsWithResponse call
 func ParseEventsResponse(rsp *http.Response) (*EventsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -7231,6 +9813,112 @@ func ParseUpdateSettingsResponse(rsp *http.Response) (*UpdateSettingsResponse, e
 		}
 		response.ApplicationproblemJSONDefault = &dest
 
+	}
+
+	return response, nil
+}
+
+// ParseReviewSettingsResponse parses an HTTP response from a ReviewSettingsWithResponse call
+func ParseReviewSettingsResponse(rsp *http.Response) (*ReviewSettingsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReviewSettingsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SettingsReviewBody
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ReviewSettingsResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		if values := rsp.Header.Values("ETag"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "ETag", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.ETag = &value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseUpdateReviewedSettingsResponse parses an HTTP response from a UpdateReviewedSettingsWithResponse call
+func ParseUpdateReviewedSettingsResponse(rsp *http.Response) (*UpdateReviewedSettingsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UpdateReviewedSettingsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SettingsReviewBody
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers UpdateReviewedSettingsResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		if values := rsp.Header.Values("ETag"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "ETag", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.ETag = &value
+		}
+		response.Headers200 = &headers
 	}
 
 	return response, nil
@@ -7535,6 +10223,144 @@ func ParseUpdateTorrentResponse(rsp *http.Response) (*UpdateTorrentResponse, err
 	return response, nil
 }
 
+// ParseRequestTorrentCancellationResponse parses an HTTP response from a RequestTorrentCancellationWithResponse call
+func ParseRequestTorrentCancellationResponse(rsp *http.Response) (*RequestTorrentCancellationResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RequestTorrentCancellationResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest CancellationAcceptance
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers RequestTorrentCancellationResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseGetTorrentCancellationRequestResponse parses an HTTP response from a GetTorrentCancellationRequestWithResponse call
+func ParseGetTorrentCancellationRequestResponse(rsp *http.Response) (*GetTorrentCancellationRequestResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetTorrentCancellationRequestResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest CancellationAcceptance
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers GetTorrentCancellationRequestResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseReviewTorrentCancellationResponse parses an HTTP response from a ReviewTorrentCancellationWithResponse call
+func ParseReviewTorrentCancellationResponse(rsp *http.Response) (*ReviewTorrentCancellationResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReviewTorrentCancellationResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest CancellationReview
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ReviewTorrentCancellationResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
 // ParseGetFileSelectionResponse parses an HTTP response from a GetFileSelectionWithResponse call
 func ParseGetFileSelectionResponse(rsp *http.Response) (*GetFileSelectionResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -7660,6 +10486,81 @@ func ParseSelectFilesResponse(rsp *http.Response) (*SelectFilesResponse, error) 
 	return response, nil
 }
 
+// ParseRemoveReviewedTorrentResponse parses an HTTP response from a RemoveReviewedTorrentWithResponse call
+func ParseRemoveReviewedTorrentResponse(rsp *http.Response) (*RemoveReviewedTorrentResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RemoveReviewedTorrentResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseReviewTorrentRemovalResponse parses an HTTP response from a ReviewTorrentRemovalWithResponse call
+func ParseReviewTorrentRemovalResponse(rsp *http.Response) (*ReviewTorrentRemovalResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReviewTorrentRemovalResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RemovalReview
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ReviewTorrentRemovalResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
 // ParseRetryTorrentResponse parses an HTTP response from a RetryTorrentWithResponse call
 func ParseRetryTorrentResponse(rsp *http.Response) (*RetryTorrentResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -7688,6 +10589,144 @@ func ParseRetryTorrentResponse(rsp *http.Response) (*RetryTorrentResponse, error
 		}
 		response.ApplicationproblemJSONDefault = &dest
 
+	}
+
+	return response, nil
+}
+
+// ParseRequestTorrentRetryResponse parses an HTTP response from a RequestTorrentRetryWithResponse call
+func ParseRequestTorrentRetryResponse(rsp *http.Response) (*RequestTorrentRetryResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RequestTorrentRetryResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RetryAcceptance
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers RequestTorrentRetryResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseGetTorrentRetryRequestResponse parses an HTTP response from a GetTorrentRetryRequestWithResponse call
+func ParseGetTorrentRetryRequestResponse(rsp *http.Response) (*GetTorrentRetryRequestResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetTorrentRetryRequestResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RetryAcceptance
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers GetTorrentRetryRequestResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseReviewTorrentRetryResponse parses an HTTP response from a ReviewTorrentRetryWithResponse call
+func ParseReviewTorrentRetryResponse(rsp *http.Response) (*ReviewTorrentRetryResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReviewTorrentRetryResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RetryReview
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ReviewTorrentRetryResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		response.Headers200 = &headers
 	}
 
 	return response, nil

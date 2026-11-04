@@ -27,7 +27,7 @@ struct ConnectionRoot: View {
     var body: some View {
         Group {
             if let auth, case .connected(let connected) = auth.phase {
-                LiveTransfers(server: connected, auth: auth).id(connected.connectionID)
+                ConnectedTabs(server: connected, auth: auth).id(connected.connectionID)
             } else { connectionForm }
         }
         .task { await prepare() }

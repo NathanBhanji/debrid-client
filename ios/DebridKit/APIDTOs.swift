@@ -44,17 +44,23 @@ public struct TorrentSettingsDTO: Codable, Equatable, Sendable {
     public let lifetime: String?
     public let unpack: Bool
     public let organize: Bool?
+    public let waitForSelection: Bool?
+    public init(minFileSize:Int64? = nil,includeRegex:String? = nil,excludeRegex:String? = nil,manualFiles:[String]? = nil,finishedAction:String? = nil,finishedDelay:String? = nil,downloadRetries:Int,torrentRetries:Int,deleteOnError:String? = nil,lifetime:String? = nil,unpack:Bool,organize:Bool? = nil,waitForSelection:Bool? = nil) {
+        self.minFileSize=minFileSize;self.includeRegex=includeRegex;self.excludeRegex=excludeRegex;self.manualFiles=manualFiles;self.finishedAction=finishedAction;self.finishedDelay=finishedDelay;self.downloadRetries=downloadRetries;self.torrentRetries=torrentRetries;self.deleteOnError=deleteOnError;self.lifetime=lifetime;self.unpack=unpack;self.organize=organize;self.waitForSelection=waitForSelection
+    }
 }
-public struct OrganizeSettingsDTO: Decodable, Sendable {
+public struct OrganizeSettingsDTO: Codable, Equatable, Sendable {
     public let enabled: Bool
     public let movieTemplate: String?
     public let tvTemplate: String?
+    public init(enabled: Bool, movieTemplate: String? = nil, tvTemplate: String? = nil) { self.enabled = enabled; self.movieTemplate = movieTemplate; self.tvTemplate = tvTemplate }
 }
-public struct SettingsDTO: Decodable, Sendable {
+public struct SettingsDTO: Codable, Equatable, Sendable {
     public let torrentDefaults: TorrentSettingsDTO
     public let categories: [String]?
     public let unpackMaxDepth: Int
     public let organize: OrganizeSettingsDTO
+    public init(torrentDefaults: TorrentSettingsDTO, categories: [String]? = nil, unpackMaxDepth: Int, organize: OrganizeSettingsDTO) { self.torrentDefaults = torrentDefaults; self.categories = categories; self.unpackMaxDepth = unpackMaxDepth; self.organize = organize }
 }
 public struct FileDTO: Decodable, Sendable, Identifiable {
     public let id: String
@@ -81,6 +87,7 @@ public struct DownloadDTO: Decodable, Sendable, Identifiable {
     public let completedAt: Date?
 }
 public struct TorrentDTO: Decodable, Sendable, Identifiable {
+    public let fileSelectionState:String?
     public let id: String
     public let accountId: String
     public let hash: String
@@ -113,4 +120,51 @@ public struct SystemStatusDTO: Decodable, Sendable {
     public let downloads: [String: Int]
     public let diskFreeBytes: Int64
     public let diskTotalBytes: Int64
+}
+
+public enum RetryResourceKind:String,Codable,Sendable {case torrent,download
+    var collection:String {self == .torrent ? "torrents" : "downloads"}
+}
+public struct RetryReviewDTO:Decodable,Sendable {
+    public let kind:String
+    public let resourceId:String
+    public let torrentId:String
+    public let revision:String
+    public let allowed:Bool
+    public let waitForSelection:Bool
+}
+public struct RetryAcceptanceDTO:Decodable,Sendable {
+    public let kind:String
+    public let resourceId:String
+    public let torrentId:String
+    public let acceptedAt:Date
+    /// Parent existence only. A previously retried file row may since be gone.
+    public let torrentExists:Bool
+}
+
+public struct CancellationReviewDTO:Decodable,Sendable {
+    public let torrentId:String
+    public let revision:String
+    public let allowed:Bool
+    public let providerMayContinue:Bool
+}
+public struct CancellationAcceptanceDTO:Decodable,Sendable {
+    public let torrentId:String
+    public let acceptedAt:Date
+    /// Existence only: the transfer may have been explicitly retried since acceptance.
+    public let torrentExists:Bool
+}
+
+public struct RemovalReviewDTO:Decodable,Sendable {
+    public let torrentId:String
+    public let exists:Bool
+    public let revision:String?
+    public let providerCopyKnown:Bool
+}
+public struct RemovalOptions:Codable,Equatable,Sendable {
+    public let deleteFiles:Bool
+    public let deleteFromProvider:Bool
+    public init(deleteFiles:Bool = false,deleteFromProvider:Bool = false) {
+        self.deleteFiles=deleteFiles;self.deleteFromProvider=deleteFromProvider
+    }
 }

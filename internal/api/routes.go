@@ -60,7 +60,7 @@ type deleteAccountIn struct {
 type userOut struct{ Body apimodel.User }
 
 type listTorrentsIn struct {
-	Status   string `query:"status" enum:"queued,adding,processing,waiting_selection,downloading,uploading,finished,completed,error"`
+	Status   string `query:"status" enum:"queued,adding,processing,waiting_selection,downloading,uploading,finished,completed,error,cancelled"`
 	Account  string `query:"account" doc:"Account id or name"`
 	Category string `query:"category"`
 }
@@ -99,6 +99,7 @@ type addTorrentFileIn struct {
 	}]
 }
 type deleteTorrentIn struct {
+	IfMatch  string `header:"If-Match" maxLength:"66" doc:"Optional single strong quoted revision from removal-review; native clients require this. Weak/wildcard/list values are rejected."`
 	ID       string `path:"id"`
 	Files    bool   `query:"files" doc:"Delete downloaded files"`
 	Provider bool   `query:"provider" doc:"Delete at the debrid provider too"`
@@ -145,7 +146,7 @@ func (h *Handler) registerRoutes(p string) {
 			out := &healthOut{}
 			out.Body.OK = true
 			out.Body.Version = buildinfo.Version
-			out.Body.Capabilities = []string{"torrent_submissions_v1", "multipart_torrent_settings_v1", "manual_file_selection_v1"}
+			out.Body.Capabilities = []string{"torrent_submissions_v1", "multipart_torrent_settings_v1", "manual_file_selection_v1", "native_retry_v1", "native_cancellation_v1", "native_removal_precondition_v1", "native_account_removal_drain_v1", "native_settings_revision_v1"}
 			return out, nil
 		})
 	huma.Register(api, huma.Operation{OperationID: "get-status", Method: http.MethodGet, Path: p + "/system/status", Summary: "System status", Tags: []string{"system"}},
@@ -201,6 +202,17 @@ func (h *Handler) registerRoutes(p string) {
 		})
 	huma.Register(api, huma.Operation{OperationID: "delete-account", Method: http.MethodDelete, Path: p + "/accounts/{id}", Summary: "Delete an account", Tags: []string{"accounts"}, DefaultStatus: http.StatusNoContent},
 		func(ctx context.Context, in *deleteAccountIn) (*struct{}, error) {
+			return nil, h.mapErr(h.svc.DeleteAccount(ctx, in.ID, in.Force))
+		})
+	huma.Register(api, huma.Operation{OperationID: "remove-account-with-drain", Method: http.MethodDelete, Path: p + "/accounts/{id}/removal", Summary: "Remove an exact account with guarded local transfer drain", Tags: []string{"accounts"}, DefaultStatus: http.StatusNoContent},
+		func(ctx context.Context, in *deleteAccountIn) (*struct{}, error) {
+			account, err := h.svc.GetAccount(ctx, in.ID)
+			if err != nil {
+				return nil, h.mapErr(err)
+			}
+			if account.ID != in.ID {
+				return nil, h.mapErr(service.ErrValidation)
+			}
 			return nil, h.mapErr(h.svc.DeleteAccount(ctx, in.ID, in.Force))
 		})
 	huma.Register(api, huma.Operation{OperationID: "test-account", Method: http.MethodPost, Path: p + "/accounts/{id}/test", Summary: "Verify an account against its provider", Tags: []string{"accounts"}},
@@ -299,11 +311,19 @@ func (h *Handler) registerRoutes(p string) {
 			}
 			return &torrentOut{Body: apimodel.FromTorrent(t)}, nil
 		})
-	huma.Register(api, huma.Operation{OperationID: "delete-torrent", Method: http.MethodDelete, Path: p + "/torrents/{id}", Summary: "Delete a torrent", Tags: []string{"torrents"}, DefaultStatus: http.StatusNoContent},
+	huma.Register(api, huma.Operation{OperationID: "delete-torrent", Method: http.MethodDelete, Path: p + "/torrents/{id}", Summary: "Delete a torrent", Tags: []string{"torrents"}, DefaultStatus: http.StatusNoContent, Middlewares: huma.Middlewares{retryNoStore, h.validateRemovalIfMatch}},
 		func(ctx context.Context, in *deleteTorrentIn) (*struct{}, error) {
-			return nil, h.mapErr(h.svc.DeleteTorrent(ctx, in.ID, service.DeleteOptions{DeleteFiles: in.Files, DeleteFromProvider: in.Provider}))
+			var revision string
+			if in.IfMatch != "" {
+				var err error
+				revision, err = parseRemovalIfMatch(in.IfMatch)
+				if err != nil {
+					return nil, err
+				}
+			}
+			return nil, h.mapErr(h.svc.DeleteTorrent(ctx, in.ID, service.DeleteOptions{DeleteFiles: in.Files, DeleteFromProvider: in.Provider, ExpectedRevision: revision}))
 		})
-	huma.Register(api, huma.Operation{OperationID: "retry-torrent", Method: http.MethodPost, Path: p + "/torrents/{id}/retry", Summary: "Retry an errored or completed torrent from scratch", Tags: []string{"torrents"}},
+	huma.Register(api, huma.Operation{OperationID: "retry-torrent", Method: http.MethodPost, Path: p + "/torrents/{id}/retry", Summary: "Retry an errored, completed or cancelled torrent from scratch", Tags: []string{"torrents"}},
 		func(ctx context.Context, in *torrentIDIn) (*torrentOut, error) {
 			t, err := h.svc.RetryTorrent(ctx, in.ID)
 			if err != nil {
@@ -342,6 +362,11 @@ func (h *Handler) registerRoutes(p string) {
 			return &downloadOut{Body: apimodel.FromDownload(d)}, nil
 		})
 
+	h.registerRetryRoutes(p)
+	h.registerCancellationRoutes(p)
+	h.registerRemovalReviewRoute(p)
+	h.registerSettingsReview(p)
+
 	// Settings
 	huma.Register(api, huma.Operation{OperationID: "get-settings", Method: http.MethodGet, Path: p + "/settings", Summary: "Get runtime settings", Tags: []string{"settings"}},
 		func(ctx context.Context, _ *struct{}) (*settingsOut, error) {
@@ -369,9 +394,9 @@ func (h *Handler) registerRoutes(p string) {
 	// saving. Enabled is implied — previewing is the point.
 	huma.Register(api, huma.Operation{OperationID: "organize-preview", Method: http.MethodPost, Path: p + "/organize/preview", Summary: "Preview the organized folder for a release name", Tags: []string{"settings"}},
 		func(ctx context.Context, in *organizePreviewIn) (*organizePreviewOut, error) {
-			for _, tpl := range []string{in.Body.MovieTemplate, in.Body.TVTemplate} {
-				if tpl != "" {
-					if err := organize.ValidateTemplate(tpl); err != nil {
+			for _, tpl := range []*string{in.Body.MovieTemplate, in.Body.TVTemplate} {
+				if tpl != nil && *tpl != "" {
+					if err := organize.ValidateTemplate(*tpl); err != nil {
 						return nil, huma.Error422UnprocessableEntity(err.Error())
 					}
 				}
@@ -382,11 +407,11 @@ func (h *Handler) registerRoutes(p string) {
 			}
 			org := st.Organize
 			org.Enabled = true
-			if in.Body.MovieTemplate != "" {
-				org.MovieTemplate = in.Body.MovieTemplate
+			if in.Body.MovieTemplate != nil {
+				org.MovieTemplate = *in.Body.MovieTemplate
 			}
-			if in.Body.TVTemplate != "" {
-				org.TVTemplate = in.Body.TVTemplate
+			if in.Body.TVTemplate != nil {
+				org.TVTemplate = *in.Body.TVTemplate
 			}
 			path, organized := service.DirPathFor(domain.Torrent{Name: in.Body.Name, Hash: "preview"}, org)
 			out := &organizePreviewOut{}
@@ -472,9 +497,9 @@ func typedEvent(e events.Event) any {
 
 type organizePreviewIn struct {
 	Body struct {
-		Name          string `json:"name" minLength:"1" maxLength:"512" doc:"Release name to preview"`
-		MovieTemplate string `json:"movie_template,omitempty" doc:"Override the saved movie template"`
-		TVTemplate    string `json:"tv_template,omitempty" doc:"Override the saved TV template"`
+		Name          string  `json:"name" minLength:"1" maxLength:"512" doc:"Release name to preview"`
+		MovieTemplate *string `json:"movie_template,omitempty" nullable:"false" doc:"Override the saved movie template; explicit empty uses the built-in default"`
+		TVTemplate    *string `json:"tv_template,omitempty" nullable:"false" doc:"Override the saved TV template; explicit empty uses the built-in default"`
 	}
 }
 

@@ -1,6 +1,6 @@
 # Protected pending magnet inbox
 
-This records the original milestone13 storage contract. The current format3 adds torrent payload migration and durable submission intents; see [review/add](ios-review-add.md) for migration, protected states and recovery.
+This records the original milestone13 storage contract. The current format6 preserves torrent payloads, durable submissions and file selections, and adds immutable retry and native management intents. See [review/add](ios-review-add.md), [file selection](ios-file-selection-contract.md) [retry](ios-retry-actions.md) and [management](ios-management-actions.md) for current migration and recovery behavior.
 
 Roadmap 13 adds durable draft storage, with no routing, network request or automatic submission. It stores magnets only; torrent intake and payload migration belong to roadmap 15. Existing clients, NAS accounts and production data are untouched.
 

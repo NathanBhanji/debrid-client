@@ -2,7 +2,10 @@ package store
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -256,5 +259,56 @@ func TestTimeRoundTrip(t *testing.T) {
 	p, err := ParseNullTime(NullTime(&in))
 	if err != nil || p == nil || !p.Equal(in) {
 		t.Fatalf("null round trip: %v %v", p, err)
+	}
+}
+
+func TestDatabaseURIKeepsFilenamePunctuationAndReadOnlyIdentity(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	names := []string{"db#fragment.sqlite", "db%23literal.sqlite", "space name.sqlite"}
+	if runtime.GOOS != "windows" {
+		names = append(names, "db?mode=ro.sqlite")
+	}
+	for i, name := range names {
+		path := filepath.Join(root, name)
+		s, err := Open(ctx, path)
+		if err != nil {
+			t.Fatal(name, err)
+		}
+		value := fmt.Sprintf("fixture-%d", i)
+		if err := s.UpsertSetting(ctx, sqlcgen.UpsertSettingParams{Key: "identity", Value: value, UpdatedAt: now()}); err != nil {
+			t.Fatal(err)
+		}
+		var actual string
+		if err := s.DB().QueryRowContext(ctx, "SELECT file FROM pragma_database_list WHERE name='main'").Scan(&actual); err != nil {
+			t.Fatal(err)
+		}
+		wantInfo, statErr := os.Stat(path)
+		actualInfo, actualErr := os.Stat(actual)
+		if statErr != nil || actualErr != nil || !os.SameFile(wantInfo, actualInfo) {
+			t.Fatal("opened different file", actual, path)
+		}
+		if err := s.Close(); err != nil {
+			t.Fatal(err)
+		}
+		got, err := ReadSettingReadOnly(ctx, path, "identity")
+		if err != nil || got != value {
+			t.Fatal("read-only opened different file", name, got, err)
+		}
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		matched := false
+		for _, name := range names {
+			if entry.Name() == name || entry.Name() == name+"-wal" || entry.Name() == name+"-shm" {
+				matched = true
+			}
+		}
+		if !matched {
+			t.Fatal("unexpected alias file", entry.Name())
+		}
 	}
 }

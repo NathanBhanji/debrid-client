@@ -149,6 +149,8 @@ func (h *Handler) mapErr(err error) error {
 		return nil
 	case errors.Is(err, service.ErrNotFound):
 		return huma.Error404NotFound(err.Error())
+	case errors.Is(err, service.ErrPrecondition):
+		return huma.NewError(http.StatusPreconditionFailed, err.Error())
 	case errors.Is(err, service.ErrConflict):
 		return huma.Error409Conflict(err.Error())
 	case errors.Is(err, service.ErrValidation):

@@ -10,6 +10,10 @@ struct LiveTransfers: View {
     @Environment(\.scenePhase) private var scenePhase
     private struct IntakeNavigationContext:Hashable { let request:UUID?;let ready:Bool;let active:Bool }
     @State private var model: TransferListModel?
+    @State private var selectionModel:FileSelectionModel?
+    @State private var retryModel:RetryModel?
+    @State private var managementModel:ManagementModel?
+    @State private var selectionMessage:String?
     @State private var setupFailed = false
     @State private var showingServer = false
     @State private var showingFilters = false
@@ -17,6 +21,10 @@ struct LiveTransfers: View {
     @State private var path: [TransferRoute] = []
     init(server: AuthenticatedServer, auth: SessionCoordinator) { self.server = server; self.auth = auth }
     #if DEBUG
+    init(recoveryModel: TransferListModel) throws {
+        server = AuthenticatedServer(profile: recoveryModel.profile, username: "Sample User", credential: try .session("fixture_unused"))
+        auth = nil; _model = State(initialValue: recoveryModel)
+    }
     init(preview: LiveTransfersPreviewAPI) throws {
         let profile = try ServerProfile(server: ServerAddress("https://debrid.example.test"))
         server = AuthenticatedServer(profile: profile, username: "Sample User", credential: try .session("fixture_unused"))
@@ -28,54 +36,7 @@ struct LiveTransfers: View {
     #endif
     var body: some View {
         NavigationStack(path:$path) {
-            List {
-                if auth == nil {
-                    Section { Label("Preview · Sample transfers", systemImage:"viewfinder").font(.footnote).foregroundStyle(DebridStyle.secondary) }
-                        .listRowBackground(Color.clear).listRowSeparator(.hidden)
-                }
-                if model?.search.hasCriteria != true { Section {
-                    DebridWordmark().listRowSeparator(.hidden)
-                    if let model { readout(model).listRowSeparator(.hidden) }
-                }.listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0)) }
-                if let model {
-                    if case .failed(let message) = model.phase {
-                        Section {
-                            Label(message, systemImage: "exclamationmark.triangle").foregroundStyle(DebridStyle.secondary)
-                            if !model.items.isEmpty { Text("Showing the last loaded transfers.").font(.footnote).foregroundStyle(DebridStyle.secondary) }
-                            Button("Try again") { Task { await reload(model) } }
-                                .buttonStyle(.borderless).foregroundStyle(DebridStyle.tint)
-                        }
-                    }
-                    if model.phase == .loading && model.items.isEmpty {
-                        Section { ProgressView("Loading transfers…").frame(maxWidth: .infinity) }
-                    } else if model.phase == .ready && model.items.isEmpty {
-                        Section {
-                            ContentUnavailableView("No transfers yet", systemImage: "tray", description: Text("Transfers added to your server will appear here."))
-                        }.listRowBackground(Color.clear)
-                    } else if !model.items.isEmpty && model.visibleItems.isEmpty {
-                        Section {
-                            ContentUnavailableView {
-                                Label("No matching transfers", systemImage: "magnifyingglass")
-                            } description: { Text("Try another search or clear your filters.") }
-                            actions: { Button("Clear search and filters") { model.resetSearch() }.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint) }
-                        }.listRowBackground(Color.clear)
-                    } else {
-                        Section {
-                            ForEach(model.visibleItems) { item in
-                                NavigationLink(value:TransferRoute.detail(item.id)) { LiveTransferRow(item: item) }.listRowBackground(DebridStyle.surface)
-                            }
-                        } header: {
-                            VStack(alignment:.leading,spacing:4) {
-                                HStack { Text("Your transfers"); Spacer(); Text("\(model.visibleItems.count) of \(model.items.count)").monospacedDigit() }
-                                if model.search.hasCriteria { Text(model.liveStatus.label).font(.caption) }
-                            }.accessibilityElement(children:.combine)
-                        }
-                    }
-                } else if setupFailed {
-                    Section { Text("The server connection could not be prepared. Reconnect to try again.").foregroundStyle(DebridStyle.secondary) }
-                } else { ProgressView("Preparing connection…") }
-            }.modifier(DebridListStyle()).scrollDismissesKeyboard(.interactively)
+            transferList.modifier(DebridListStyle()).scrollDismissesKeyboard(.interactively)
                 .navigationTitle("Transfers")
                 .searchable(text:Binding(get:{ model?.search.query ?? initialQuery },set:{ initialQuery = TransferSearchIndex.bounded($0,limit:256); model?.setQuery(initialQuery) }),prompt:"Search transfers")
                 .autocorrectionDisabled().textInputAutocapitalization(.never)
@@ -93,12 +54,22 @@ struct LiveTransfers: View {
                 .navigationDestination(for:TransferRoute.self) { route in
                     if let model {
                         switch route {
-                        case .detail(let id): LiveTransferDetail(transferID:id,model:model,preview:auth == nil)
+                        case .detail(let id): LiveTransferDetail(transferID:id,model:model,preview:auth == nil,chooseFiles:openSelection,retryTransfer:openRetry,manageTransfer:openManagement)
                         case .files(let id): TransferFilesRoot(model:model,transferID:id,preview:auth == nil)
                         }
                     }
                 }
         }.tint(DebridStyle.tint)
+                .sheet(isPresented:Binding(get:{selectionModel != nil},set:{if !$0 {selectionModel=nil}}),onDismiss:{Task {await intake?.refresh()}}) {
+                    if let selectionModel {FileSelectionSheet(model:selectionModel,connectionID:intake?.connection?.connectionID).onChange(of:selectionModel.requiresSignIn) {if selectionModel.requiresSignIn {Task {await intake?.rejectConnection(selectionModel.connectionID)}}}}
+                }
+                .sheet(isPresented:Binding(get:{managementModel != nil},set:{if !$0 {managementModel=nil}}),onDismiss:{Task {await intake?.refresh();if let model {await model.refreshWhileActive()}}}) {
+                    if let managementModel {ManagementSheet(model:managementModel,connectionID:intake?.connection?.connectionID).onChange(of:managementModel.requiresSignIn) {if managementModel.requiresSignIn {Task {await intake?.rejectConnection(managementModel.connectionID)}}}}
+                }
+                .sheet(isPresented:Binding(get:{retryModel != nil},set:{if !$0 {retryModel=nil}}),onDismiss:{Task {await intake?.refresh();if let model {await model.refreshWhileActive()}}}) {
+                    if let retryModel {RetrySheet(model:retryModel,connectionID:intake?.connection?.connectionID).onChange(of:retryModel.requiresSignIn) {if retryModel.requiresSignIn {Task {await intake?.rejectConnection(retryModel.connectionID)}}}}
+                }
+                .alert("Review unavailable",isPresented:Binding(get:{selectionMessage != nil},set:{if !$0 {selectionMessage=nil}})) {Button("OK",role:.cancel) {selectionMessage=nil}} message: {Text(selectionMessage ?? "")}
                 .task(id:IntakeNavigationContext(request:intake?.navigationRequest?.id,ready:model != nil,active:scenePhase == .active)) {
                     guard scenePhase == .active,let request=intake?.navigationRequest,request.serverURL==server.profile.serverURL,let model else { return }
                     await model.refreshWhileActive()
@@ -130,6 +101,74 @@ struct LiveTransfers: View {
                 }
                 .onDisappear { model?.stopLiveUpdates() }
     }
+    private var transferList:some View {
+        List {
+                if auth == nil {
+                    Section { Label("Preview · Sample transfers", systemImage:"viewfinder").font(.footnote).foregroundStyle(DebridStyle.secondary) }
+                        .listRowBackground(Color.clear).listRowSeparator(.hidden)
+                }
+                if model?.search.hasCriteria != true { Section {
+                    DebridWordmark().listRowSeparator(.hidden)
+                    if let model { readout(model).listRowSeparator(.hidden) }
+                }.listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0)) }
+                if let model {
+                    if let message = model.failureMessage {
+                        Section {
+                            Label(message, systemImage: "exclamationmark.triangle").foregroundStyle(DebridStyle.secondary)
+                            if !model.items.isEmpty { VStack(alignment: .leading, spacing: 4) {
+                                Text("Showing the last loaded transfers.")
+                                if let date = model.updatedAt { Text("Last confirmed \(date.formatted(date: .abbreviated, time: .shortened))") }
+                            }.font(.footnote).foregroundStyle(DebridStyle.secondary).accessibilityIdentifier("transfers-stale") }
+                            if let retry = model.retryAvailableAt {
+                                Text("Refresh available after \(retry.formatted(date: .omitted, time: .standard)).").font(.footnote).foregroundStyle(DebridStyle.secondary)
+                            }
+                            TimelineView(.periodic(from: .now, by: 1)) { _ in
+                                Button("Try again") { Task { await reload(model) } }
+                                    .disabled(model.isRefreshThrottled)
+                                    .buttonStyle(.borderless).foregroundStyle(DebridStyle.tint)
+                            }
+                        }
+                    }
+                    if model.phase == .loading && model.items.isEmpty {
+                        Section { ProgressView("Loading transfers…").frame(maxWidth: .infinity) }
+                    } else if model.phase == .ready && model.items.isEmpty {
+                        Section {
+                            ContentUnavailableView("No transfers yet", systemImage: "tray", description: Text("Transfers added to your server will appear here."))
+                        }.listRowBackground(Color.clear)
+                    } else if !model.items.isEmpty && model.visibleItems.isEmpty {
+                        Section {
+                            ContentUnavailableView {
+                                Label("No matching transfers", systemImage: "magnifyingglass")
+                            } description: { Text("Try another search or clear your filters.") }
+                            actions: { Button("Clear search and filters") { model.resetSearch() }.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint) }
+                        }.listRowBackground(Color.clear)
+                    } else {
+                        Section {
+                            ForEach(model.visibleItems) { item in
+                                NavigationLink(value:TransferRoute.detail(item.id)) { LiveTransferRow(item: item) }.listRowBackground(DebridStyle.surface)
+                            }
+                        } header: {
+                            VStack(alignment:.leading,spacing:4) {
+                                HStack { Text("Your transfers"); Spacer(); Text("\(model.visibleItems.count) of \(model.items.count)").monospacedDigit() }
+                                if model.search.hasCriteria { Text(model.liveStatus.label).font(.caption) }
+                            }.accessibilityElement(children:.combine)
+                        }
+                    }
+                } else if setupFailed {
+                    Section { Text("The server connection could not be prepared. Reconnect to try again.").foregroundStyle(DebridStyle.secondary) }
+                } else { ProgressView("Preparing connection…") }
+            }
+    }
+    private func openSelection(_ id:String,_ name:String) {
+        do {selectionModel=try intake?.fileSelectionModel(transferID:id,name:name)} catch {selectionMessage="File review could not be opened. Check protected storage and try again."}
+    }
+    private func openManagement(_ kind:ManagementAction,_ id:String,_ name:String) {
+        do {managementModel=try intake?.managementModel(kind:kind,resourceID:id,name:name)}catch{selectionMessage="Action review could not be opened. Check protected storage and try again."}
+    }
+    private func openRetry(_ id:String,_ name:String) {
+        do {retryModel=try intake?.retryModel(kind:.torrent,resourceID:id,torrentID:id,name:name)} catch {selectionMessage="Retry review could not be opened. Check protected storage and try again."}
+    }
     private func reload(_ model: TransferListModel) async {
         await model.refreshWhileActive()
         if !Task.isCancelled, model.requiresSignIn { await auth?.sessionRejected(for:model.profile.id,connectionID:server.connectionID) }
@@ -139,6 +178,9 @@ struct LiveTransfers: View {
             Text("TRANSFER STATUS").font(.caption.monospaced().weight(.medium)).tracking(1)
             Text(model.updatedAt == nil ? "Transfer information unavailable" : "\(model.items.count) transfers · \(model.items.filter { $0.stage.isActive }.count) active")
                 .font(.title3.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+            if let date = model.updatedAt {
+                Text("Last confirmed \(date.formatted(date: .abbreviated, time: .shortened))").font(.caption).foregroundStyle(DebridStyle.secondary)
+            }
             let attention = model.items.filter { $0.stage.needsAttention }.count
             if attention > 0 { Text("\(attention) need your attention").font(.subheadline) }
             if let date = model.updatedAt {
@@ -177,7 +219,7 @@ private struct LiveTransferRow: View {
         case .failed: .red
         case .selecting: Color("StageAmber")
         case .completed: Color("StageGreen")
-        case .unknown: DebridStyle.secondary
+        case .cancelled, .unknown: DebridStyle.secondary
         default: Color("StageBlue")
         }
     }
@@ -187,6 +229,7 @@ private struct LiveTransferRow: View {
         case .selecting: "checklist"
         case .completed: "checkmark.circle"
         case .unpacking: "archivebox"
+        case .cancelled: "stop.circle"
         case .unknown: "questionmark.circle"
         case .nasDownloading: "arrow.down.to.line"
         default: "arrow.down.circle"

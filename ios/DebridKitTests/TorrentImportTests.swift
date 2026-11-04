@@ -113,7 +113,7 @@ func fixtureTorrent() throws -> TorrentFile { try TorrentFile(#require(torrentFi
         #expect(try await store.snapshot().first?.magnet?.rawURI == raw)
         _ = try await store.renew(id,token:claim.token)
         let migrated = try #require(JSONSerialization.jsonObject(with:Data(contentsOf:manifestURL)) as? [String:Any])
-        #expect(migrated["version"] as? Int == 3)
+        #expect(migrated["version"] as? Int == 6)
         #expect(!FileManager.default.fileExists(atPath:orphan.path) && FileManager.default.fileExists(atPath:unrelated.path))
     }
     @Test func explicitPasteValidatesWholeBatchAndPreservesRawEncoding() async throws {

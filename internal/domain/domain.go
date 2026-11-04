@@ -80,11 +80,13 @@ const (
 	TorrentCompleted TorrentStatus = "completed"
 	// TorrentError: terminal failure (may be retried explicitly).
 	TorrentError TorrentStatus = "error"
+	// TorrentCancelled: local orchestration explicitly stopped; provider may continue.
+	TorrentCancelled TorrentStatus = "cancelled"
 )
 
 // IsTerminal reports whether no further automatic progress is expected.
 func (s TorrentStatus) IsTerminal() bool {
-	return s == TorrentCompleted || s == TorrentError
+	return s == TorrentCompleted || s == TorrentError || s == TorrentCancelled
 }
 
 // AtProvider reports whether the torrent exists at the provider in this state.
@@ -118,6 +120,13 @@ func (s TorrentStatus) CanTransition(to TorrentStatus) bool {
 	if s == to {
 		return true
 	}
+	if to == TorrentCancelled && !s.IsTerminal() {
+		_, known := torrentTransitions[s]
+		return known
+	}
+	if s == TorrentCancelled {
+		return to == TorrentQueued
+	}
 	for _, t := range torrentTransitions[s] {
 		if t == to {
 			return true
@@ -137,10 +146,13 @@ const (
 	DownloadUnpacking     DownloadState = "unpacking"
 	DownloadDone          DownloadState = "done"
 	DownloadError         DownloadState = "error"
+	DownloadCancelled     DownloadState = "cancelled"
 )
 
 // IsTerminal reports whether the download needs no more work.
-func (s DownloadState) IsTerminal() bool { return s == DownloadDone || s == DownloadError }
+func (s DownloadState) IsTerminal() bool {
+	return s == DownloadDone || s == DownloadError || s == DownloadCancelled
+}
 
 var downloadTransitions = map[DownloadState][]DownloadState{
 	DownloadPending:       {DownloadUnrestricting, DownloadDownloading, DownloadError},
@@ -156,6 +168,10 @@ var downloadTransitions = map[DownloadState][]DownloadState{
 func (s DownloadState) CanTransition(to DownloadState) bool {
 	if s == to {
 		return true
+	}
+	if to == DownloadCancelled && !s.IsTerminal() {
+		_, known := downloadTransitions[s]
+		return known
 	}
 	for _, t := range downloadTransitions[s] {
 		if t == to {

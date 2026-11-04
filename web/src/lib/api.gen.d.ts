@@ -44,6 +44,23 @@ export interface paths {
     patch: operations['update-account']
     trace?: never
   }
+  '/api/v1/accounts/{id}/removal': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post?: never
+    /** Remove an exact account with guarded local transfer drain */
+    delete: operations['remove-account-with-drain']
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/accounts/{id}/test': {
     parameters: {
       query?: never
@@ -265,6 +282,57 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/downloads/{id}/retry-requests': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Accept one revision-checked durable retry request */
+    post: operations['request-download-retry']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/downloads/{id}/retry-requests/{key}': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /** Check a saved retry without repeating the mutation */
+    get: operations['get-download-retry-request']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/downloads/{id}/retry-review': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /** Review retry eligibility and immutable revision */
+    get: operations['review-download-retry']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/events': {
     parameters: {
       query?: never
@@ -330,6 +398,27 @@ export interface paths {
     get: operations['get-settings']
     /** Replace runtime settings */
     put: operations['update-settings']
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/settings/review': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /** Read runtime settings with an opaque write revision */
+    get: operations['review-settings']
+    /**
+     * Replace runtime settings only if the reviewed revision is current
+     * @description Requires exactly one strong quoted If-Match.412 refuses stale state atomically, including changes through legacy clients and ABA changes. Missing/empty/weak/list/duplicate headers are rejected; no unconditional fallback. A lost response is not an acceptance receipt: read current settings and require fresh review, never automatically replay.
+     */
+    put: operations['update-reviewed-settings']
     post?: never
     delete?: never
     options?: never
@@ -434,6 +523,66 @@ export interface paths {
     patch: operations['update-torrent']
     trace?: never
   }
+  '/api/v1/torrents/{id}/cancellation-requests': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Accept one durable local cancellation
+     * @description Persist key and original revision before POST. Replays return the original receipt even after retry/removal. Acceptance means local workers drained and stopped state committed; provider activity may continue. Completed/error races return conflict without replacing the terminal result.
+     */
+    post: operations['request-torrent-cancellation']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/torrents/{id}/cancellation-requests/{key}': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Reconcile a saved cancellation without repeating it
+     * @description 404 means no committed receipt is visible, not proof an original request failed. Retry only the same immutable intent/key. A receipt remains accepted after later retry or removal and does not claim the transfer is currently stopped.
+     */
+    get: operations['get-torrent-cancellation-request']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/torrents/{id}/cancellation-review': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Review local transfer cancellation
+     * @description Stops local orchestration and NAS work without removing records or files. Remote provider activity may continue. Revision binds the retry incarnation, not changing progress.
+     */
+    get: operations['review-torrent-cancellation']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/torrents/{id}/file-selection': {
     parameters: {
       query?: never
@@ -469,6 +618,46 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/torrents/{id}/removal': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post?: never
+    /**
+     * Remove an exact transfer with a required incarnation precondition
+     * @description Requires one strong quoted If-Match from removal-review. Missing/empty/weak/duplicate headers are refused, never downgraded to unconditional legacy deletion.412 refuses a changed incarnation before cleanup.204 proves record removal only; provider/filesystem cleanup may be partial or intentionally preserved.
+     */
+    delete: operations['remove-reviewed-torrent']
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/torrents/{id}/removal-review': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Review exact transfer incarnation before removal
+     * @description Returns exists:false explicitly for a missing transfer. A missing HTTP route is not transfer absence. Send the original revision as a single strong quoted If-Match with DELETE;412 refuses a changed incarnation before provider/filesystem removal.204 proves record removal, not that unknown/shared/untracked provider copies or files disappeared.
+     */
+    get: operations['review-torrent-removal']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/torrents/{id}/retry': {
     parameters: {
       query?: never
@@ -478,8 +667,59 @@ export interface paths {
     }
     get?: never
     put?: never
-    /** Retry an errored or completed torrent from scratch */
+    /** Retry an errored, completed or cancelled torrent from scratch */
     post: operations['retry-torrent']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/torrents/{id}/retry-requests': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Accept one revision-checked durable retry request */
+    post: operations['request-torrent-retry']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/torrents/{id}/retry-requests/{key}': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /** Check a saved retry without repeating the mutation */
+    get: operations['get-torrent-retry-request']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/torrents/{id}/retry-review': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /** Review retry eligibility and immutable revision */
+    get: operations['review-torrent-retry']
+    put?: never
+    post?: never
     delete?: never
     options?: never
     head?: never
@@ -561,6 +801,30 @@ export interface components {
       /** @description Configured OIDC issuer, shown on the login/setup screens */
       oidc_issuer?: string
     }
+    CancellationAcceptance: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://example.com/schemas/CancellationAcceptance.json
+       */
+      readonly $schema?: string
+      /** Format: date-time */
+      accepted_at: string
+      torrent_exists: boolean
+      torrent_id: string
+    }
+    CancellationReview: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://example.com/schemas/CancellationReview.json
+       */
+      readonly $schema?: string
+      allowed: boolean
+      provider_may_continue: boolean
+      revision: string
+      torrent_id: string
+    }
     ChangePasswordInBody: {
       /**
        * Format: uri
@@ -626,6 +890,7 @@ export interface components {
         | 'unpacking'
         | 'done'
         | 'error'
+        | 'cancelled'
       torrent_id: string
     }
     ErrorDetail: {
@@ -848,11 +1113,11 @@ export interface components {
        * @example https://example.com/schemas/OrganizePreviewInBody.json
        */
       readonly $schema?: string
-      /** @description Override the saved movie template */
+      /** @description Override the saved movie template; explicit empty uses the built-in default */
       movie_template?: string
       /** @description Release name to preview */
       name: string
-      /** @description Override the saved TV template */
+      /** @description Override the saved TV template; explicit empty uses the built-in default */
       tv_template?: string
     }
     OrganizePreviewOutBody: {
@@ -876,6 +1141,57 @@ export interface components {
       movie_template?: string
       /** @description TV path template; empty = '{title} ({year})/Season {season:02}' */
       tv_template?: string
+    }
+    RemovalReview: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://example.com/schemas/RemovalReview.json
+       */
+      readonly $schema?: string
+      exists: boolean
+      provider_copy_known: boolean
+      revision?: string
+      torrent_id: string
+    }
+    RetryAcceptance: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://example.com/schemas/RetryAcceptance.json
+       */
+      readonly $schema?: string
+      /** Format: date-time */
+      accepted_at: string
+      kind: string
+      resource_id: string
+      torrent_exists: boolean
+      torrent_id: string
+    }
+    RetryRequestInBody: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://example.com/schemas/RetryRequestInBody.json
+       */
+      readonly $schema?: string
+      /** @description Fresh UUIDv4 persisted before POST; reuse only for this immutable retry intent */
+      key: string
+      revision: string
+    }
+    RetryReview: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://example.com/schemas/RetryReview.json
+       */
+      readonly $schema?: string
+      allowed: boolean
+      kind: string
+      resource_id: string
+      revision: string
+      torrent_id: string
+      wait_for_selection: boolean
     }
     SelectFilesInBody: {
       /**
@@ -907,6 +1223,16 @@ export interface components {
       torrent_defaults: components['schemas']['TorrentSettings']
       /** Format: int64 */
       unpack_max_depth?: number
+    }
+    SettingsReviewBody: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://example.com/schemas/SettingsReviewBody.json
+       */
+      readonly $schema?: string
+      revision: string
+      settings: components['schemas']['Settings']
     }
     SetupOIDCInBody: {
       /**
@@ -1029,6 +1355,7 @@ export interface components {
         | 'finished'
         | 'completed'
         | 'error'
+        | 'cancelled'
       /** @description Human-readable detail about the current state */
       status_reason?: string
     }
@@ -1280,6 +1607,38 @@ export interface operations {
         content: {
           'application/json': components['schemas']['Account']
         }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'remove-account-with-drain': {
+    parameters: {
+      query?: {
+        /** @description Also delete the account's torrents (locally) */
+        force?: boolean
+      }
+      header?: never
+      path: {
+        id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
       }
       /** @description Error */
       default: {
@@ -1705,6 +2064,111 @@ export interface operations {
       }
     }
   }
+  'request-download-retry': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: string
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['RetryRequestInBody']
+      }
+    }
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          'Cache-Control'?: string
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['RetryAcceptance']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'get-download-retry-request': {
+    parameters: {
+      query: {
+        /** @description Original review revision bound to this request key */
+        revision: string
+      }
+      header?: never
+      path: {
+        id: string
+        key: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          'Cache-Control'?: string
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['RetryAcceptance']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'review-download-retry': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        /** @description Exact resource id returned by the API (not a prefix/hash alias) */
+        id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          'Cache-Control'?: string
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['RetryReview']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
   events: {
     parameters: {
       query?: never
@@ -1943,6 +2407,74 @@ export interface operations {
       }
     }
   }
+  'review-settings': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          'Cache-Control'?: string
+          ETag?: string
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['SettingsReviewBody']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'update-reviewed-settings': {
+    parameters: {
+      query?: never
+      header: {
+        'If-Match': string
+      }
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['Settings']
+      }
+    }
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          'Cache-Control'?: string
+          ETag?: string
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['SettingsReviewBody']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
   'get-status': {
     parameters: {
       query?: never
@@ -2018,6 +2550,7 @@ export interface operations {
           | 'finished'
           | 'completed'
           | 'error'
+          | 'cancelled'
         /** @description Account id or name */
         account?: string
         category?: string
@@ -2169,7 +2702,10 @@ export interface operations {
         /** @description Delete at the debrid provider too */
         provider?: boolean
       }
-      header?: never
+      header?: {
+        /** @description Optional single strong quoted revision from removal-review; native clients require this. Weak/wildcard/list values are rejected. */
+        'If-Match'?: string
+      }
       path: {
         id: string
       }
@@ -2217,6 +2753,111 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['Torrent']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'request-torrent-cancellation': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: string
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['RetryRequestInBody']
+      }
+    }
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          'Cache-Control'?: string
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['CancellationAcceptance']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'get-torrent-cancellation-request': {
+    parameters: {
+      query: {
+        /** @description Original review revision bound to this request key */
+        revision: string
+      }
+      header?: never
+      path: {
+        id: string
+        key: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          'Cache-Control'?: string
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['CancellationAcceptance']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'review-torrent-cancellation': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        /** @description Exact resource id returned by the API (not a prefix/hash alias) */
+        id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          'Cache-Control'?: string
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['CancellationReview']
         }
       }
       /** @description Error */
@@ -2334,6 +2975,73 @@ export interface operations {
       }
     }
   }
+  'remove-reviewed-torrent': {
+    parameters: {
+      query?: {
+        files?: boolean
+        provider?: boolean
+      }
+      header: {
+        'If-Match': string
+      }
+      path: {
+        id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'review-torrent-removal': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        /** @description Exact resource id returned by the API (not a prefix/hash alias) */
+        id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          'Cache-Control'?: string
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['RemovalReview']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
   'retry-torrent': {
     parameters: {
       query?: never
@@ -2353,6 +3061,111 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['Torrent']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'request-torrent-retry': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: string
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['RetryRequestInBody']
+      }
+    }
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          'Cache-Control'?: string
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['RetryAcceptance']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'get-torrent-retry-request': {
+    parameters: {
+      query: {
+        /** @description Original review revision bound to this request key */
+        revision: string
+      }
+      header?: never
+      path: {
+        id: string
+        key: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          'Cache-Control'?: string
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['RetryAcceptance']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'review-torrent-retry': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        /** @description Exact resource id returned by the API (not a prefix/hash alias) */
+        id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          'Cache-Control'?: string
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['RetryReview']
         }
       }
       /** @description Error */
