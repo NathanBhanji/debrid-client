@@ -2,6 +2,7 @@ import DebridKit
 import SwiftUI
 
 struct ConnectionRoot: View {
+    @Environment(\.magnetIntake) private var intake
     @State private var model = ServerConnectionModel()
     @State private var checkTask: Task<Void, Never>?
     @State private var restored = false
@@ -30,6 +31,7 @@ struct ConnectionRoot: View {
             } else { connectionForm }
         }
         .task { await prepare() }
+        .onChange(of:activeServerURL,initial:true) { intake?.setTargetServer(activeServerURL) }
         .onChange(of: model.address) { checkTask?.cancel(); savedID = nil; savingID = nil; saveRevision &+= 1 }
         .onDisappear { cancel(); cancelAuth() }
         .alert("Preview only", isPresented: $showingPreviewNotice) {
@@ -37,6 +39,9 @@ struct ConnectionRoot: View {
         } message: { Text("This sample server cannot sign in or save credentials.") }
     }
 
+    private var activeServerURL: URL? {
+        if let auth, case .connected(let server) = auth.phase { return server.profile.serverURL }; return nil
+    }
     private var connectionForm: some View {
         NavigationStack {
             Form {
@@ -117,6 +122,7 @@ struct ConnectionRoot: View {
             }
             .modifier(DebridListStyle())
             .navigationTitle("Connect")
+            .toolbar { if let intake { ToolbarItem(placement:.primaryAction) { PendingLinksButton(intake:intake) } } }
             .tint(DebridStyle.tint)
 
         }

@@ -17,9 +17,9 @@ struct DebridApp: App {
             } else if ProcessInfo.processInfo.arguments.contains("-ConnectionPreview") {
                 ConnectionRoot(discoveryPreview: SignInDiscoveryPreview())
             } else if ProcessInfo.processInfo.arguments.contains("-Demo") { DemoRoot() }
-            else { ConnectionRoot() }
+            else { NativeAppRoot() }
             #else
-            ConnectionRoot()
+            NativeAppRoot()
             #endif
         }
     }

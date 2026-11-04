@@ -209,3 +209,67 @@ final class TransferFileFlowTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["No matching files"].waitForExistence(timeout:5))
     }
 }
+
+@MainActor
+final class MagnetHandoffFlowTests: XCTestCase {
+    func testNativeURLHandoffReviewsAndKeepsWithoutAddingTransfer() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-DebridInboxTestNamespace",UUID().uuidString]
+        let raw = "magnet:?xt=urn:btih:"+String(repeating:"0",count:40)+"&dn=Fixture+Ocean&tr=udp%3a%2f%2ftracker.example.test"
+        app.open(try XCTUnwrap(URL(string:raw)))
+        XCTAssertTrue(app.buttons["review-received-link"].waitForExistence(timeout:10))
+        XCTAssertTrue(app.staticTexts["Preview · Sample server"].waitForExistence(timeout:5))
+        app.buttons["review-received-link"].tap()
+        XCTAssertTrue(app.navigationBars["Saved link"].waitForExistence(timeout:5))
+        XCTAssertTrue(app.staticTexts["Fixture Ocean"].waitForExistence(timeout:5))
+        XCTAssertTrue(app.staticTexts["No transfer has been added."].exists)
+        app.buttons["Keep for later"].tap()
+        XCTAssertTrue(app.navigationBars["Pending links"].waitForExistence(timeout:5))
+        XCTAssertTrue(app.staticTexts["Fixture Ocean"].exists)
+        app.buttons["Done"].tap()
+        XCTAssertTrue(app.navigationBars["Connect"].waitForExistence(timeout:5))
+        app.buttons["pending-links"].tap()
+        XCTAssertTrue(app.staticTexts["Fixture Ocean"].waitForExistence(timeout:5))
+        let row = app.buttons.containing(.staticText,identifier:"Fixture Ocean").firstMatch
+        row.swipeLeft()
+        app.buttons["Discard saved link"].tap()
+        app.sheets.buttons["Discard saved link"].tap()
+        XCTAssertTrue(app.staticTexts["No pending links"].waitForExistence(timeout:5))
+    }
+    func testReceivedBannerAndReviewAtLargestAccessibilitySize() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-DebridInboxTestNamespace",UUID().uuidString,"-UIPreferredContentSizeCategoryName","UICTContentSizeCategoryAccessibilityXXXL"]
+        let raw = "magnet:?xt=urn:btih:"+String(repeating:"0",count:40)+"&dn=Accessibility+fixture"
+        app.open(try XCTUnwrap(URL(string:raw)))
+        let review = app.buttons["review-received-link"]
+        XCTAssertTrue(review.waitForExistence(timeout:10)); XCTAssertTrue(review.isHittable); review.tap()
+        XCTAssertTrue(app.navigationBars["Saved link"].waitForExistence(timeout:5))
+        for _ in 0..<6 where !app.buttons["Keep for later"].isHittable { app.swipeUp() }
+        XCTAssertTrue(app.buttons["Keep for later"].isHittable)
+    }
+
+}
+
+/// Only the delivery harness selects this bounded helper. It confirms the real iOS app-open prompt,
+/// not permissions or arbitrary alerts, while the host sends fixture URLs through simctl.
+@MainActor
+final class SystemOpenConfirmationTests: XCTestCase {
+    func testConfirmOnlyDebridAppOpenPrompts() async throws {
+        guard ProcessInfo.processInfo.environment["DEBRID_SYSTEM_OPEN_HELPER"] == "1" else { throw XCTSkip("Selected only by the OS delivery harness") }
+        executionTimeAllowance = 140
+        let springboard = XCUIApplication(bundleIdentifier:"com.apple.springboard")
+        FileHandle.standardOutput.write(Data("DEBRID_OPEN_HELPER_READY\n".utf8))
+        let deadline = ContinuousClock.now.advanced(by:.seconds(100))
+        var confirmations = 0
+        while ContinuousClock.now < deadline {
+            let alert = springboard.alerts.firstMatch
+            if alert.waitForExistence(timeout:1) {
+                let title = alert.label + " " + alert.staticTexts.allElementsBoundByIndex.map(\.label).joined(separator:" ")
+                if title.contains("Open in"), title.contains("Debrid"), !title.contains("DebridUITests"), alert.buttons["Open"].exists {
+                    alert.buttons["Open"].tap(); confirmations += 1
+                } else { try await Task.sleep(for:.milliseconds(300)) }
+            }
+        }
+        print("Confirmed Debrid app-open prompts: \(confirmations)")
+    }
+}

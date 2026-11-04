@@ -118,3 +118,15 @@ python3 ios/scripts/check-inbox-processes.py # two real macOS processes, same pr
 ```
 
 The host probe creates only owned temporary directories, one small binary and one module cache under the existing build directory. Compiler/probes have process-group timeouts and cleanup; it creates no simulator and does not certify iOS data protection.
+
+## Magnet URL delivery and pending review
+
+Normal launch registers `magnet:` and saves delivered links before presenting a receipt. A native Review action opens the saved-link sheet; the Pending links toolbar remains available during onboarding and live management. URL delivery does not cancel Pocket ID or add a transfer. Native metadata review, retention and confirmed discard are implemented; submission/options arrive in milestone 17. See [platform limits and evidence](../docs/plan/ios-magnet-delivery.md).
+
+```sh
+python3 ios/scripts/check.py test --only-testing DebridKitTests --only-testing DebridUITests/MagnetHandoffFlowTests --simulator <UUID>
+python3 ios/scripts/check.py device --configuration Release
+python3 ios/scripts/check-magnet-delivery.py --simulator <UUID> --capture
+```
+
+Focused selectors are validated and checked for a nonzero test run; default checks still run the full suite. Fixture tests use Debug; Release builds compile without test intake configuration. OS delivery checks use only the named shared Debrid device and a UUID-isolated inbox, with the existing no-network Connect fixture. A bounded opt-in XCTest helper confirms only the system’s Debrid app-open prompt; ordinary test runs skip it. Capture uses actual SwiftUI screens, overwrites four temporary PNGs, restores owned test configuration and shuts down the shared device.
