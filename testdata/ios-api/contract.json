@@ -34,13 +34,25 @@
       "multipart_torrent_settings_v1",
       "manual_file_selection_v1",
       "native_retry_v1",
-      "native_cancellation_v1"
+      "native_cancellation_v1",
+      "native_removal_precondition_v1"
     ]
   },
   "identity": {
     "$schema": "https://example.com/schemas/MeOutBody.json",
     "mode": "",
     "api_key": true
+  },
+  "missing_removal_review": {
+    "torrent_id": "fixture-removed",
+    "exists": false,
+    "provider_copy_known": false
+  },
+  "removal_review": {
+    "torrent_id": "fixture-transfer",
+    "exists": true,
+    "revision": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "provider_copy_known": true
   },
   "retry_acceptance": {
     "kind": "download",

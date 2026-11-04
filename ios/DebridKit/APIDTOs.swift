@@ -152,3 +152,17 @@ public struct CancellationAcceptanceDTO:Decodable,Sendable {
     /// Existence only: the transfer may have been explicitly retried since acceptance.
     public let torrentExists:Bool
 }
+
+public struct RemovalReviewDTO:Decodable,Sendable {
+    public let torrentId:String
+    public let exists:Bool
+    public let revision:String?
+    public let providerCopyKnown:Bool
+}
+public struct RemovalOptions:Codable,Equatable,Sendable {
+    public let deleteFiles:Bool
+    public let deleteFromProvider:Bool
+    public init(deleteFiles:Bool = false,deleteFromProvider:Bool = false) {
+        self.deleteFiles=deleteFiles;self.deleteFromProvider=deleteFromProvider
+    }
+}

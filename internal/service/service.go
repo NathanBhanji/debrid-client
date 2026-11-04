@@ -19,9 +19,10 @@ import (
 
 // Sentinel errors. API layers map these to status codes.
 var (
-	ErrNotFound   = errors.New("not found")
-	ErrConflict   = errors.New("conflict")
-	ErrValidation = errors.New("validation failed")
+	ErrNotFound     = errors.New("not found")
+	ErrConflict     = errors.New("conflict")
+	ErrPrecondition = errors.New("precondition failed")
+	ErrValidation   = errors.New("validation failed")
 )
 
 // Engine is the subset of the download engine the service drives. A no-op

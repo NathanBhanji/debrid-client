@@ -8,6 +8,7 @@ struct LiveTransferDetail: View {
     let preview: Bool
     var chooseFiles:((String,String)->Void)? = nil
     var retryTransfer:((String,String)->Void)? = nil
+    var manageTransfer:((ManagementAction,String,String)->Void)? = nil
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         List {
@@ -45,12 +46,16 @@ struct LiveTransferDetail: View {
                     }
                     if !item.transfer.files.isEmpty,item.transfer.fileSelectionState != "pending" { LabeledContent("Selected files",value:"\(detail.selectedFiles) of \(item.transfer.files.count)") }
                 } header: { Text("On your NAS") } footer: { Text("Downloading, unpacking and finalizing are separate stages. Completion is confirmed by the server.") }
-                if item.transfer.settings.waitForSelection == true,let chooseFiles {Section {
+                if item.transfer.settings.waitForSelection == true,item.transfer.status != "cancelled",let chooseFiles {Section {
                     Button(item.transfer.fileSelectionState == "accepted" ? "View confirmed selection" : "Choose files",systemImage:"checklist") {chooseFiles(transferID,item.name)}.accessibilityIdentifier("choose-transfer-files")
                 }}
-                if !preview,item.transfer.status=="error",let retryTransfer {Section {
-                    Button("Retry failed transfer",systemImage:"arrow.trianglehead.2.clockwise") {retryTransfer(transferID,item.name)}.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint).accessibilityIdentifier("retry-transfer")
+                if !preview,(item.transfer.status=="error" || item.transfer.status=="cancelled"),let retryTransfer {Section {
+                    Button(item.transfer.status=="cancelled" ? "Retry transfer":"Retry failed transfer",systemImage:"arrow.trianglehead.2.clockwise") {retryTransfer(transferID,item.name)}.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint).accessibilityIdentifier("retry-transfer")
                 }}
+                if !preview,let manageTransfer {Section {
+                    if item.stage.isActive || item.stage == .selecting {Button("Cancel transfer",systemImage:"stop.circle") {manageTransfer(.cancel,transferID,item.name)}.foregroundStyle(DebridStyle.tint).accessibilityIdentifier("cancel-transfer")}
+                    Button("Remove transfer",systemImage:"trash",role:.destructive) {manageTransfer(.remove,transferID,item.name)}.foregroundStyle(Color("DangerInk")).accessibilityIdentifier("remove-transfer")
+                } header: {Text("Transfer actions")}}
                 Section { NavigationLink(value:TransferRoute.files(transferID)) { Label("Files",systemImage:"folder") }.accessibilityIdentifier("transfer-files") }
                 Section {
                     LabeledContent("Category",value:TransferSearchIndex.bounded(item.transfer.category.flatMap { $0.isEmpty ? nil : $0 } ?? "Uncategorized",limit:256))

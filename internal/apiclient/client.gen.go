@@ -690,6 +690,18 @@ type OrganizeSettings struct {
 	TvTemplate *string `json:"tv_template,omitempty"`
 }
 
+// RemovalReview defines model for RemovalReview.
+type RemovalReview struct {
+	// Schema A URL to the JSON Schema for this object.
+	//
+	// Example: https://example.com/schemas/RemovalReview.json
+	Schema            *string `json:"$schema,omitempty"`
+	Exists            bool    `json:"exists"`
+	ProviderCopyKnown bool    `json:"provider_copy_known"`
+	Revision          *string `json:"revision,omitempty"`
+	TorrentId         string  `json:"torrent_id"`
+}
+
 // RetryAcceptance defines model for RetryAcceptance.
 type RetryAcceptance struct {
 	// Schema A URL to the JSON Schema for this object.
@@ -1022,12 +1034,22 @@ type DeleteTorrentParams struct {
 
 	// Provider Delete at the debrid provider too
 	Provider *bool `form:"provider,omitempty" json:"provider,omitempty"`
+
+	// IfMatch Optional single strong quoted revision from removal-review; native clients require this. Weak/wildcard/list values are rejected.
+	IfMatch *string `json:"If-Match,omitempty"`
 }
 
 // GetTorrentCancellationRequestParams defines parameters for GetTorrentCancellationRequest.
 type GetTorrentCancellationRequestParams struct {
 	// Revision Original review revision bound to this request key
 	Revision string `form:"revision" json:"revision"`
+}
+
+// RemoveReviewedTorrentParams defines parameters for RemoveReviewedTorrent.
+type RemoveReviewedTorrentParams struct {
+	Files    *bool  `form:"files,omitempty" json:"files,omitempty"`
+	Provider *bool  `form:"provider,omitempty" json:"provider,omitempty"`
+	IfMatch  string `json:"If-Match"`
 }
 
 // GetTorrentRetryRequestParams defines parameters for GetTorrentRetryRequest.
@@ -1531,6 +1553,20 @@ type ClientInterface interface {
 	//
 	// Corresponds with PUT /api/v1/torrents/{id}/files (the `SelectFiles` operationId).
 	SelectFiles(ctx context.Context, id string, body SelectFilesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RemoveReviewedTorrent Remove an exact transfer with a required incarnation precondition
+	//
+	// Requires one strong quoted If-Match from removal-review. Missing/empty/weak/duplicate headers are refused, never downgraded to unconditional legacy deletion.412 refuses a changed incarnation before cleanup.204 proves record removal only; provider/filesystem cleanup may be partial or intentionally preserved.
+	//
+	// Corresponds with DELETE /api/v1/torrents/{id}/removal (the `RemoveReviewedTorrent` operationId).
+	RemoveReviewedTorrent(ctx context.Context, id string, params *RemoveReviewedTorrentParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReviewTorrentRemoval Review exact transfer incarnation before removal
+	//
+	// Returns exists:false explicitly for a missing transfer. A missing HTTP route is not transfer absence. Send the original revision as a single strong quoted If-Match with DELETE;412 refuses a changed incarnation before provider/filesystem removal.204 proves record removal, not that unknown/shared/untracked provider copies or files disappeared.
+	//
+	// Corresponds with GET /api/v1/torrents/{id}/removal-review (the `ReviewTorrentRemoval` operationId).
+	ReviewTorrentRemoval(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// RetryTorrent Retry an errored, completed or cancelled torrent from scratch
 	//
@@ -2480,6 +2516,40 @@ func (c *Client) SelectFilesWithBody(ctx context.Context, id string, contentType
 // Corresponds with PUT /api/v1/torrents/{id}/files (the `SelectFiles` operationId).
 func (c *Client) SelectFiles(ctx context.Context, id string, body SelectFilesJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewSelectFilesRequest(c.Server, id, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RemoveReviewedTorrent Remove an exact transfer with a required incarnation precondition
+//
+// Requires one strong quoted If-Match from removal-review. Missing/empty/weak/duplicate headers are refused, never downgraded to unconditional legacy deletion.412 refuses a changed incarnation before cleanup.204 proves record removal only; provider/filesystem cleanup may be partial or intentionally preserved.
+//
+// Corresponds with DELETE /api/v1/torrents/{id}/removal (the `RemoveReviewedTorrent` operationId).
+func (c *Client) RemoveReviewedTorrent(ctx context.Context, id string, params *RemoveReviewedTorrentParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRemoveReviewedTorrentRequest(c.Server, id, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ReviewTorrentRemoval Review exact transfer incarnation before removal
+//
+// Returns exists:false explicitly for a missing transfer. A missing HTTP route is not transfer absence. Send the original revision as a single strong quoted If-Match with DELETE;412 refuses a changed incarnation before provider/filesystem removal.204 proves record removal, not that unknown/shared/untracked provider copies or files disappeared.
+//
+// Corresponds with GET /api/v1/torrents/{id}/removal-review (the `ReviewTorrentRemoval` operationId).
+func (c *Client) ReviewTorrentRemoval(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReviewTorrentRemovalRequest(c.Server, id)
 	if err != nil {
 		return nil, err
 	}
@@ -3898,6 +3968,21 @@ func NewDeleteTorrentRequest(server string, id string, params *DeleteTorrentPara
 		return nil, err
 	}
 
+	if params != nil {
+
+		if params.IfMatch != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "If-Match", *params.IfMatch, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("If-Match", headerParam0)
+		}
+
+	}
+
 	return req, nil
 }
 
@@ -4251,6 +4336,126 @@ func NewSelectFilesRequestWithBody(server string, id string, contentType string,
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewRemoveReviewedTorrentRequest constructs an http.Request for the RemoveReviewedTorrent method
+func NewRemoveReviewedTorrentRequest(server string, id string, params *RemoveReviewedTorrentParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/torrents/%s/removal", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Files != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", false, "files", *params.Files, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Provider != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", false, "provider", *params.Provider, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "If-Match", params.IfMatch, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("If-Match", headerParam0)
+
+	}
+
+	return req, nil
+}
+
+// NewReviewTorrentRemovalRequest constructs an http.Request for the ReviewTorrentRemoval method
+func NewReviewTorrentRemovalRequest(server string, id string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/torrents/%s/removal-review", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -4891,6 +5096,24 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with PUT /api/v1/torrents/{id}/files (the `SelectFiles` operationId).
 	SelectFilesWithResponse(ctx context.Context, id string, body SelectFilesJSONRequestBody, reqEditors ...RequestEditorFn) (*SelectFilesResponse, error)
+
+	// RemoveReviewedTorrentWithResponse Remove an exact transfer with a required incarnation precondition
+	//
+	// Requires one strong quoted If-Match from removal-review. Missing/empty/weak/duplicate headers are refused, never downgraded to unconditional legacy deletion.412 refuses a changed incarnation before cleanup.204 proves record removal only; provider/filesystem cleanup may be partial or intentionally preserved.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /api/v1/torrents/{id}/removal (the `RemoveReviewedTorrent` operationId).
+	RemoveReviewedTorrentWithResponse(ctx context.Context, id string, params *RemoveReviewedTorrentParams, reqEditors ...RequestEditorFn) (*RemoveReviewedTorrentResponse, error)
+
+	// ReviewTorrentRemovalWithResponse Review exact transfer incarnation before removal
+	//
+	// Returns exists:false explicitly for a missing transfer. A missing HTTP route is not transfer absence. Send the original revision as a single strong quoted If-Match with DELETE;412 refuses a changed incarnation before provider/filesystem removal.204 proves record removal, not that unknown/shared/untracked provider copies or files disappeared.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/torrents/{id}/removal-review (the `ReviewTorrentRemoval` operationId).
+	ReviewTorrentRemovalWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ReviewTorrentRemovalResponse, error)
 
 	// RetryTorrentWithResponse Retry an errored, completed or cancelled torrent from scratch
 	//
@@ -6928,6 +7151,102 @@ func (r SelectFilesResponse) ContentType() string {
 	return ""
 }
 
+type RemoveReviewedTorrentResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r RemoveReviewedTorrentResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r RemoveReviewedTorrentResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RemoveReviewedTorrentResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RemoveReviewedTorrentResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RemoveReviewedTorrentResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ReviewTorrentRemovalResponse200Headers the declared response headers of an HTTP 200 response for ReviewTorrentRemoval
+type ReviewTorrentRemovalResponse200Headers struct {
+	CacheControl *string
+}
+
+type ReviewTorrentRemovalResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *RemovalReview
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ReviewTorrentRemovalResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ReviewTorrentRemovalResponse) GetJSON200() *RemovalReview {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r ReviewTorrentRemovalResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ReviewTorrentRemovalResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ReviewTorrentRemovalResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReviewTorrentRemovalResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ReviewTorrentRemovalResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type RetryTorrentResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -7889,6 +8208,36 @@ func (c *ClientWithResponses) SelectFilesWithResponse(ctx context.Context, id st
 		return nil, err
 	}
 	return ParseSelectFilesResponse(rsp)
+}
+
+// RemoveReviewedTorrentWithResponse Remove an exact transfer with a required incarnation precondition
+//
+// Requires one strong quoted If-Match from removal-review. Missing/empty/weak/duplicate headers are refused, never downgraded to unconditional legacy deletion.412 refuses a changed incarnation before cleanup.204 proves record removal only; provider/filesystem cleanup may be partial or intentionally preserved.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /api/v1/torrents/{id}/removal (the `RemoveReviewedTorrent` operationId).
+func (c *ClientWithResponses) RemoveReviewedTorrentWithResponse(ctx context.Context, id string, params *RemoveReviewedTorrentParams, reqEditors ...RequestEditorFn) (*RemoveReviewedTorrentResponse, error) {
+	rsp, err := c.RemoveReviewedTorrent(ctx, id, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRemoveReviewedTorrentResponse(rsp)
+}
+
+// ReviewTorrentRemovalWithResponse Review exact transfer incarnation before removal
+//
+// Returns exists:false explicitly for a missing transfer. A missing HTTP route is not transfer absence. Send the original revision as a single strong quoted If-Match with DELETE;412 refuses a changed incarnation before provider/filesystem removal.204 proves record removal, not that unknown/shared/untracked provider copies or files disappeared.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/torrents/{id}/removal-review (the `ReviewTorrentRemoval` operationId).
+func (c *ClientWithResponses) ReviewTorrentRemovalWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ReviewTorrentRemovalResponse, error) {
+	rsp, err := c.ReviewTorrentRemoval(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReviewTorrentRemovalResponse(rsp)
 }
 
 // RetryTorrentWithResponse Retry an errored, completed or cancelled torrent from scratch
@@ -9495,6 +9844,81 @@ func ParseSelectFilesResponse(rsp *http.Response) (*SelectFilesResponse, error) 
 		}
 		response.ApplicationproblemJSONDefault = &dest
 
+	}
+
+	return response, nil
+}
+
+// ParseRemoveReviewedTorrentResponse parses an HTTP response from a RemoveReviewedTorrentWithResponse call
+func ParseRemoveReviewedTorrentResponse(rsp *http.Response) (*RemoveReviewedTorrentResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RemoveReviewedTorrentResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseReviewTorrentRemovalResponse parses an HTTP response from a ReviewTorrentRemovalWithResponse call
+func ParseReviewTorrentRemovalResponse(rsp *http.Response) (*ReviewTorrentRemovalResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReviewTorrentRemovalResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RemovalReview
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ReviewTorrentRemovalResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		response.Headers200 = &headers
 	}
 
 	return response, nil

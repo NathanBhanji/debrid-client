@@ -56,6 +56,8 @@ func generate() error {
 		Settings: defaults, AddedAt: at,
 		Downloads: []apimodel.Download{{ID: "fixture-download", TorrentID: "fixture-transfer", FileID: "film", Path: "The Open Ocean.mkv", Filename: "The Open Ocean.mkv", Size: 10000000000, BytesDone: 6400000000, Progress: 0.64, State: "downloading", QueuedAt: at, StartedAt: &at}},
 	}
+	fixtures["removal_review"] = service.RemovalReview{TorrentID: "fixture-transfer", Exists: true, Revision: strings.Repeat("d", 64), ProviderCopyKnown: true}
+	fixtures["missing_removal_review"] = service.RemovalReview{TorrentID: "fixture-removed"}
 	fixtures["cancellation_review"] = service.CancellationReview{TorrentID: "fixture-transfer", Revision: strings.Repeat("c", 64), Allowed: true, ProviderMayContinue: true}
 	fixtures["cancellation_acceptance"] = service.CancellationAcceptance{TorrentID: "fixture-transfer", AcceptedAt: at, TorrentExists: true}
 	fixtures["retry_review"] = apimodel.RetryReview{Kind: "torrent", ResourceID: "fixture-transfer", TorrentID: "fixture-transfer", Revision: strings.Repeat("a", 64), Allowed: true, WaitForSelection: true}

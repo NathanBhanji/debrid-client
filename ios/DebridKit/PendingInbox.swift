@@ -397,15 +397,108 @@ public struct PendingInbox: Sendable {
         var lease:Lease?;var intent:RetryIntent?;var freshToken:UUID?
         func claim() throws -> RetryClaim {guard let lease else {throw PendingInboxError.lostClaim};return RetryClaim(id:id,token:lease.token,serverURL:serverURL,kind:kind,resourceID:resourceID,torrentID:torrentID,name:name,intent:intent)}
     }
+    public func savedManagement() async throws -> [SavedManagement] {
+        try await transaction {state,_ in
+            (state.management.compactMap {row in
+                guard let intent=row.intent,intent.phase == .prepared || intent.phase == .blocked else {return nil}
+                return SavedManagement(id:row.id,serverURL:row.serverURL,kind:row.kind,resourceID:row.resourceID,name:row.name)
+            },false)
+        }
+    }
+    public func claimManagement(server:URL,kind:ManagementAction,resourceID:String,name:String) async throws -> ManagementClaim {
+        guard SubmissionIdentity.validID(resourceID),server.absoluteString.utf8.count<=2048,(try? ServerAddress(server.absoluteString))?.url==server else {throw ManagementIntentError.invalid}
+        let title=String(name.unicodeScalars.prefix(256).map {($0.properties.generalCategory == .control || $0.properties.generalCategory == .format) ? " " : String($0)}.joined())
+        return try await transaction {state,now in
+            state.management.removeAll {row in row.lease?.live(at:now) != true && (row.intent==nil || row.intent?.phase == .accepted || row.intent?.phase == .rejected)}
+            let index:Int
+            if let existing=state.management.firstIndex(where:{$0.serverURL==server && $0.resourceID==resourceID}) {
+                guard state.management[existing].kind==kind else {throw ManagementIntentError.unresolved}
+                guard state.management[existing].lease?.live(at:now) != true else {throw PendingInboxError.busy};index=existing
+            } else {
+                guard state.management.count<Self.itemLimit else {throw PendingInboxError.full}
+                state.management.append(ManagementRow(id:UUID(),serverURL:server,kind:kind,resourceID:resourceID,name:title,lease:nil,intent:nil,freshToken:nil));index=state.management.count-1
+            }
+            state.management[index].freshToken=nil
+            state.management[index].lease=Lease(token:UUID(),issuedAt:now,expiresAt:now.addingTimeInterval(Self.reviewLifetime))
+            return (try state.management[index].claim(),true)
+        }
+    }
+    private static func managementOffset(_ id:UUID,token:UUID,state:Envelope,now:Date) throws -> Int {
+        guard let index=state.management.firstIndex(where:{$0.id==id}),let lease=state.management[index].lease,lease.token==token,lease.live(at:now) else {throw PendingInboxError.lostClaim};return index
+    }
+    public func managementClaim(_ id:UUID,token:UUID) async throws -> ManagementClaim {
+        try await transaction {state,now in let index=try Self.managementOffset(id,token:token,state:state,now:now);return (try state.management[index].claim(),false)}
+    }
+    public func renewManagement(_ id:UUID,token:UUID) async throws {
+        try await transaction {state,now in let index=try Self.managementOffset(id,token:token,state:state,now:now);state.management[index].lease=Lease(token:token,issuedAt:now,expiresAt:now.addingTimeInterval(Self.reviewLifetime));return ((),true)}
+    }
+    public func releaseManagement(_ id:UUID,token:UUID) async throws {
+        try await transaction {state,_ in
+            guard let index=state.management.firstIndex(where:{$0.id==id}),state.management[index].lease?.token==token else {throw PendingInboxError.lostClaim}
+            let phase=state.management[index].intent?.phase
+            if phase==nil || phase == .accepted || phase == .rejected {state.management.remove(at:index)} else {state.management[index].lease=nil;state.management[index].freshToken=nil}
+            return ((),true)
+        }
+    }
+    public func prepareManagement(_ id:UUID,token:UUID,resourceID:String,revision:String,options:RemovalOptions?) async throws -> PreparedManagement {
+        try await transaction {state,now in
+            let index=try Self.managementOffset(id,token:token,state:state,now:now),row=state.management[index]
+            guard row.resourceID==resourceID,FileSelectionIdentity.revisionIsValid(revision),(row.kind == .remove)==(options != nil) else {throw ManagementIntentError.invalid}
+            if let intent=row.intent,intent.phase != .rejected {
+                guard intent.phase == .prepared,intent.revision==revision,intent.options==options else {throw ManagementIntentError.unresolved}
+                return (PreparedManagement(intent:intent,rejectionToken:nil),false)
+            }
+            let intent=ManagementIntent(serverURL:row.serverURL,kind:row.kind,resourceID:resourceID,revision:revision,options:options,createdAt:now)
+            try intent.validate()
+            let nonce=UUID();state.management[index].intent=intent;state.management[index].freshToken=nonce
+            return (PreparedManagement(intent:intent,rejectionToken:nonce),true)
+        }
+    }
+    public func acceptCancellation(_ id:UUID,token:UUID,key:UUID,receipt:CancellationAcceptanceDTO) async throws {
+        try await transaction {state,now in
+            let index=try Self.managementOffset(id,token:token,state:state,now:now)
+            guard let intent=state.management[index].intent,intent.key==key,intent.kind == .cancel,intent.resourceID==receipt.torrentId else {throw ManagementIntentError.invalid}
+            let accepted=intent.replacingPhase(.accepted,outcome:.cancellation(acceptedAt:receipt.acceptedAt,exists:receipt.torrentExists));try accepted.validate()
+            state.management[index].intent=accepted;state.management[index].freshToken=nil;return ((),true)
+        }
+    }
+    public func completeRemoval(_ id:UUID,token:UUID,key:UUID,confirmed:Bool) async throws {
+        try await transaction {state,now in
+            let index=try Self.managementOffset(id,token:token,state:state,now:now)
+            guard let intent=state.management[index].intent,intent.key==key,intent.kind == .remove else {throw ManagementIntentError.invalid}
+            let accepted=intent.replacingPhase(.accepted,outcome:confirmed ? .removalConfirmed:.absenceObserved);try accepted.validate()
+            state.management[index].intent=accepted;state.management[index].freshToken=nil;return ((),true)
+        }
+    }
+    public func rejectManagement(_ id:UUID,token:UUID,key:UUID,freshToken:UUID) async throws {
+        try await transaction {state,now in
+            let index=try Self.managementOffset(id,token:token,state:state,now:now)
+            guard let intent=state.management[index].intent,intent.key==key,intent.phase == .prepared,state.management[index].freshToken==freshToken else {throw ManagementIntentError.unresolved}
+            state.management[index].intent=intent.replacingPhase(.rejected);state.management[index].freshToken=nil;return ((),true)
+        }
+    }
+    public func blockManagement(_ id:UUID,token:UUID,key:UUID) async throws {
+        try await transaction {state,now in
+            let index=try Self.managementOffset(id,token:token,state:state,now:now)
+            guard let intent=state.management[index].intent,intent.key==key,intent.phase == .prepared else {throw ManagementIntentError.unresolved}
+            state.management[index].intent=intent.replacingPhase(.blocked);state.management[index].freshToken=nil;return ((),true)
+        }
+    }
+    private struct ManagementRow:Codable,Sendable {
+        var id:UUID;var serverURL:URL;var kind:ManagementAction;var resourceID:String;var name:String;var lease:Lease?;var intent:ManagementIntent?;var freshToken:UUID?
+        func claim() throws -> ManagementClaim {guard let lease else {throw PendingInboxError.lostClaim};return ManagementClaim(id:id,token:lease.token,serverURL:serverURL,kind:kind,resourceID:resourceID,name:name,intent:intent)}
+    }
     private struct Envelope: Codable, Sendable {
-        var version=5;var items:[Row]=[];var fileSelections:[SelectionRow]=[];var retries:[RetryRow]=[]
-        enum CodingKeys:String,CodingKey {case version,items,fileSelections,retries}
+        var version=6;var items:[Row]=[];var fileSelections:[SelectionRow]=[];var retries:[RetryRow]=[];var management:[ManagementRow]=[]
+        enum CodingKeys:String,CodingKey {case version,items,fileSelections,retries,management}
         init() {}
         init(from decoder:any Decoder) throws {
             let values=try decoder.container(keyedBy:CodingKeys.self)
             version=try values.decode(Int.self,forKey:.version);items=try values.decode([Row].self,forKey:.items)
             if version>=5 {retries=try values.decode([RetryRow].self,forKey:.retries)}
             else {retries=try values.decodeIfPresent([RetryRow].self,forKey:.retries) ?? []}
+            if version>=6 {management=try values.decode([ManagementRow].self,forKey:.management)}
+            else {management=try values.decodeIfPresent([ManagementRow].self,forKey:.management) ?? []}
             if version>=4 {fileSelections=try values.decode([SelectionRow].self,forKey:.fileSelections)}
             else {fileSelections=try values.decodeIfPresent([SelectionRow].self,forKey:.fileSelections) ?? []}
         }
@@ -458,14 +551,15 @@ public struct PendingInbox: Sendable {
             try Task.checkCancellation()
             // No suspension point while holding the cross-process lock.
             var state = try load()
-            let migrating=state.version<5
+            let migrating=state.version<6
             if state.version<4 {state.fileSelections=[]}
-            if migrating {state.retries=[]}
+            if state.version<5 {state.retries=[]}
+            if state.version<6 {state.management=[]}
             try cleanup(state)
             let now = clock()
             guard now.timeIntervalSince1970.isFinite else { throw PendingInboxError.unavailable }
             let (value,changed) = try operation(&state,now)
-            if changed || migrating { state.version = 5; try save(state) }
+            if changed || migrating { state.version = 6; try save(state) }
             // After a committed removal, orphan cleanup is best effort: never turn success into an ambiguous failure.
             try? cleanup(state)
             return value
@@ -473,6 +567,7 @@ public struct PendingInbox: Sendable {
         catch let error as PendingInboxError { throw error }
         catch let error as FileSelectionError { throw error }
         catch let error as RetryIntentError {throw error}
+        catch let error as ManagementIntentError {throw error}
         catch { throw PendingInboxError.unavailable }
     }
     private func prepare() throws {
@@ -513,7 +608,7 @@ public struct PendingInbox: Sendable {
         catch ReadFailure.missing { return Envelope() }
         let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .millisecondsSince1970
         guard let header = try? decoder.decode(Header.self,from:data) else { throw PendingInboxError.corrupt }
-        guard (1...5).contains(header.version) else { throw PendingInboxError.unsupportedVersion }
+        guard (1...6).contains(header.version) else { throw PendingInboxError.unsupportedVersion }
         guard let state = try? decoder.decode(Envelope.self,from:data), state.items.count <= Self.itemLimit, Set(state.items.map(\.id)).count == state.items.count,
               state.items.reduce(0,{ $0+($1.rawURI?.utf8.count ?? 0) }) <= Self.uriByteLimit,
               state.items.allSatisfy({ ($0.torrent?.byteCount ?? 0) >= 0 && ($0.torrent?.byteCount ?? 0) <= TorrentFile.byteLimit }),
@@ -527,6 +622,17 @@ public struct PendingInbox: Sendable {
             if let lease=row.lease {guard SubmissionIdentity.validKey(lease.token),lease.issuedAt.timeIntervalSince1970.isFinite,lease.expiresAt.timeIntervalSince1970.isFinite,abs(lease.expiresAt.timeIntervalSince(lease.issuedAt)-Self.reviewLifetime)<1 else {throw PendingInboxError.corrupt}}
             if let intent=row.intent {
                 guard (try? intent.validate()) != nil,intent.serverURL==row.serverURL,intent.kind==row.kind,intent.resourceID==row.resourceID,intent.torrentID==row.torrentID,intent.phase == .prepared || row.freshToken==nil else {throw PendingInboxError.corrupt}
+            } else if row.freshToken != nil {throw PendingInboxError.corrupt}
+            if let nonce=row.freshToken {guard SubmissionIdentity.validKey(nonce) else {throw PendingInboxError.corrupt}}
+        }
+        if header.version<6,!state.management.isEmpty {throw PendingInboxError.corrupt}
+        guard state.management.count<=Self.itemLimit,Set(state.management.map(\.id)).count==state.management.count else {throw PendingInboxError.corrupt}
+        var managementIdentities=Set<String>()
+        for row in state.management {
+            guard SubmissionIdentity.validKey(row.id),SubmissionIdentity.validID(row.resourceID),row.name.utf8.count<=1024,row.serverURL.absoluteString.utf8.count<=2048,(try? ServerAddress(row.serverURL.absoluteString))?.url==row.serverURL,managementIdentities.insert(row.serverURL.absoluteString+"\n"+row.resourceID).inserted else {throw PendingInboxError.corrupt}
+            if let lease=row.lease {guard SubmissionIdentity.validKey(lease.token),lease.issuedAt.timeIntervalSince1970.isFinite,lease.expiresAt.timeIntervalSince1970.isFinite,abs(lease.expiresAt.timeIntervalSince(lease.issuedAt)-Self.reviewLifetime)<1 else {throw PendingInboxError.corrupt}}
+            if let intent=row.intent {
+                guard (try? intent.validate()) != nil,intent.serverURL==row.serverURL,intent.kind==row.kind,intent.resourceID==row.resourceID,intent.phase == .prepared || row.freshToken==nil else {throw PendingInboxError.corrupt}
             } else if row.freshToken != nil {throw PendingInboxError.corrupt}
             if let nonce=row.freshToken {guard SubmissionIdentity.validKey(nonce) else {throw PendingInboxError.corrupt}}
         }

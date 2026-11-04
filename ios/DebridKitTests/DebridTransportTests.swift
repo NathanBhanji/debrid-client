@@ -109,6 +109,23 @@ struct DebridTransportTests {
         await #expect(throws:APIError.invalidResponse) {_=try await client.requestCancellation(id:"wrong-target",key:key,revision:revision)}
     }
 
+    @Test func removalBindsStrongRevisionOptionsAndTreatsRoute404AsError() async throws {
+        let (client,host)=try setup(StubReply(status:204,data:Data()),credential:.session("fixture_cookie"));defer {remove(host)}
+        let revision=String(repeating:"d",count:64)
+        try await client.removeTransfer(id:"remove-target",revision:revision,options:RemovalOptions(deleteFiles:true))
+        let request=APIStub.states.withLock {$0[host]!.requests[0]}
+        #expect(request.httpMethod=="DELETE" && request.url?.path=="/debrid/api/v1/torrents/remove-target/removal")
+        #expect(request.value(forHTTPHeaderField:"If-Match")=="\""+revision+"\"")
+        #expect(request.value(forHTTPHeaderField:"Cookie")=="debrid_session=fixture_cookie")
+        #expect(URLComponents(url:request.url!,resolvingAgainstBaseURL:false)?.queryItems==[URLQueryItem(name:"files",value:"true"),URLQueryItem(name:"provider",value:"false")])
+        let (missing,missingHost)=try setup(StubReply(status:404));defer {remove(missingHost)}
+        await #expect(throws:APIError.http(status:404)) {_=try await missing.removalReview(id:"remove-target")}
+        let absent=Data(#"{"torrent_id":"remove-target","exists":false,"provider_copy_known":false}"#.utf8)
+        let (absence,absenceHost)=try setup(StubReply(data:absent));defer {remove(absenceHost)}
+        #expect(try await !absence.removalReview(id:"remove-target").exists)
+        await #expect(throws:APIError.invalidResponse) {_=try await absence.removalReview(id:"other-target")}
+    }
+
     @Test func healthPreservesPrefixAndHeaderCredential() async throws {
         let (client, host) = try setup(credential: .bearer("fixture-key"))
         defer { remove(host) }

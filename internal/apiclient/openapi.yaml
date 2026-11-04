@@ -741,6 +741,28 @@ components:
           description: TV path template; empty = '{title} ({year})/Season {season:02}'
           type: string
       type: object
+    RemovalReview:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/RemovalReview.json
+          format: uri
+          readOnly: true
+          type: string
+        exists:
+          type: boolean
+        provider_copy_known:
+          type: boolean
+        revision:
+          type: string
+        torrent_id:
+          type: string
+      required:
+        - torrent_id
+        - exists
+        - provider_copy_known
+      type: object
     RetryAcceptance:
       additionalProperties: false
       properties:
@@ -2258,6 +2280,13 @@ paths:
     delete:
       operationId: delete-torrent
       parameters:
+        - description: Optional single strong quoted revision from removal-review; native clients require this. Weak/wildcard/list values are rejected.
+          in: header
+          name: If-Match
+          schema:
+            description: Optional single strong quoted revision from removal-review; native clients require this. Weak/wildcard/list values are rejected.
+            maxLength: 66
+            type: string
         - in: path
           name: id
           required: true
@@ -2557,6 +2586,79 @@ paths:
                 $ref: "#/components/schemas/ErrorModel"
           description: Error
       summary: Select which files to download
+      tags:
+        - torrents
+  /api/v1/torrents/{id}/removal:
+    delete:
+      description: Requires one strong quoted If-Match from removal-review. Missing/empty/weak/duplicate headers are refused, never downgraded to unconditional legacy deletion.412 refuses a changed incarnation before cleanup.204 proves record removal only; provider/filesystem cleanup may be partial or intentionally preserved.
+      operationId: remove-reviewed-torrent
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            maxLength: 256
+            type: string
+        - explode: false
+          in: query
+          name: files
+          schema:
+            type: boolean
+        - explode: false
+          in: query
+          name: provider
+          schema:
+            type: boolean
+        - in: header
+          name: If-Match
+          required: true
+          schema:
+            maxLength: 66
+            minLength: 66
+            type: string
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Remove an exact transfer with a required incarnation precondition
+      tags:
+        - torrents
+  /api/v1/torrents/{id}/removal-review:
+    get:
+      description: Returns exists:false explicitly for a missing transfer. A missing HTTP route is not transfer absence. Send the original revision as a single strong quoted If-Match with DELETE;412 refuses a changed incarnation before provider/filesystem removal.204 proves record removal, not that unknown/shared/untracked provider copies or files disappeared.
+      operationId: review-torrent-removal
+      parameters:
+        - description: Exact resource id returned by the API (not a prefix/hash alias)
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Exact resource id returned by the API (not a prefix/hash alias)
+            maxLength: 256
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemovalReview"
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Review exact transfer incarnation before removal
       tags:
         - torrents
   /api/v1/torrents/{id}/retry:

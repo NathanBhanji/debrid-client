@@ -24,6 +24,7 @@ extension PendingInbox: PendingInboxAccess {}
     public private(set) var items: [PendingItem] = []
     public private(set) var savedSelections:[SavedFileSelection]=[]
     public private(set) var savedRetries:[SavedRetry]=[]
+    public private(set) var savedManagement:[SavedManagement]=[]
     public private(set) var storageMessage: String?
     public private(set) var intakeMessage: String?
     public private(set) var notice: String?
@@ -91,6 +92,12 @@ extension PendingInbox: PendingInboxAccess {}
         let api=try DebridAPIClient(server:ServerAddress(connection.profile.serverURL.absoluteString),credential:connection.credential)
         return try RetryModel(server:connection,kind:kind,resourceID:resourceID,torrentID:torrentID,name:name,api:api,store:store,isConnectionCurrent:{[weak self] in self?.connection?.connectionID==connection.connectionID})
     }
+    public func managementModel(kind:ManagementAction,resourceID:String,name:String,serverURL:URL? = nil) throws -> ManagementModel? {
+        guard let connection,serverURL==nil || serverURL==connection.profile.serverURL else {return nil}
+        guard let store=try inbox() as? any ManagementIntentStoring else {throw APIError.invalidConfiguration}
+        let api=try DebridAPIClient(server:ServerAddress(connection.profile.serverURL.absoluteString),credential:connection.credential)
+        return try ManagementModel(server:connection,kind:kind,resourceID:resourceID,name:name,api:api,store:store,isConnectionCurrent:{[weak self] in self?.connection?.connectionID==connection.connectionID})
+    }
     public func finishNavigation(_ id:UUID) { if navigationRequest?.id==id { navigationRequest=nil } }
     public func viewTransfer(_ id:String,serverURL:URL) {
         guard connection?.profile.serverURL==serverURL,SubmissionIdentity.validID(id) else { return }
@@ -109,8 +116,9 @@ extension PendingInbox: PendingInboxAccess {}
             let result = try await store.snapshot()
             let selections=try await (store as? any FileSelectionIntentStoring)?.savedFileSelections() ?? []
             let retries=try await (store as? any RetryIntentStoring)?.savedRetries() ?? []
+            let management=try await (store as? any ManagementIntentStoring)?.savedManagement() ?? []
             guard !Task.isCancelled, revision == snapshotRevision else { return }
-            items = result;savedSelections=selections;savedRetries=retries; hasSnapshot = true; storageMessage = nil
+            items = result;savedSelections=selections;savedRetries=retries;savedManagement=management; hasSnapshot = true; storageMessage = nil
         } catch {
             guard !Task.isCancelled, revision == snapshotRevision else { return }
             storageMessage = Self.message(error)

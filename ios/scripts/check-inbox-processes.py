@@ -16,7 +16,7 @@ ARTIFACTS = ROOT / ".artifacts"
 ARTIFACTS.mkdir(exist_ok=True)
 lock = acquire_lock(ARTIFACTS / "check.lock")
 binary = ARTIFACTS / "inbox-process-probe"
-compiler = subprocess.Popen(["xcrun", "--sdk", "macosx", "swiftc", "-parse-as-library", "-swift-version", "6", "-strict-concurrency=complete", "-module-cache-path", str(ROOT / ".build/inbox-host-modules"), str(ROOT / "DebridKit/MagnetLink.swift"), str(ROOT / "DebridKit/ServerAddress.swift"), str(ROOT / "DebridKit/TorrentFile.swift"), str(ROOT / "DebridKit/APIDTOs.swift"), str(ROOT / "DebridKit/SubmissionIntent.swift"), str(ROOT / "DebridKit/FileSelectionIntent.swift"), str(ROOT / "DebridKit/RetryIntent.swift"), str(ROOT / "DebridKit/PendingInbox.swift"), str(ROOT / "scripts/fixtures/PendingInboxProbe.swift"), "-o", str(binary)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
+compiler = subprocess.Popen(["xcrun", "--sdk", "macosx", "swiftc", "-parse-as-library", "-swift-version", "6", "-strict-concurrency=complete", "-module-cache-path", str(ROOT / ".build/inbox-host-modules"), str(ROOT / "DebridKit/MagnetLink.swift"), str(ROOT / "DebridKit/ServerAddress.swift"), str(ROOT / "DebridKit/TorrentFile.swift"), str(ROOT / "DebridKit/APIDTOs.swift"), str(ROOT / "DebridKit/SubmissionIntent.swift"), str(ROOT / "DebridKit/FileSelectionIntent.swift"), str(ROOT / "DebridKit/RetryIntent.swift"), str(ROOT / "DebridKit/ManagementIntent.swift"), str(ROOT / "DebridKit/PendingInbox.swift"), str(ROOT / "scripts/fixtures/PendingInboxProbe.swift"), "-o", str(binary)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True)
 try:
     compiler_output, _ = compiler.communicate(timeout=90)
 except (subprocess.TimeoutExpired, KeyboardInterrupt):
@@ -87,6 +87,21 @@ with tempfile.TemporaryDirectory(prefix="debrid-inbox-process-") as temp:
         replayed = call("prepareRetry", directory, reclaimed)
         assert replayed["duplicate"] is True and replayed["key"] == prepared["key"]
         assert call("releaseRetry", directory, reclaimed)["count"] == 1
+        management_directory = Path(temp) / "management"
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            actions = list(pool.map(lambda _: call("claimManagement", management_directory), range(2)))
+        assert sum("token" in value for value in actions) == 1
+        assert sum(value.get("error") == "busy" for value in actions) == 1
+        action = next(value for value in actions if "token" in value)
+        prepared_action = call("prepareManagement", management_directory, action)
+        assert prepared_action["duplicate"] is False
+        assert call("releaseManagement", management_directory, action)["count"] == 1
+        assert "id" in call("enqueue", management_directory, {"uri": uri})
+        assert call("snapshotManagement", management_directory)["count"] == 1
+        reclaimed_action = call("claimManagement", management_directory)
+        replayed_action = call("prepareManagement", management_directory, reclaimed_action)
+        assert replayed_action["duplicate"] is True and replayed_action["key"] == prepared_action["key"]
+        assert call("releaseManagement", management_directory, reclaimed_action)["count"] == 1
         holder = start("hold", directory); ready(holder)
         assert call("snapshot", directory).get("error") == "busy"
         os.killpg(holder.pid, signal.SIGKILL); holder.communicate(timeout=3)
@@ -97,7 +112,7 @@ with tempfile.TemporaryDirectory(prefix="debrid-inbox-process-") as temp:
         count = call("snapshot", crash_directory)["count"]
         assert 1 <= count <= 20
         assert not list(crash_directory.glob(".pending-write-*.tmp"))
-        print("Two-process magnet/torrent-copy duplicate, retry intent preservation/reclaim and claim exclusion, bounded busy response, killed-lock recovery and writer process-death recovery passed.")
+        print("Two-process magnet/torrent-copy duplicate, retry/management intent preservation/reclaim and claim exclusion, bounded busy response, killed-lock recovery and writer process-death recovery passed.")
     finally:
         for child in children:
             if child.poll() is None:

@@ -100,7 +100,7 @@ private actor SelectionTestAPI:FileSelectionAPI {
             try JSONSerialization.data(withJSONObject:["version":version,"items":[],"fileSelections":[]]).write(to:file)
             _=try await f.store.snapshot()
             let upgraded=try #require(JSONSerialization.jsonObject(with:Data(contentsOf:file)) as? [String:Any])
-            #expect(upgraded["version"] as? Int==5 && upgraded["fileSelections"] is [Any])
+            #expect(upgraded["version"] as? Int==6 && upgraded["fileSelections"] is [Any])
         }
         let corrupt=try JSONSerialization.data(withJSONObject:["version":4,"items":[]])
         try corrupt.write(to:file)

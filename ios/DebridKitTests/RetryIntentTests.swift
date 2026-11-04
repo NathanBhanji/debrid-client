@@ -57,7 +57,7 @@ import Testing
         #expect(restored.intent?.id==prepared.intent.id)
         try await store.releaseFileSelection(restored.id,token:restored.token)
         var upgraded=try #require(JSONSerialization.jsonObject(with:Data(contentsOf:file)) as? [String:Any])
-        #expect(upgraded["version"] as? Int==5 && upgraded["retries"] is [Any])
+        #expect(upgraded["version"] as? Int==6 && upgraded["retries"] is [Any])
         upgraded.removeValue(forKey:"retries")
         let corrupt=try JSONSerialization.data(withJSONObject:upgraded);try corrupt.write(to:file)
         await #expect(throws:PendingInboxError.corrupt) {_=try await store.snapshot()}

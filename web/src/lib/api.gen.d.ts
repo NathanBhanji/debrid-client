@@ -580,6 +580,46 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/torrents/{id}/removal': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post?: never
+    /**
+     * Remove an exact transfer with a required incarnation precondition
+     * @description Requires one strong quoted If-Match from removal-review. Missing/empty/weak/duplicate headers are refused, never downgraded to unconditional legacy deletion.412 refuses a changed incarnation before cleanup.204 proves record removal only; provider/filesystem cleanup may be partial or intentionally preserved.
+     */
+    delete: operations['remove-reviewed-torrent']
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/torrents/{id}/removal-review': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Review exact transfer incarnation before removal
+     * @description Returns exists:false explicitly for a missing transfer. A missing HTTP route is not transfer absence. Send the original revision as a single strong quoted If-Match with DELETE;412 refuses a changed incarnation before provider/filesystem removal.204 proves record removal, not that unknown/shared/untracked provider copies or files disappeared.
+     */
+    get: operations['review-torrent-removal']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/torrents/{id}/retry': {
     parameters: {
       query?: never
@@ -1063,6 +1103,18 @@ export interface components {
       movie_template?: string
       /** @description TV path template; empty = '{title} ({year})/Season {season:02}' */
       tv_template?: string
+    }
+    RemovalReview: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://example.com/schemas/RemovalReview.json
+       */
+      readonly $schema?: string
+      exists: boolean
+      provider_copy_known: boolean
+      revision?: string
+      torrent_id: string
     }
     RetryAcceptance: {
       /**
@@ -2502,7 +2554,10 @@ export interface operations {
         /** @description Delete at the debrid provider too */
         provider?: boolean
       }
-      header?: never
+      header?: {
+        /** @description Optional single strong quoted revision from removal-review; native clients require this. Weak/wildcard/list values are rejected. */
+        'If-Match'?: string
+      }
       path: {
         id: string
       }
@@ -2759,6 +2814,73 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['Torrent']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'remove-reviewed-torrent': {
+    parameters: {
+      query?: {
+        files?: boolean
+        provider?: boolean
+      }
+      header: {
+        'If-Match': string
+      }
+      path: {
+        id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'review-torrent-removal': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        /** @description Exact resource id returned by the API (not a prefix/hash alias) */
+        id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          'Cache-Control'?: string
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['RemovalReview']
         }
       }
       /** @description Error */
