@@ -1,6 +1,8 @@
 import DebridKit
 import SwiftUI
 
+enum TransferRoute: Hashable { case detail(String), files(String) }
+
 struct LiveTransfers: View {
     let server: AuthenticatedServer
     let auth: SessionCoordinator?
@@ -10,7 +12,7 @@ struct LiveTransfers: View {
     @State private var showingServer = false
     @State private var showingFilters = false
     @State private var initialQuery = ""
-    @State private var path: [String] = []
+    @State private var path: [TransferRoute] = []
     init(server: AuthenticatedServer, auth: SessionCoordinator) { self.server = server; self.auth = auth }
     #if DEBUG
     init(preview: LiveTransfersPreviewAPI) throws {
@@ -59,7 +61,7 @@ struct LiveTransfers: View {
                     } else {
                         Section {
                             ForEach(model.visibleItems) { item in
-                                NavigationLink(value:item.id) { LiveTransferRow(item: item) }.listRowBackground(DebridStyle.surface)
+                                NavigationLink(value:TransferRoute.detail(item.id)) { LiveTransferRow(item: item) }.listRowBackground(DebridStyle.surface)
                             }
                         } header: {
                             VStack(alignment:.leading,spacing:4) {
@@ -85,8 +87,13 @@ struct LiveTransfers: View {
                 .refreshable { if let model { await reload(model) } }
                 .sheet(isPresented: $showingServer) { serverSheet }
                 .sheet(isPresented: $showingFilters) { if let model { TransferFiltersView(model:model,preview:auth == nil) } }
-                .navigationDestination(for:String.self) { id in
-                    if let model { LiveTransferDetail(transferID:id,model:model,preview:auth == nil) }
+                .navigationDestination(for:TransferRoute.self) { route in
+                    if let model {
+                        switch route {
+                        case .detail(let id): LiveTransferDetail(transferID:id,model:model,preview:auth == nil)
+                        case .files(let id): TransferFilesRoot(model:model,transferID:id,preview:auth == nil)
+                        }
+                    }
                 }
         }.tint(DebridStyle.tint)
                 .task(id: scenePhase) {
@@ -100,7 +107,8 @@ struct LiveTransfers: View {
                         await model?.restoreSearchIfNeeded()
                         #if DEBUG
                         if auth == nil, ProcessInfo.processInfo.arguments.contains("-FiltersPreview") { showingFilters = true }
-                        if auth == nil, path.isEmpty, ProcessInfo.processInfo.arguments.contains("-DetailPreview") { path = ["sample-nas"] }
+                        if auth == nil, path.isEmpty, ProcessInfo.processInfo.arguments.contains("-DetailPreview") { path = [.detail("sample-nas")] }
+                        if auth == nil, path.isEmpty, ProcessInfo.processInfo.arguments.contains("-FilesPreview") { path = [.detail("sample-nas"),.files("sample-nas")] }
                         #endif
                     } catch { setupFailed = true }
                 }
@@ -221,7 +229,8 @@ struct LiveTransfersPreviewAPI: TransferListing, AccountListing {
         var nas = base
         nas["id"] = "sample-nas"; nas["name"] = "Earth from Above"; nas["status"] = "finished"; nas["local_progress"] = 0.64
         nas["dir_name"] = "Earth from Above"; nas["category"] = "Documentaries"; nas["provider_progress"] = 1
-        nas["downloads"] = [["id":"sample-download","torrent_id":"sample-nas","path":"Earth.mkv","filename":"Earth.mkv","size":10_000_000_000,"bytes_done":6_400_000_000,"progress":0.64,"state":"downloading","retry_count":0,"queued_at":time]]
+        nas["files"] = [["id":"video","path":"Video/Earth.mkv","size":10_000_000_000,"selected":true],["id":"notes","path":"Notes/Readme.txt","size":1024,"selected":false]]
+        nas["downloads"] = [["id":"sample-download","torrent_id":"sample-nas","file_id":"video","path":"Video/Earth.mkv","filename":"Earth.mkv","size":10_000_000_000,"bytes_done":6_400_000_000,"progress":0.64,"state":"downloading","retry_count":0,"queued_at":time]]
         var selection = base
         selection["id"] = "sample-selection"; selection["name"] = "Field Recordings · Vol. 02"; selection["status"] = "waiting_selection"; selection["category"] = "Audio"; selection["account_id"] = "sample-rd"
         let decoder = JSONDecoder(); decoder.keyDecodingStrategy = .convertFromSnakeCase; decoder.dateDecodingStrategy = .iso8601

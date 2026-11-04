@@ -1,0 +1,15 @@
+# Native transfer files
+
+Roadmap 11 adds native folder navigation, path search and per-file detail to live Transfers. Files show provider selection and size separately from NAS progress/state/retry records. Paths are text from the provider, never phone filesystem URLs. There is no file-open or selection mutation in this milestone.
+
+Download records match a unique nonempty file ID first. If no ID exists, only an exact unique full path matches; basename guesses and fallback from an unknown nonempty ID are refused. Ambiguity checks include all metadata, including files outside the display limit. Multiple download records stay separate, and unmatched or cross-transfer records are grouped explicitly instead of attached arbitrarily. Error text uses a static safe explanation, avoiding raw provider bodies that may contain signed credentials.
+
+Stable unique provider IDs keep open details attached across name/path, size and selection changes. A deterministic ID/path occurrence fallback excludes mutable size/selection. Identical ambiguous identifiers/paths are labeled and have no detail navigation. Missing files/folders/transfer snapshots have explicit states; initial loading does not claim a transfer was removed. Failed refreshes preserve the previous snapshot with a stale label.
+
+One observable index cache is shared across folder/file navigation. The active destination rebuilds off the main actor when the shared transfer snapshot changes. Pre-cancelled callers cannot change the cache revision, delayed results cannot resurrect removed transfers, and cache hits are bound to transfer ID and snapshot date. This adds no event stream or network request beyond the existing single transfer-list lifecycle.
+
+The index shows at most 20,000 metadata files, disclosing the full count when limited. It creates at most 4,096 virtual folders and splits paths only up to 32 levels/8,192 bytes; deep, unusual or overflow-folder paths remain flat visible file entries with an explanation. Partial unused folder branches are pruned. Search folds case, diacritics and width across bounded full-path text, within the current folder and descendants; it does not silently normalize filesystem paths. Search input is bounded to 256 scalars and is not persisted.
+
+Validation: 100 core Swift Testing functions and 14 native UI tests passed on the reused iOS 27.0 simulator. Coverage includes nested/duplicate names, exact/ambiguous ID and path matches, unknown IDs, multiple records, stable identity, unusual/deep/oversized paths, a 2,000-file fixture, file/folder limits and orphan pruning, independent states/byte clamps, cancellation and stale-build races. UI checks navigate a real folder/file to 64% NAS progress and search unselected files across folders/no matches. Physical VoiceOver and signed-device checks remain delivery gates.
+
+Simulator and unsigned arm64 iPhone compilation/linking passed. Independent source review and four settled actual SwiftUI root/folder captures in light/dark were approved. The one shared simulator is shut down, with one latest test result and at most eight temporary PNGs retained.
