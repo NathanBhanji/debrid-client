@@ -388,6 +388,7 @@ final class NativeSubmissionFlowTests:XCTestCase {
         XCTAssertTrue(item.isHittable)
     }
     private func capture(_ app:XCUIApplication,_ name:String) {
+        Thread.sleep(forTimeInterval:1)
         let shot=XCTAttachment(screenshot:app.screenshot());shot.name=name;shot.lifetime = .keepAlways;add(shot)
     }
     func testFoldersRequireExplicitSelectionAndFinalConfirmation() throws {try exercise()}

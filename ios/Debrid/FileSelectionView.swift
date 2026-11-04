@@ -98,7 +98,7 @@ private struct SelectionFolderView:View {
     private func confirmation(_ value:FileSelectionProposal)->some View {
         NavigationStack {
             Form {
-                Section {Text("\(value.count) files").font(.title2.weight(.semibold));if let bytes=value.bytes {Text(bytes.formatted(.byteCount(style:.file)))};if value.hasUnknownSizes {Text("Some file sizes are unknown.").font(.footnote)}}
+                Section {Text(value.count == 1 ? "1 file" : "\(value.count) files").font(.title2.weight(.semibold));if let bytes=value.bytes {Text(bytes.formatted(.byteCount(style:.file)))};if value.hasUnknownSizes {Text("Some file sizes are unknown.").font(.footnote)}}
                 Section {Text("Confirm these files for download to your NAS. Your provider may prepare or retain additional files remotely.")}
                 Section {Button("Confirm files and start downloads") {proposal=nil;run {await model.confirm(value)}}.buttonStyle(.glassProminent).tint(Color(red:0.62,green:0.17,blue:0)).foregroundStyle(.white).controlSize(.large).frame(maxWidth:.infinity).disabled(model.isBusy).accessibilityIdentifier("confirm-file-selection")}
             }.modifier(DebridListStyle()).navigationTitle("Review selection").navigationBarTitleDisplayMode(.inline)
