@@ -381,3 +381,40 @@ final class NativeSubmissionFlowTests:XCTestCase {
         XCTAssertTrue(app.navigationBars["Transfers"].waitForExistence(timeout:8))
     }
 }
+
+@MainActor final class NativeFileSelectionFlowTests:XCTestCase {
+    private func reach(_ item:XCUIElement,in app:XCUIApplication) {
+        for _ in 0..<18 where !item.isHittable {app.swipeUp()}
+        XCTAssertTrue(item.isHittable)
+    }
+    private func capture(_ app:XCUIApplication,_ name:String) {
+        Thread.sleep(forTimeInterval:1)
+        let shot=XCTAttachment(screenshot:app.screenshot());shot.name=name;shot.lifetime = .keepAlways;add(shot)
+    }
+    func testFoldersRequireExplicitSelectionAndFinalConfirmation() throws {try exercise()}
+    func testLargestTextCanReachFinalConfirmation() throws {try exercise(large:true)}
+    func testInterruptedResponseCanCheckConfirmedResult() throws {try exercise(uncertain:true)}
+    private func exercise(large:Bool = false,uncertain:Bool = false) throws {
+        let app=XCUIApplication()
+        app.launchArguments=["-DebridInboxTestNamespace",UUID().uuidString,"-DebridInboxCaptureMode",uncertain ? "selection-uncertain" : "selection"]
+        if large {app.launchArguments += ["-UIPreferredContentSizeCategoryName","UICTContentSizeCategoryAccessibilityXXXL"]}
+        app.launch()
+        XCTAssertTrue(app.navigationBars["Choose files"].waitForExistence(timeout:12))
+        XCTAssertFalse(app.buttons["review-file-selection"].isEnabled)
+        capture(app,"selection-folders")
+        let folder=app.buttons["Season 1"];reach(folder,in:app);folder.tap()
+        XCTAssertTrue(app.navigationBars["Season 1"].waitForExistence(timeout:5))
+        let file=app.buttons.containing(.staticText,identifier:"01 — The Open Ocean.mkv").firstMatch
+        XCTAssertTrue(file.waitForExistence(timeout:5));reach(file,in:app);file.tap()
+        let review=app.buttons["review-file-selection"]
+        XCTAssertTrue(review.isEnabled);capture(app,"selection-files");review.tap()
+        XCTAssertTrue(app.navigationBars["Review selection"].waitForExistence(timeout:5))
+        let confirm=app.buttons["confirm-file-selection"];reach(confirm,in:app)
+        XCTAssertTrue(confirm.isEnabled);capture(app,"selection-confirmation");confirm.tap()
+        if uncertain {
+            XCTAssertTrue(app.staticTexts["Result not confirmed"].waitForExistence(timeout:8))
+            let check=app.buttons["Check again"];reach(check,in:app);check.tap()
+        }
+        XCTAssertTrue(app.staticTexts["Selection confirmed"].waitForExistence(timeout:8))
+    }
+}

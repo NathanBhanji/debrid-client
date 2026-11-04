@@ -44,6 +44,10 @@ public struct TorrentSettingsDTO: Codable, Equatable, Sendable {
     public let lifetime: String?
     public let unpack: Bool
     public let organize: Bool?
+    public let waitForSelection: Bool?
+    public init(minFileSize:Int64? = nil,includeRegex:String? = nil,excludeRegex:String? = nil,manualFiles:[String]? = nil,finishedAction:String? = nil,finishedDelay:String? = nil,downloadRetries:Int,torrentRetries:Int,deleteOnError:String? = nil,lifetime:String? = nil,unpack:Bool,organize:Bool? = nil,waitForSelection:Bool? = nil) {
+        self.minFileSize=minFileSize;self.includeRegex=includeRegex;self.excludeRegex=excludeRegex;self.manualFiles=manualFiles;self.finishedAction=finishedAction;self.finishedDelay=finishedDelay;self.downloadRetries=downloadRetries;self.torrentRetries=torrentRetries;self.deleteOnError=deleteOnError;self.lifetime=lifetime;self.unpack=unpack;self.organize=organize;self.waitForSelection=waitForSelection
+    }
 }
 public struct OrganizeSettingsDTO: Decodable, Sendable {
     public let enabled: Bool
@@ -81,6 +85,7 @@ public struct DownloadDTO: Decodable, Sendable, Identifiable {
     public let completedAt: Date?
 }
 public struct TorrentDTO: Decodable, Sendable, Identifiable {
+    public let fileSelectionState:String?
     public let id: String
     public let accountId: String
     public let hash: String

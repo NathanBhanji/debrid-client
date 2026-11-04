@@ -50,3 +50,26 @@ Roadmap17 now implements explicit provider/category/rules review and recoverable
 Roadmap18 supplies the backend hold, authoritative provider-file review, revision-checked immutable confirmation and offline replay for native19. It preserves automatic clients and the v0.2.3 automatic intent fingerprint. Receipt/version/incarnation data remains internal in existing settings JSON; no schema migration. Worker checks cover delayed metadata, changed mappings and retries without releasing an unconfirmed hold. See [contract and downgrade gate](ios-file-selection-contract.md).
 
 Full Go race tests passed; final domain/service/engine/API race checks passed after source follow-through. Pinned lint reports0issues. Generated Go/OpenAPI/native fixtures are current; web types were regenerated after schema generation and verified unchanged on regeneration. Web formatting/lint/typecheck/build and three hosted Swift wire-contract checks passed. Independent read-only review resolved stale failure/worker and second-response link-mapping issues, confirmed content identity binding, and approved the precise downgrade gate. No production transfer/account mutation or deployment occurred. One existing simulator, shut down afterward; one relevant result/eight temporary screenshots retained. Native picker and visual acceptance are milestone19; the plan totals30PRs after this backend/native split. [PR52](https://github.com/NathanBhanji/debrid-client/pull/52) merged as927bb0d1921db60e51a951645b450012f8120c6b after all three checks passed on its independently reviewed head.
+
+
+## 2026-11-04 — v0.2.4 image release and verification
+
+[Release v0.2.4](https://github.com/NathanBhanji/debrid-client/releases/tag/v0.2.4) points at merged PR53 commit `adabed7bb0611e784917994a3954ca871c1f4bd8`. Release workflow41817471266 succeeded on attempt2 after an incomplete unpublished draft was verified and removed, preserving the tag. The first attempt failed uploading one release archive; its image was never applied. All seven final release assets and their published checksums were verified. The successful attempt's multi-platform OCI index, both platform manifests and image version/source labels were verified before application.
+
+NAS service `debrid` now pins:
+
+```
+ghcr.io/nathanbhanji/debrid-client:0.2.4@sha256:62b1d3232a8278e3966a1c2f3b1f42e9fa9d22153883e6b3f49db7e996ad1df0
+```
+
+The compose comparison changed only `services.debrid.image`; existing mounts, environment, network and port remained intact. No schema migration was introduced. At11:14:28UTC, status confirmed the pinned running image, the executable reported0.2.4/adabed7, tailnet HTTPS health returned200/ok/version0.2.4 with all three native capabilities, and Pocket ID remained configured with native SSO enabled. A bounded150-line log check contained one startup line and zero errors/panics. No production account edit or transfer submission was used. Private provenance and health records are retained locally; temporary raw compose copies were removed after verification.
+
+The manual-selection downgrade gate applies from this release: an older server must not run while any retained transfer or default has `wait_for_selection=true`. See the [file-selection contract](ios-file-selection-contract.md).
+
+## 2026-11-04 — native file review19
+
+PR57 implements the Files-style chooser Nathan selected: separate folder navigation and explicit file selection, search across folders, scoped bulk selection, total selected count and a final confirmation sheet. Add-review manual policy holds NAS downloads until confirmed. Pending Items restores uncertain selections on their bound server. Inbox4/attempt2 preserve the policy and exact opaque file IDs across launches; old readers refuse the new envelope.
+
+Validation:162 core tests passed before adding the final migration case; all six focused selection tests then passed, including migration/corrupt-envelope preservation. Three native UI tests passed: ordinary confirmation, largest Dynamic Type and response-loss recovery. A further dark-mode confirmation run passed with settled screenshots. Cross-process inbox probe and unsigned iPhone Release build passed. These are simulator/source checks, not real-device signing or a complete VoiceOver audit.
+
+CI exposed stale scheduled provider-selection work replaying after a selection timestamp had been recorded. The worker now rereads and skips an already recorded selection before querying the provider. A deterministic regression and10repeated race-enabled Real-Debrid/replay runs passed; full engine race suite and pinned lint passed. No production action occurred for this fix. Existing source review findings were resolved; independent source/light review approved. Screenshots are bounded local fixture artifacts; one shared simulator was reused and shut down.

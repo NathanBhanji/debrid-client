@@ -274,6 +274,10 @@ func (e *Engine) runSelect(ctx context.Context, t domain.Torrent, prov provider.
 		return false
 	}
 	t = fresh
+	// A queued snapshot may predate a completed selection job.
+	if t.FilesSelectedAt != nil {
+		return true
+	}
 	if t.Status != domain.TorrentWaitingSelection {
 		return false
 	}

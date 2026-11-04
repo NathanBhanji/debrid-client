@@ -44,7 +44,8 @@ public struct TransferSummary: Identifiable, Sendable {
     }
     public init(_ transfer: TorrentDTO) {
         self.transfer = transfer
-        switch transfer.status {
+        if transfer.fileSelectionState=="pending",transfer.downloads.isEmpty,transfer.status != "error",transfer.status != "completed" {stage = .selecting}
+        else {switch transfer.status {
         case "queued": stage = .queued
         case "adding": stage = .adding
         case "processing": stage = .processing
@@ -62,6 +63,7 @@ public struct TransferSummary: Identifiable, Sendable {
             else if states.contains("downloaded") || states.contains("done") { stage = .nasFinishing }
             else { stage = transfer.downloads.isEmpty ? .providerReady : .unknown }
         default: stage = .unknown
+        }
         }
         let isProvider = stage == .providerDownloading || stage == .providerUploading
         progressLabel = isProvider ? "Provider progress" : "NAS progress"

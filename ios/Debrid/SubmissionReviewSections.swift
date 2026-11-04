@@ -27,7 +27,7 @@ struct SubmissionReviewSections:View {
         }
         if model.canEdit {
             Section {
-                Picker("File selection",selection:$model.allFiles) { Text("Reviewed rules").tag(false);Text("All files").tag(true) }.accessibilityIdentifier("review-file-policy")
+                Picker("File selection",selection:$model.filePolicy) { Text("Reviewed rules").tag(TransferAddModel.FilePolicy.rules);Text("All files").tag(TransferAddModel.FilePolicy.all);Text("Choose after adding").tag(TransferAddModel.FilePolicy.choose) }.accessibilityIdentifier("review-file-policy")
                 Toggle("Extract archives on the server",isOn:$model.unpack).accessibilityIdentifier("review-unpack")
                 Picker("Library organization",selection:$model.organization) {
                     Text("Inherit server").tag(TransferAddModel.Organization.inherit)
@@ -35,10 +35,11 @@ struct SubmissionReviewSections:View {
                     Text("Off").tag(TransferAddModel.Organization.off)
                 }
                 if model.hasAutomaticDeletion { Toggle("Keep copies instead of automatic cleanup",isOn:$model.keepCopies).accessibilityIdentifier("review-keep-copies") }
-            } header: { Text("Files and processing") } footer: { Text("Files are selected automatically using the reviewed rules when metadata becomes available.") }
+            } header: { Text("Files and processing") } footer: { Text(model.filePolicy == .choose ? "The provider prepares this transfer. Downloads to your NAS wait until you choose files and confirm." : "Files are selected automatically using the reviewed rules when metadata becomes available.") }
         }
         if !model.canEdit,let settings=model.visibleSettings {
             Section("Saved processing options") {
+                LabeledContent("File selection",value:settings.waitForSelection == true ? "Choose after adding" : "Automatic")
                 LabeledContent("Archive extraction",value:settings.unpack ? "On" : "Off")
                 LabeledContent("Library organization",value:settings.organize.map { $0 ? "On" : "Off" } ?? "Inherit server")
             }
@@ -84,6 +85,7 @@ struct SubmissionReviewSections:View {
     private func provider(_ kind:String) -> String { ["torbox":"TorBox","realdebrid":"Real-Debrid","alldebrid":"AllDebrid","premiumize":"Premiumize","debridlink":"Debrid-Link"][kind] ?? "Provider" }
     @ViewBuilder private func rules(_ settings:TorrentSettingsDTO) -> some View {
         Section("Reviewed file rules") {
+            if settings.waitForSelection == true { Label("NAS downloads wait for your confirmation",systemImage:"hand.raised").foregroundStyle(Color("LampInk")) }
             if (settings.minFileSize ?? 0)>0 { LabeledContent("Minimum size",value:ByteCountFormatter.string(fromByteCount:settings.minFileSize ?? 0,countStyle:.file)) }
             if let include=settings.includeRegex,!include.isEmpty { Text("Include: "+String(include.prefix(1024))).font(.footnote.monospaced()) }
             if let exclude=settings.excludeRegex,!exclude.isEmpty { Text("Exclude: "+String(exclude.prefix(1024))).font(.footnote.monospaced()) }

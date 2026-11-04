@@ -230,3 +230,23 @@ func TestRealDebridSelectionWaitAndRepackedResults(t *testing.T) {
 		t.Fatal("RD repacked result incorrectly remapped", detail, err)
 	}
 }
+
+func TestQueuedSelectionDoesNotRepeatRecordedProviderChoice(t *testing.T) {
+	h, stale := acceptedSelectionWorker(t, true)
+	ctx := context.Background()
+	if !h.eng.runSelect(ctx, stale, h.fake) {
+		t.Fatal("first selection did not finish")
+	}
+	before := h.fake.Calls("SelectFiles")
+	wrapped := selectionWorkerProvider{Provider: h.fake, get: func(context.Context, string) (provider.Torrent, error) {
+		t.Fatal("already selected snapshot queried the provider again")
+		return provider.Torrent{}, nil
+	}}
+	if !h.eng.runSelect(ctx, stale, wrapped) {
+		t.Fatal("recorded selection not recognized")
+	}
+	current, err := h.svc.GetTorrent(ctx, stale.ID)
+	if err != nil || current.Torrent.Status == domain.TorrentError || current.Torrent.FilesSelectedAt == nil || h.fake.Calls("SelectFiles") != before {
+		t.Fatal("recorded selection repeated or failed", current, err)
+	}
+}
