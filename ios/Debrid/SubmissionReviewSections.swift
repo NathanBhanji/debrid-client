@@ -12,7 +12,7 @@ struct SubmissionReviewSections:View {
         if let settings = model.editableOverrides {
             Section {
                 Button("Transfer options", systemImage: "slider.horizontal.3") { showingOptions = true }
-                    .buttonStyle(.borderless).foregroundStyle(DebridStyle.tint).accessibilityIdentifier("transfer-options")
+                    .buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint).accessibilityIdentifier("transfer-options")
                     .sheet(isPresented: $showingOptions) {
                         NavigationStack {
                             TransferPolicyEditor(initial: settings, allowRules: model.filePolicy == .rules, preview: model.isPreview) { model.applyOverrides($0) }
@@ -75,28 +75,28 @@ struct SubmissionReviewSections:View {
         case .checking: Section { ProgressView("Checking the saved request…") }
         case .uncertain:
             Section("Result not confirmed") {
-                Button("Check result",systemImage:"arrow.clockwise") { action(.check) }.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint).accessibilityIdentifier("check-submission-result")
-                Button("Retry same submission") { action(.retry) }.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint).disabled(!model.canRetry).accessibilityIdentifier("retry-saved-submission")
+                Button("Check result",systemImage:"arrow.clockwise") { action(.check) }.buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint).accessibilityIdentifier("check-submission-result")
+                Button("Retry same submission") { action(.retry) }.buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint).disabled(!model.canRetry).accessibilityIdentifier("retry-saved-submission")
                 Text("The original options are kept until the server confirms the result.").font(.footnote).foregroundStyle(DebridStyle.secondary)
             }
         case .accepted(let id,let exists):
             Section {
                 Label(exists ? "Added to your server" : "Added earlier, since removed",systemImage:"checkmark.circle.fill").foregroundStyle(DebridStyle.tint).accessibilityElement(children:.combine).accessibilityIdentifier("submission-accepted")
-                if exists { Button("View transfer",systemImage:"arrow.up.right") { action(.view(id)) }.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint).accessibilityIdentifier("view-added-transfer") }
-                Button(model.durableAcceptance ? "Done" : "Keep tracking for later") { action(.finish) }.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint).disabled(model.isBusy)
+                if exists { Button("View transfer",systemImage:"arrow.up.right") { action(.view(id)) }.buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint).accessibilityIdentifier("view-added-transfer") }
+                Button(model.durableAcceptance ? "Done" : "Keep tracking for later") { action(.finish) }.buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint).disabled(model.isBusy)
             }
         case .duplicate(let id):
             Section(model.canViewPriorDuplicate ? "Already on this provider" : "Prior request on another server") {
                 Text("An active transfer with this info hash already exists.")
-                if model.canViewPriorDuplicate { Button("View existing transfer") { action(.view(id)) }.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint) }
+                if model.canViewPriorDuplicate { Button("View existing transfer") { action(.view(id)) }.buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint) }
                 else if let prior=model.attempt?.serverURL { Text(prior.absoluteString).font(.footnote) }
-                Button("Review options") { model.editRejectedOptions() }.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint)
+                Button("Review options") { model.editRejectedOptions() }.buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint)
             }
-        case .rejected: Section { Text("The server rejected these options. No transfer was added by this request.");Button("Review options") { model.editRejectedOptions() }.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint) }
+        case .rejected: Section { Text("The server rejected these options. No transfer was added by this request.");Button("Review options") { model.editRejectedOptions() }.buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint) }
         case .wrongServer(let url): Section { Label("Reconnect to the original server",systemImage:"server.rack");Text(url.absoluteString).font(.footnote).textSelection(.enabled);Text("This saved request is bound to that server.").font(.footnote) }
-        case .requiresUpdate: Section { Label("Server update required",systemImage:"arrow.up.circle");Text("This server does not advertise safe submission recovery. The item remains saved on this iPhone.").font(.footnote);Button("Check server again") { action(.reload) }.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint) }
+        case .requiresUpdate: Section { Label("Server update required",systemImage:"arrow.up.circle");Text("This server does not advertise safe submission recovery. The item remains saved on this iPhone.").font(.footnote);Button("Check server again") { action(.reload) }.buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint) }
         case .mismatched: Section { Label("Saved request mismatch",systemImage:"exclamationmark.shield");Text("The saved request does not match the server’s record. It has been kept without resubmitting.").font(.footnote) }
-        case .unavailable: Section { Button("Try again") { action(.reload) }.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint) }
+        case .unavailable: Section { Button("Try again") { action(.reload) }.buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint) }
         }
     }
     private func provider(_ kind:String) -> String { ["torbox":"TorBox","realdebrid":"Real-Debrid","alldebrid":"AllDebrid","premiumize":"Premiumize","debridlink":"Debrid-Link"][kind] ?? "Provider" }

@@ -65,6 +65,7 @@ def run(command, name):
     if process.returncode:
         sys.exit(process.returncode)
 
+run([sys.executable, str(ROOT / "scripts/check-contrast.py")], "contrast")
 run(["xcodegen", "generate"], "generate")
 command = ["xcodebuild", "-project", "Debrid.xcodeproj", "-scheme", "Debrid", "-configuration", a.configuration,
            "-derivedDataPath", str(ROOT / ".build")]

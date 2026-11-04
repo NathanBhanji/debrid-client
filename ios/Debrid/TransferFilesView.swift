@@ -106,7 +106,7 @@ private struct TransferFileDetail: View {
                         if !preview,download.state=="error" {
                             Button("Retry this file",systemImage:"arrow.clockwise") {
                                 do {retryModel=try intake?.retryModel(kind:.download,resourceID:download.id,torrentID:transferID,name:file.name)} catch {retryMessage="Retry review could not be opened. Check protected storage and try again."}
-                            }.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint).accessibilityIdentifier("retry-file-"+download.id)
+                            }.buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint).accessibilityIdentifier("retry-file-"+download.id)
                         }
                     }
                 }
@@ -156,7 +156,7 @@ private extension DownloadDTO {
     var progressInk: Color {
         switch state {
         case "done": Color("StageGreen")
-        case "error": .red
+        case "error": Color("DangerInk")
         case "cancelled": DebridStyle.secondary
         default: Color("StageBlue")
         }

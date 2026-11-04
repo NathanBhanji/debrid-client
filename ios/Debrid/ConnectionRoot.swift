@@ -64,14 +64,15 @@ struct ConnectionRoot: View {
                     TextField("https://debrid.example.com", text: $model.address)
                         .keyboardType(.URL).textContentType(.URL)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .frame(minHeight: 44).accessibilityLabel("Server address")
                         .accessibilityIdentifier("server-address")
                         .onSubmit { check() }
                         .disabled(auth?.isBusy == true)
                     if model.phase == .checking {
-                        HStack { ProgressView(); Text("Checking connection…"); Spacer(); Button("Cancel") { cancel() }.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint) }
+                        HStack { ProgressView(); Text("Checking connection…"); Spacer(); Button("Cancel") { cancel() }.buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint) }
                     } else {
                         Button("Check connection", systemImage: "network") { check() }
-                            .buttonStyle(.borderless).foregroundStyle(DebridStyle.tint)
+                            .buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint)
                             .disabled(model.address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store == nil || auth?.isBusy == true)
                             .accessibilityIdentifier("check-connection")
                     }
@@ -84,27 +85,30 @@ struct ConnectionRoot: View {
                 case .discovered(let server):
                     Section("Server found") {
                         Label("Debrid \(server.version)", systemImage: "checkmark.circle.fill")
-                        Text(server.profile.serverURL.absoluteString).font(.footnote).textSelection(.enabled)
+                        Text(server.profile.serverURL.absoluteString).font(.footnote).textSelection(.enabled).accessibilityLabel("Server address").accessibilityValue(server.profile.serverURL.absoluteString)
                         loginSummary(server)
                         if server.login == .pocketID {
-                            Button("Continue with Pocket ID", systemImage: "person.badge.key") {
+                            Button {
                                 if preview { showingPreviewNotice = true; return }
                                 guard let auth else { return }
                                 authTask = Task { await auth.signIn(to: server.profile) }
-                            }.buttonStyle(.glassProminent).tint(Color(red: 0.62, green: 0.17, blue: 0)).foregroundStyle(.white)
+                            } label: {
+                                Label("Continue with Pocket ID", systemImage: "person.badge.key")
+                                    .frame(maxWidth: .infinity, minHeight: 44).fixedSize(horizontal: false, vertical: true)
+                            }.buttonStyle(.glassProminent).controlSize(.large).tint(Color(red: 0.62, green: 0.17, blue: 0)).foregroundStyle(.white)
                                 .disabled(auth?.isBusy == true || auth?.pendingLocalRemoval != nil)
                                 .accessibilityIdentifier("pocket-id-sign-in")
                         }
                         Button(savedID == server.profile.id ? "Server saved" : "Save server", systemImage: savedID == server.profile.id ? "checkmark" : "bookmark") {
                             if preview { showingPreviewNotice = true } else { Task { await save(server.profile) } }
-                        }.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint)
+                        }.buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint)
                             .disabled(savedID == server.profile.id || savingID != nil || auth?.isBusy == true)
                     }
                 default: EmptyView()
                 }
                 if let auth, auth.isBusy {
                     Section {
-                        HStack { ProgressView(); Text("Connecting securely…"); Spacer(); Button("Cancel") { cancelAuth() }.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint) }
+                        HStack { ProgressView(); Text("Connecting securely…"); Spacer(); Button("Cancel") { cancelAuth() }.buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint) }
                     }
                 }
                 if let message = auth?.message {
@@ -113,12 +117,12 @@ struct ConnectionRoot: View {
                         if let auth, let pending = auth.pendingLocalRemoval {
                             Text(pending.serverURL.absoluteString).font(.footnote)
                             Button("Remove saved session", role: .destructive) { Task { await auth.removeSavedSession() } }
-                                .buttonStyle(.borderless).foregroundStyle(.red).disabled(auth.isBusy)
+                                .buttonStyle(DebridRowActionStyle()).foregroundStyle(Color("DangerInk")).disabled(auth.isBusy)
                         } else {
                         Button("Reconnect saved server") {
                             guard let auth else { return }
                             authTask = Task { await auth.restore() }
-                        }.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint).disabled(auth?.isBusy == true)
+                        }.buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint).disabled(auth?.isBusy == true)
                         }
                     }
                 }

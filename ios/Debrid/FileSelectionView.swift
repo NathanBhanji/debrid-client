@@ -44,7 +44,7 @@ private struct SelectionFolderView:View {
                 if !files.isEmpty {Section(searching ? "Matches in all folders" : "Files") {ForEach(files) {file in
                     Button {model.toggle(file.id)} label: {
                         HStack(spacing:12) {
-                            Image(systemName:model.selected.contains(file.id) ? "checkmark.circle.fill" : "circle").font(.title3).foregroundStyle(model.selected.contains(file.id) ? DebridStyle.tint : DebridStyle.secondary)
+                            Image(systemName:model.selected.contains(file.id) ? "checkmark.circle.fill" : "circle").font(.title3).foregroundStyle(model.selected.contains(file.id) ? DebridStyle.tint : DebridStyle.secondary).accessibilityHidden(true)
                             VStack(alignment:.leading,spacing:4) {
                                 Text(file.name).foregroundStyle(DebridStyle.ink)
                                 Text(file.size==0 ? "Size unknown" : file.size.formatted(.byteCount(style:.file))).font(.footnote).foregroundStyle(DebridStyle.secondary)
@@ -53,12 +53,14 @@ private struct SelectionFolderView:View {
                         }.frame(minHeight:44).contentShape(Rectangle())
                     }.buttonStyle(.plain).disabled(!model.canEdit)
                         .accessibilityAddTraits(model.selected.contains(file.id) ? [.isSelected] : [])
-                        .accessibilityHint("Double tap to change selection")
+                        .accessibilityLabel(searching ? file.path : file.name)
+                        .accessibilityValue((model.selected.contains(file.id) ? "Selected. " : "Not selected. ") + (file.size == 0 ? "Size unknown" : file.size.formatted(.byteCount(style: .file))))
+                        .accessibilityHint("Changes whether this file is included in your selection. Downloads wait until final confirmation.")
                 }}}
                 else if searching {Section {ContentUnavailableView.search(text:query)}.listRowBackground(Color.clear)}
                 Section {
-                    Button(searching ? "Select all matching files" : "Select this folder and subfolders") {model.select(searching ? matches : review.descendants(in:folder))}.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint).disabled(!model.canEdit)
-                    Button("Clear all selected files") {model.clear()}.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint).disabled(!model.canEdit || model.selected.isEmpty)
+                    Button(searching ? "Select all matching files" : "Select this folder and subfolders") {model.select(searching ? matches : review.descendants(in:folder))}.buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint).disabled(!model.canEdit)
+                    Button("Clear all selected files") {model.clear()}.buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint).disabled(!model.canEdit || model.selected.isEmpty)
                 } footer: {Text("Selections in other folders are kept. Nothing is selected automatically.")}
             } else {status}
         }.modifier(DebridListStyle()).navigationTitle(title).navigationBarTitleDisplayMode(.inline)
@@ -83,7 +85,7 @@ private struct SelectionFolderView:View {
             switch model.phase {
             case .loading,.checking,.sending:ProgressView(model.phase == .sending ? "Confirming selection…" : "Checking file review…")
             case .waiting:Label("Waiting for provider metadata",systemImage:"clock");Text("Your provider may finish preparing all files before a review is available. NAS downloads remain on hold.").font(.footnote);refresh
-            case .uncertain:Label("Result not confirmed",systemImage:"questionmark.circle");refresh;Button("Retry same selection") {run {await model.retry()}}.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint).disabled(!model.canRetry)
+            case .uncertain:Label("Result not confirmed",systemImage:"questionmark.circle");refresh;Button("Retry same selection") {run {await model.retry()}}.buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint).disabled(!model.canRetry)
             case .rejected:Label("Selection was not accepted",systemImage:"exclamationmark.circle");refresh
             case .accepted(let source):
                 Label(source == .other ? "Another selection was confirmed" : "Selection confirmed",systemImage:"checkmark.circle.fill").foregroundStyle(DebridStyle.tint)
@@ -95,7 +97,7 @@ private struct SelectionFolderView:View {
             }
         }
     }
-    private var refresh:some View {Button("Check again") {run {await model.refresh()}}.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint).disabled(model.isBusy)}
+    private var refresh:some View {Button("Check again") {run {await model.refresh()}}.buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint).disabled(model.isBusy)}
     private func run(_ action:@escaping @MainActor () async -> Void) {guard command==nil else {return};command=Task {await action();command=nil}}
     private func confirmation(_ value:FileSelectionProposal)->some View {
         NavigationStack {

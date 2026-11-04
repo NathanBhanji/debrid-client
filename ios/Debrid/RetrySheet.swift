@@ -50,7 +50,7 @@ struct RetrySheet:View {
         case .uncertain:
             Section("Result not confirmed") {
                 refresh
-                Button("Retry same request") {run {await model.retry()}}.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint).disabled(!model.canRetry).accessibilityIdentifier("retry-same-request")
+                Button("Retry same request") {run {await model.retry()}}.buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint).disabled(!model.canRetry).accessibilityIdentifier("retry-same-request")
                 Text(model.message ?? "The original retry is kept until its result is confirmed.").font(.footnote).foregroundStyle(DebridStyle.secondary)
             }
         case .accepted(let exists):
@@ -66,7 +66,7 @@ struct RetrySheet:View {
         case .unavailable:Section {Label("Retry unavailable",systemImage:"arrow.trianglehead.2.clockwise");refresh}
         }
     }
-    private var refresh:some View {Button(refreshTitle) {run {await model.refresh()}}.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint).disabled(model.isBusy).accessibilityIdentifier("check-retry-result")}
+    private var refresh:some View {Button(refreshTitle) {run {await model.refresh()}}.buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint).disabled(model.isBusy).accessibilityIdentifier("check-retry-result")}
     private var refreshTitle:String {
         switch model.phase {case .rejected:"Review again";case .requiresUpdate:"Check server";case .unavailable:"Reload review";default:"Check result"}
     }

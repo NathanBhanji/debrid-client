@@ -1,0 +1,8 @@
+Server Button
+Transfers Heading
+Preview · Sample transfers
+Debrid
+TRANSFER STATUS , 3 transfers · 2 active , Last confirmed 4 Nov 
+Your transfers , 3 of 3 Heading
+The Open Ocean , Downloading at provider , Provider progress · 4
+Earth from Above , Downloading to NAS , NAS progress · 64% , Doc

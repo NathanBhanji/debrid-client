@@ -26,7 +26,7 @@ struct ProviderEditorSheet: View {
                     Section {
                         Text("No request will be repeated automatically.").font(.footnote)
                         Button("Check server state", systemImage: "arrow.clockwise") { run { await model.checkResult() } }
-                            .buttonStyle(.borderless).foregroundStyle(DebridStyle.tint).disabled(model.isBusy).accessibilityIdentifier("provider-check-result")
+                            .buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint).disabled(model.isBusy).accessibilityIdentifier("provider-check-result")
                     }
                 case .observed:
                     Section { Label(model.observedAccount == nil ? "No account found" : "Account found", systemImage: "externaldrive").accessibilityIdentifier("provider-observed") }
@@ -36,7 +36,7 @@ struct ProviderEditorSheet: View {
                     else {
                         Section {
                             Button(model.isNew ? "Add account" : "Save changes", systemImage: "checkmark") { run { await model.save() } }
-                                .buttonStyle(.borderless).foregroundStyle(DebridStyle.tint).disabled(!model.canSave).accessibilityIdentifier("provider-save")
+                                .buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint).disabled(!model.canSave).accessibilityIdentifier("provider-save")
                         }
                         if !model.isNew { removal }
                     }
@@ -61,9 +61,9 @@ struct ProviderEditorSheet: View {
                     }
                     Section {
                         Button("Keep account") { confirmingRemoval = false }
-                            .buttonStyle(.borderless).foregroundStyle(DebridStyle.tint)
+                            .buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint)
                         Button("Remove", role: .destructive) { confirmingRemoval = false; run { await model.remove() } }
-                            .buttonStyle(.borderless).foregroundStyle(Color("DangerInk"))
+                            .buttonStyle(DebridRowActionStyle()).foregroundStyle(Color("DangerInk"))
                     }
                 }.modifier(DebridListStyle()).navigationTitle("Remove account").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { confirmingRemoval = false } } }
@@ -107,7 +107,7 @@ struct ProviderEditorSheet: View {
             Text(model.supportsForceRemoval ? "Off by default. Removing associated transfers stops their local work and removes their records. It requests no file or provider-copy deletion. A failed stop can leave removal partly complete." : "To remove an account with transfers, remove the transfers individually first or update your server.")
                 .font(.footnote).foregroundStyle(DebridStyle.secondary)
             Button("Remove account", role: .destructive) { confirmingRemoval = true }
-                .buttonStyle(.borderless).foregroundStyle(Color("DangerInk")).accessibilityIdentifier("provider-remove")
+                .buttonStyle(DebridRowActionStyle()).foregroundStyle(Color("DangerInk")).accessibilityIdentifier("provider-remove")
         } header: { Text("Remove account") }
     }
     private func run(_ action: @escaping @MainActor () async -> Void) {

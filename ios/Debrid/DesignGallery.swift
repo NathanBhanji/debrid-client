@@ -130,8 +130,8 @@ struct DesignAction: View {
                     .tint(Color(red: 0.714, green: 0.216, blue: 0))
                     .foregroundStyle(.white)
             } else {
-                action.buttonStyle(.borderless)
-                    .foregroundStyle(role == .destructive ? Color.red : DebridStyle.tint)
+                action.buttonStyle(DebridRowActionStyle())
+                    .foregroundStyle(role == .destructive ? Color("DangerInk") : DebridStyle.tint)
             }
         }
         .alert("Preview only", isPresented: $showingNotice) {

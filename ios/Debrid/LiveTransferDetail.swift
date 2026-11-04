@@ -13,7 +13,7 @@ struct LiveTransferDetail: View {
     var body: some View {
         List {
             if preview {
-                Section { Label("Preview · Sample transfer",systemImage:"viewfinder").font(.footnote).foregroundStyle(DebridStyle.secondary) }
+                Section { Label("Preview · Sample transfer",systemImage:"viewfinder").font(.footnote).fixedSize(horizontal: false, vertical: true).foregroundStyle(DebridStyle.secondary) }
                     .listRowBackground(Color.clear).listRowSeparator(.hidden)
             }
             if case .failed(let message) = model.phase {
@@ -50,7 +50,7 @@ struct LiveTransferDetail: View {
                     Button(item.transfer.fileSelectionState == "accepted" ? "View confirmed selection" : "Choose files",systemImage:"checklist") {chooseFiles(transferID,item.name)}.accessibilityIdentifier("choose-transfer-files")
                 }}
                 if !preview,(item.transfer.status=="error" || item.transfer.status=="cancelled"),let retryTransfer {Section {
-                    Button(item.transfer.status=="cancelled" ? "Retry transfer":"Retry failed transfer",systemImage:"arrow.trianglehead.2.clockwise") {retryTransfer(transferID,item.name)}.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint).accessibilityIdentifier("retry-transfer")
+                    Button(item.transfer.status=="cancelled" ? "Retry transfer":"Retry failed transfer",systemImage:"arrow.trianglehead.2.clockwise") {retryTransfer(transferID,item.name)}.buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint).accessibilityIdentifier("retry-transfer")
                 }}
                 if !preview,let manageTransfer {Section {
                     if item.stage.isActive || item.stage == .selecting {Button("Cancel transfer",systemImage:"stop.circle") {manageTransfer(.cancel,transferID,item.name)}.foregroundStyle(DebridStyle.tint).accessibilityIdentifier("cancel-transfer")}
@@ -83,7 +83,7 @@ struct LiveTransferDetail: View {
     private func stageColor(_ stage: TransferStage) -> Color {
         switch stage {
         case .completed: Color("StageGreen")
-        case .failed: .red
+        case .failed: Color("DangerInk")
         case .cancelled: DebridStyle.secondary
         case .selecting: Color("StageAmber")
         default: Color("StageBlue")

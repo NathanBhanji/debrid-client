@@ -85,7 +85,7 @@ struct ManagementSheet:View {
         case .uncertain:
             Section("Result not confirmed") {
                 refresh
-                Button(model.kind == .cancel ? "Retry saved cancellation":"Retry saved removal",role:model.kind == .remove ? .destructive:nil) {request(retry:true)}.buttonStyle(.borderless).foregroundStyle(model.kind == .remove ? Color("DangerInk"):DebridStyle.tint).disabled(!model.canRetry).accessibilityIdentifier("retry-management")
+                Button(model.kind == .cancel ? "Retry saved cancellation":"Retry saved removal",role:model.kind == .remove ? .destructive:nil) {request(retry:true)}.buttonStyle(DebridRowActionStyle()).foregroundStyle(model.kind == .remove ? Color("DangerInk"):DebridStyle.tint).disabled(!model.canRetry).accessibilityIdentifier("retry-management")
                 Text(model.message ?? "The original action is kept until its result is confirmed.").font(.footnote).foregroundStyle(DebridStyle.secondary)
             }
         case .accepted(let outcome):Section {
@@ -109,7 +109,7 @@ struct ManagementSheet:View {
         case .unavailable:Section {Label("Action unavailable",systemImage:"exclamationmark.triangle");refresh}
         }
     }
-    private var refresh:some View {Button(refreshTitle) {run {await model.refresh()}}.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint).disabled(model.isBusy).accessibilityIdentifier("check-management-result")}
+    private var refresh:some View {Button(refreshTitle) {run {await model.refresh()}}.buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint).disabled(model.isBusy).accessibilityIdentifier("check-management-result")}
     private var refreshTitle:String {switch model.phase {case .rejected:"Review again";case .requiresUpdate:"Check server";case .unavailable:"Reload review";default:"Check result"}}
     private func request(retry:Bool) {
         retrying=retry

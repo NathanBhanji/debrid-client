@@ -35,7 +35,7 @@ struct ProviderDesign: View {
                     LabeledContent("Default", value: "Yes")
                     NavigationLink("Edit account") { DesignDestination(screen: .account) }
                 }
-                Section { NavigationLink("Remove account…") { DesignDestination(screen: .accountRemoval) }.foregroundStyle(.red) }
+                Section { NavigationLink("Remove account…") { DesignDestination(screen: .accountRemoval) }.foregroundStyle(Color("DangerInk")) }
             } else {
                 Section {
                     Picker("Service", selection: $kind) {

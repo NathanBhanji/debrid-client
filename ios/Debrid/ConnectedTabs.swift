@@ -30,13 +30,13 @@ struct ConnectionSettings: View {
     private var content: some View {
             List {
                 Section {
-                    if auth == nil { Label("Preview · Sample server", systemImage: "viewfinder").font(.footnote).foregroundStyle(DebridStyle.secondary) }
+                    if auth == nil { Label("Preview · Sample server", systemImage: "viewfinder").font(.footnote).fixedSize(horizontal: false, vertical: true).foregroundStyle(DebridStyle.secondary) }
                     DebridWordmark().padding(.vertical, 8)
                     Text("Native on your phone. Downloads on your server.")
                         .font(.subheadline).foregroundStyle(DebridStyle.secondary)
                 }.listRowBackground(Color.clear)
                 Section("Server") {
-                    Text(server.profile.serverURL.absoluteString).textSelection(.enabled)
+                    Text(server.profile.serverURL.absoluteString).textSelection(.enabled).accessibilityLabel("Server address").accessibilityValue(server.profile.serverURL.absoluteString)
                     Label("If your server uses Tailscale, connect this iPhone to its tailnet.", systemImage: "network")
                         .font(.footnote).foregroundStyle(DebridStyle.secondary)
                 }
@@ -46,7 +46,7 @@ struct ConnectionSettings: View {
                         .accessibilityValue(TransferSearchIndex.bounded(server.username, limit: 256)).accessibilityIdentifier("settings-identity")
                     if let auth {
                         Button("Sign out on this iPhone", role: .destructive) { confirmingSignOut = true }
-                            .buttonStyle(.borderless).foregroundStyle(Color("DangerInk"))
+                            .buttonStyle(DebridRowActionStyle()).foregroundStyle(Color("DangerInk"))
                             .disabled(auth.isBusy).accessibilityIdentifier("settings-sign-out")
                     }
                 }
