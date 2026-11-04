@@ -39,3 +39,14 @@ python3 scripts/capture-gallery.py --simulator <UUID> --screens connect sign-in 
 Check/test/capture share a checkout lock; test and capture additionally acquire a canonical UUID lock under `~/Library/Caches/dev.bhanji.debrid/locks`, spanning worktrees. Capture refuses a booted device, creates no devices, has bounded subprocesses and restores/shuts down only the shared device it booted. Capture and tests must run serially.
 
 Gallery retention is one catalog of **at most 32 screenshots**, one per route, plus the existing two primary appearance references. This explicitly replaces the eight-image local limit for Nathan’s requested all-screen catalog; keep it below 15 MB, overwrite the same route files rather than keeping per-PR sets, and retain at most eight temporary captures. Never copy derived data or make a simulator per screen. Future state permutations are interactive studies, not an assertion that every state has been captured.
+
+## Typed API transport
+
+`DebridAPIClient` is a read-only, server-bound URLSession client. It is not constructed by the app shell yet. DTOs decode the Go wire contract; credentials are explicit per-client values with redacted descriptions, with Keychain persistence reserved for PR 03. See [transport boundaries](../docs/plan/ios-api-transport.md).
+
+```sh
+make generate-check # repository root; includes Go-produced native fixtures
+python3 ios/scripts/check.py test --suite core --simulator <UUID>
+```
+
+Use core-only tests when UI is unchanged; the default suite still includes native interaction tests. All tests/captures use the same locks/device policy. Test diagnostics collection is disabled to avoid large automatic sysdiagnose archives; one latest result and bounded log are retained.

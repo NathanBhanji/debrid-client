@@ -12,6 +12,7 @@ from workflow import acquire_lock, simulator_lock
 ROOT = Path(__file__).resolve().parents[1]
 p = argparse.ArgumentParser()
 p.add_argument("mode", choices=["build", "test", "device"])
+p.add_argument("--suite", choices=["all", "core"], default="all", help="Select core-only checks when UI is unchanged")
 p.add_argument("--simulator", help="Existing, explicitly selected simulator UUID (required for test)")
 a = p.parse_args()
 if a.mode == "test" and not a.simulator:
@@ -59,7 +60,10 @@ run(["xcodegen", "generate"], "generate")
 command = ["xcodebuild", "-project", "Debrid.xcodeproj", "-scheme", "Debrid", "-configuration", "Debug",
            "-derivedDataPath", str(ROOT / ".build"), "CODE_SIGNING_ALLOWED=NO"]
 if a.mode == "test":
-    command += ["-destination", "platform=iOS Simulator,id=" + a.simulator, "-parallel-testing-enabled", "NO", "-collect-test-diagnostics", "never", "test"]
+    command += ["-destination", "platform=iOS Simulator,id=" + a.simulator, "-parallel-testing-enabled", "NO", "-collect-test-diagnostics", "never"]
+    if a.suite == "core":
+        command += ["-only-testing:DebridKitTests"]
+    command += ["test"]
 else:
     command += ["-destination", "generic/platform=iOS" if a.mode == "device" else "generic/platform=iOS Simulator", "build"]
 run(command, a.mode)

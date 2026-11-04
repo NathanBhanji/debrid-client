@@ -1,0 +1,113 @@
+import Foundation
+
+public struct HealthDTO: Decodable, Sendable { public let ok: Bool; public let version: String }
+public struct AuthStatusDTO: Decodable, Sendable {
+    public let configured: Bool
+    public let mode: String
+    public let oidcIssuer: String?
+}
+public struct IdentityDTO: Decodable, Sendable {
+    public let username: String?
+    public let mode: String
+    public let apiKey: Bool
+}
+public struct AccountDTO: Decodable, Sendable, Identifiable {
+    public let id: String
+    public let kind: String
+    public let name: String
+    public let enabled: Bool
+    public let isDefault: Bool
+    public let createdAt: Date
+    public let updatedAt: Date
+    public let user: ProviderUserDTO?
+}
+public struct ProviderUserDTO: Decodable, Sendable {
+    public let username: String?
+    public let email: String?
+    public let premium: Bool
+    public let plan: String?
+    public let expiresAt: Date?
+}
+public struct TorrentSettingsDTO: Decodable, Sendable {
+    public let minFileSize: Int64?
+    public let includeRegex: String?
+    public let excludeRegex: String?
+    public let manualFiles: [String]?
+    public let finishedAction: String?
+    public let finishedDelay: String?
+    public let downloadRetries: Int
+    public let torrentRetries: Int
+    public let deleteOnError: String?
+    public let lifetime: String?
+    public let unpack: Bool
+    public let organize: Bool?
+}
+public struct OrganizeSettingsDTO: Decodable, Sendable {
+    public let enabled: Bool
+    public let movieTemplate: String?
+    public let tvTemplate: String?
+}
+public struct SettingsDTO: Decodable, Sendable {
+    public let torrentDefaults: TorrentSettingsDTO
+    public let categories: [String]?
+    public let unpackMaxDepth: Int
+    public let organize: OrganizeSettingsDTO
+}
+public struct FileDTO: Decodable, Sendable, Identifiable {
+    public let id: String
+    public let path: String
+    public let size: Int64
+    public let selected: Bool
+}
+public struct DownloadDTO: Decodable, Sendable, Identifiable {
+    public let id: String
+    public let torrentId: String
+    public let fileId: String?
+    public let path: String
+    public let filename: String
+    public let size: Int64
+    public let bytesDone: Int64
+    public let progress: Double
+    /// Raw strings preserve unknown server versions for domain mapping in later milestones.
+    public let state: String
+    public let error: String?
+    public let retryCount: Int
+    public let queuedAt: Date
+    public let startedAt: Date?
+    public let finishedAt: Date?
+    public let completedAt: Date?
+}
+public struct TorrentDTO: Decodable, Sendable, Identifiable {
+    public let id: String
+    public let accountId: String
+    public let hash: String
+    public let name: String
+    public let category: String?
+    public let dirName: String?
+    public let organized: Bool?
+    public let status: String
+    public let statusReason: String?
+    public let error: String?
+    public let providerProgress: Double
+    public let localProgress: Double
+    public let size: Int64
+    public let speed: Int64
+    public let seeders: Int
+    public let providerId: String?
+    public let providerStatus: String?
+    public let files: [FileDTO]
+    public let settings: TorrentSettingsDTO
+    public let retryCount: Int
+    public let addedAt: Date
+    public let completedAt: Date?
+    public let downloads: [DownloadDTO]
+}
+public struct SystemStatusDTO: Decodable, Sendable {
+    public let version: String
+    public let downloadDir: String
+    public let accounts: Int
+    public let torrents: [String: Int]
+    public let downloads: [String: Int]
+    public let diskFreeBytes: Int64
+    public let diskTotalBytes: Int64
+}

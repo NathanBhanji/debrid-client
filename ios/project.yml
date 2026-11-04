@@ -55,6 +55,9 @@ targets:
     sources:
       - path: DebridKitTests
         excludes: [Info.plist]
+      - path: ../testdata/ios-api
+        type: folder
+        buildPhase: resources
     dependencies:
       - target: DebridKit
     info:
