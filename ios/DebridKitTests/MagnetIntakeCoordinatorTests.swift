@@ -16,11 +16,14 @@ private actor IntakeTestStore: PendingInboxAccess {
         if self.point == point { self.point = nil; paused = true; await withCheckedContinuation { continuation = $0 } }
     }
     func resume() { continuation?.resume(); continuation = nil }
-    func snapshot() async throws -> [PendingMagnet] { let result = try await base.snapshot(); await pause(.snapshot); return result }
+    func snapshot() async throws -> [PendingItem] { let result = try await base.snapshot(); await pause(.snapshot); return result }
     func enqueue(_ magnet:MagnetLink,source:PendingSource,target:ServerAddress?) async throws -> PendingReceipt {
         await pause(.enqueue)
         if failing { throw NSError(domain:"fixture",code:1,userInfo:[NSLocalizedDescriptionKey:"private-fixture-body"]) }
         return try await base.enqueue(magnet,source:source,target:target)
+    }
+    func enqueueTorrent(_ file:TorrentFile,source:PendingSource,target:ServerAddress?) async throws -> PendingReceipt {
+        if failing { throw PendingInboxError.unavailable }; return try await base.enqueueTorrent(file,source:source,target:target)
     }
     func claim(_ id:UUID) async throws -> PendingClaim { let result = try await base.claim(id); await pause(.claim); return result }
     func renew(_ id:UUID,token:UUID) async throws -> Date { try await base.renew(id,token:token) }
@@ -40,11 +43,11 @@ private actor IntakeTestStore: PendingInboxAccess {
         let inbox = try PendingInbox(directory:dir), model = MagnetIntakeCoordinator(inbox:inbox), raw = uri()
         #expect(await model.receive(try #require(URL(string:raw))))
         let id = try #require(model.items.first?.id)
-        #expect(model.items.first?.magnet.rawURI == raw && model.notice == "Link saved for review")
+        #expect(model.items.first?.magnet?.rawURI == raw && model.notice == "Item saved for review")
         _ = await model.receive(try #require(URL(string:raw)))
-        #expect(model.items.count == 1 && model.items.first?.id == id && model.notice == "Link is already saved")
+        #expect(model.items.count == 1 && model.items.first?.id == id && model.notice == "Item is already saved")
         let restored = MagnetIntakeCoordinator(inbox:inbox); await restored.refresh()
-        #expect(restored.items.first?.magnet.rawURI == raw && restored.items.first?.id == id)
+        #expect(restored.items.first?.magnet?.rawURI == raw && restored.items.first?.id == id)
     }
     @Test func authAndOtherSchemesAreIgnoredAndInvalidMagnetNeverOpensStore() async throws {
         let model = MagnetIntakeCoordinator(openInbox:{ throw PendingInboxError.sharedContainerUnavailable })
@@ -144,4 +147,30 @@ private actor IntakeTestStore: PendingInboxAccess {
         #expect(model.notice == nil && model.items.isEmpty)
     }
 
+    @Test func saturatedURLSavesNeverReportPastedInputAsDurable() async throws {
+        // Suspend all writes so the intake limit is reached without depending on disk timing.
+        let gate = IntakeSaturationStore(), saturated = MagnetIntakeCoordinator(inbox:gate)
+        let tasks = (0..<PendingInbox.itemLimit).map { index in Task { await saturated.receive(try #require(URL(string:uri("Arriving\(index)")))) } }
+        for _ in 0..<300 where saturated.savingCount < PendingInbox.itemLimit { try await Task.sleep(for:.milliseconds(10)) }
+        #expect(saturated.savingCount == PendingInbox.itemLimit)
+        #expect(await !saturated.paste(uri("Pasted")))
+        #expect(saturated.notice == nil && saturated.intakeMessage?.contains("Too many") == true)
+        await gate.resumeAll(); for task in tasks { _ = try await task.value }
+    }
+
+}
+
+private actor IntakeSaturationStore: PendingInboxAccess {
+    private var continuations: [CheckedContinuation<PendingReceipt,any Error>] = []
+    func enqueue(_ magnet:MagnetLink,source:PendingSource,target:ServerAddress?) async throws -> PendingReceipt {
+        try await withCheckedThrowingContinuation { continuations.append($0) }
+    }
+    func resumeAll() { for continuation in continuations { continuation.resume(throwing:PendingInboxError.full) }; continuations = [] }
+    func snapshot() async throws -> [PendingItem] { [] }
+    func enqueueTorrent(_ file:TorrentFile,source:PendingSource,target:ServerAddress?) async throws -> PendingReceipt { throw PendingInboxError.full }
+    func claim(_ id:UUID) async throws -> PendingClaim { throw PendingInboxError.notFound }
+    func renew(_ id:UUID,token:UUID) async throws -> Date { throw PendingInboxError.notFound }
+    func release(_ id:UUID,token:UUID) async throws {}
+    func keep(_ id:UUID) async throws {}
+    func discard(_ id:UUID,token:UUID?) async throws {}
 }

@@ -5,34 +5,41 @@ public enum PendingInboxError: Error, Equatable, Sendable, LocalizedError {
     case unavailable, sharedContainerUnavailable, busy, full, corrupt, unsupportedVersion, notFound, lostClaim, expired
     public var errorDescription: String? {
         switch self {
-        case .unavailable: "Pending links are unavailable. Unlock your iPhone and try again."
+        case .unavailable: "Pending items are unavailable. Unlock your iPhone and try again."
         case .sharedContainerUnavailable: "Shared storage is unavailable for this build."
         case .busy: "Another screen is updating pending links. Try again shortly."
-        case .full: "Pending links are full. Review or discard a saved link before adding another."
-        case .corrupt: "Pending links could not be read safely. Saved data has been preserved."
-        case .unsupportedVersion: "Pending links use an unsupported version. Update Debrid to continue."
+        case .full: "Pending items are full. Review or discard a saved item before adding another."
+        case .corrupt: "Pending items could not be read safely. Saved data has been preserved."
+        case .unsupportedVersion: "Pending items use an unsupported version. Update Debrid to continue."
         case .notFound: "This pending link is no longer listed."
         case .lostClaim: "This review is no longer current. Reopen the pending link."
-        case .expired: "This saved link needs confirmation before it can be reviewed again."
+        case .expired: "This saved item needs confirmation before it can be reviewed again."
         }
     }
 }
-public enum PendingSource: String, Codable, Sendable { case url, paste, share }
-public struct PendingMagnet: Identifiable, Sendable, CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+public enum PendingSource: String, Codable, Sendable { case url, paste, share, file }
+public enum PendingContent: Sendable {
+    case magnet(MagnetLink), torrent(TorrentSummary)
+}
+public struct PendingItem: Identifiable, Sendable, CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
     public enum State: Sendable, Equatable { case pending, reviewing, expired }
     public let id: UUID
-    public let magnet: MagnetLink
+    public let content: PendingContent
+    public var magnet: MagnetLink? { if case .magnet(let link) = content { link } else { nil } }
+    public var torrent: TorrentSummary? { if case .torrent(let file) = content { file } else { nil } }
+    public var displayName: String { magnet?.displayName ?? torrent?.displayName ?? "Magnet link" }
+    public var infoHash: String { magnet?.infoHash ?? torrent?.infoHash ?? "" }
     public let source: PendingSource
     public let targetServerURL: URL?
     public let createdAt: Date
     public let state: State
-    public var description: String { "PendingMagnet(redacted)" }
+    public var description: String { "PendingItem(redacted)" }
     public var debugDescription: String { description }
     public var customMirror: Mirror { Mirror(self,children:["contents":"redacted"]) }
 }
 public struct PendingReceipt: Sendable { public let id: UUID; public let wasDuplicate: Bool }
 public struct PendingClaim: Sendable, CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
-    public let item: PendingMagnet
+    public let item: PendingItem
     public let token: UUID
     public let expiresAt: Date
     public var description: String { "PendingClaim(redacted)" }
@@ -45,6 +52,7 @@ public struct PendingInbox: Sendable {
     public static let appGroup = "group.dev.bhanji.debrid"
     public static let itemLimit = 32
     public static let uriByteLimit = 1_048_576
+    public static let payloadByteLimit = 32*1024*1024
     public static let stateByteLimit = 3_145_728
     public static let reviewLifetime: TimeInterval = 120
     public static let retentionLifetime: TimeInterval = 30*24*60*60
@@ -60,18 +68,52 @@ public struct PendingInbox: Sendable {
     }
     public static func shared() throws -> PendingInbox { try PendingInbox(directory:groupRoot().appendingPathComponent("PendingInbox",isDirectory:true)) }
 
-    public func snapshot() async throws -> [PendingMagnet] {
+    public func snapshot() async throws -> [PendingItem] {
         try await transaction { state,now in (try state.items.map { try $0.publicItem(at:now) },false) }
     }
     public func enqueue(_ magnet:MagnetLink,source:PendingSource,target:ServerAddress? = nil) async throws -> PendingReceipt {
         try await transaction { state,now in
             if let row = state.items.first(where:{ $0.rawURI == magnet.rawURI && $0.serverURL == target?.url }) { return (PendingReceipt(id:row.id,wasDuplicate:true),false) }
-            guard state.items.count < Self.itemLimit, state.items.reduce(0,{ $0+$1.rawURI.utf8.count })+magnet.rawURI.utf8.count <= Self.uriByteLimit else { throw PendingInboxError.full }
+            guard state.items.count < Self.itemLimit, state.items.reduce(0,{ $0+($1.rawURI?.utf8.count ?? 0) })+magnet.rawURI.utf8.count <= Self.uriByteLimit else { throw PendingInboxError.full }
             if let target, target.url.absoluteString.utf8.count > 2048 { throw PendingInboxError.unavailable }
-            let row = Row(id:UUID(),rawURI:magnet.rawURI,source:source,serverURL:target?.url,createdAt:now,retainedAt:now,lease:nil)
+            let row = Row(id:UUID(),rawURI:magnet.rawURI,torrent:nil,source:source,serverURL:target?.url,createdAt:now,retainedAt:now,lease:nil)
             state.items.append(row); return (PendingReceipt(id:row.id,wasDuplicate:false),true)
         }
     }
+    /// Payload is committed before its manifest reference. A failed manifest write is never acknowledged.
+    public func enqueueTorrent(_ file:TorrentFile,source:PendingSource,target:ServerAddress? = nil) async throws -> PendingReceipt {
+        try await transaction { state,now in
+            if let row = state.items.first(where:{ $0.torrent?.digest == file.digest && $0.serverURL == target?.url }) {
+                _ = try verifiedTorrent(row); return (PendingReceipt(id:row.id,wasDuplicate:true),false)
+            }
+            guard state.items.count < Self.itemLimit, state.items.reduce(0,{ $0+($1.torrent?.byteCount ?? 0) })+file.data.count <= Self.payloadByteLimit else { throw PendingInboxError.full }
+            if let target, target.url.absoluteString.utf8.count > 2048 { throw PendingInboxError.unavailable }
+            let id = UUID()
+            try write(file.data,to:payloadURL(id))
+            let row = Row(id:id,rawURI:nil,torrent:Payload(summary:file.summary,digest:file.digest,byteCount:file.data.count),source:source,serverURL:target?.url,createdAt:now,retainedAt:now,lease:nil)
+            state.items.append(row); return (PendingReceipt(id:id,wasDuplicate:false),true)
+        }
+    }
+    /// Require the live review lease and verify the exact copied bytes before a future upload.
+    public func loadTorrent(_ id:UUID,token:UUID) async throws -> TorrentFile {
+        try await transaction { state,now in
+            let row = state.items[try Self.offset(id,in:state)]
+            guard let lease = row.lease, lease.token == token, lease.live(at:now), !row.expired(at:now) else { throw PendingInboxError.lostClaim }
+            return (try verifiedTorrent(row),false)
+        }
+    }
+    private func verifiedTorrent(_ row:Row) throws -> TorrentFile {
+        guard let payload = row.torrent else { throw PendingInboxError.notFound }
+        let data = try read(payloadURL(row.id),limit:TorrentFile.byteLimit)
+        guard data.count == payload.byteCount else { throw PendingInboxError.corrupt }
+        let file:TorrentFile
+        do { file = try TorrentFile(data) }
+        catch is CancellationError { throw CancellationError() }
+        catch { throw PendingInboxError.corrupt }
+        guard file.digest == payload.digest, file.summary == payload.summary else { throw PendingInboxError.corrupt }
+        return file
+    }
+    private func payloadURL(_ id:UUID) -> URL { directory.appendingPathComponent(id.uuidString+".torrent-payload") }
     public func claim(_ id:UUID) async throws -> PendingClaim {
         try await transaction { state,now in
             let offset = try Self.offset(id,in:state)
@@ -116,18 +158,24 @@ public struct PendingInbox: Sendable {
             state.items.remove(at:offset); return ((),true)
         }
     }
-    private struct Envelope: Codable, Sendable { var version = 1; var items: [Row] = [] }
+    private struct Envelope: Codable, Sendable { var version = 2; var items: [Row] = [] }
     private struct Header: Decodable { let version:Int }
     private struct Lease: Codable, Sendable {
         let token:UUID; let issuedAt:Date; let expiresAt:Date
         func live(at now:Date) -> Bool { now >= issuedAt.addingTimeInterval(-5) && now < expiresAt }
     }
+    private struct Payload: Codable, Sendable { let summary:TorrentSummary; let digest:String; let byteCount:Int }
     private struct Row: Codable, Sendable {
-        let id:UUID; let rawURI:String; let source:PendingSource; let serverURL:URL?; let createdAt:Date
+        let id:UUID; let rawURI:String?; let torrent:Payload?; let source:PendingSource; let serverURL:URL?; let createdAt:Date
         var retainedAt:Date; var lease:Lease?
         func expired(at now:Date) -> Bool { now.timeIntervalSince(retainedAt) >= PendingInbox.retentionLifetime }
-        func publicItem(at now:Date) throws -> PendingMagnet {
-            PendingMagnet(id:id,magnet:try MagnetLink(rawURI),source:source,targetServerURL:serverURL,createdAt:createdAt,state:expired(at:now) ? .expired : lease?.live(at:now) == true ? .reviewing : .pending)
+        func content() throws -> PendingContent {
+            if let rawURI, torrent == nil { return .magnet(try MagnetLink(rawURI)) }
+            if let torrent, rawURI == nil { return .torrent(torrent.summary) }
+            throw PendingInboxError.corrupt
+        }
+        func publicItem(at now:Date) throws -> PendingItem {
+            PendingItem(id:id,content:try content(),source:source,targetServerURL:serverURL,createdAt:createdAt,state:expired(at:now) ? .expired : lease?.live(at:now) == true ? .reviewing : .pending)
         }
     }
     private static func offset(_ id:UUID,in state:Envelope) throws -> Int {
@@ -155,11 +203,13 @@ public struct PendingInbox: Sendable {
             try Task.checkCancellation()
             // No suspension point while holding the cross-process lock.
             var state = try load()
-            try cleanupTemps()
+            try cleanup(state)
             let now = clock()
             guard now.timeIntervalSince1970.isFinite else { throw PendingInboxError.unavailable }
             let (value,changed) = try operation(&state,now)
-            if changed { try save(state) }
+            if changed || state.version == 1 { state.version = 2; try save(state) }
+            // After a committed removal, orphan cleanup is best effort: never turn success into an ambiguous failure.
+            try? cleanup(state)
             return value
         } catch is CancellationError { throw CancellationError() }
         catch let error as PendingInboxError { throw error }
@@ -179,29 +229,48 @@ public struct PendingInbox: Sendable {
         try FileManager.default.setAttributes([.protectionKey:FileProtectionType.complete],ofItemAtPath:url.path)
         #endif
     }
-    private func load() throws -> Envelope {
-        let url = directory.appendingPathComponent("inbox.json")
+    private enum ReadFailure: Error { case missing }
+    private func read(_ url:URL,limit:Int) throws -> Data {
         let fd = Darwin.open(url.path,O_RDONLY|O_NOFOLLOW|O_CLOEXEC|O_NONBLOCK)
-        if fd < 0 { if errno == ENOENT { return Envelope() }; throw PendingInboxError.unavailable }
+        if fd < 0 { if errno == ENOENT { throw ReadFailure.missing }; throw PendingInboxError.unavailable }
         defer { Darwin.close(fd) }
         var info = stat()
-        guard fstat(fd,&info) == 0, (info.st_mode & S_IFMT) == S_IFREG, info.st_size >= 0, info.st_size <= Self.stateByteLimit else { throw PendingInboxError.corrupt }
+        guard fstat(fd,&info) == 0, (info.st_mode & S_IFMT) == S_IFREG, info.st_size >= 0, info.st_size <= limit else { throw PendingInboxError.corrupt }
         var data = Data(count:Int(info.st_size)), position = 0
         while position < data.count {
             try Task.checkCancellation()
             let count = data.withUnsafeMutableBytes { buffer in
                 guard let base = buffer.baseAddress else { return -1 }; return Darwin.read(fd,base.advanced(by:position),buffer.count-position)
             }
-            if count < 0 && errno == EINTR { continue }
-            guard count > 0 else { throw PendingInboxError.corrupt }; position += count
+            if count < 0 && errno == EINTR { continue }; guard count > 0 else { throw PendingInboxError.corrupt }; position += count
         }
+        return data
+    }
+    private func load() throws -> Envelope {
+        let url = directory.appendingPathComponent("inbox.json")
+        let data: Data
+        do { data = try read(url,limit:Self.stateByteLimit) }
+        catch ReadFailure.missing { return Envelope() }
         let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .millisecondsSince1970
         guard let header = try? decoder.decode(Header.self,from:data) else { throw PendingInboxError.corrupt }
-        guard header.version == 1 else { throw PendingInboxError.unsupportedVersion }
+        guard header.version == 1 || header.version == 2 else { throw PendingInboxError.unsupportedVersion }
         guard let state = try? decoder.decode(Envelope.self,from:data), state.items.count <= Self.itemLimit, Set(state.items.map(\.id)).count == state.items.count,
-              state.items.reduce(0,{ $0+$1.rawURI.utf8.count }) <= Self.uriByteLimit else { throw PendingInboxError.corrupt }
+              state.items.reduce(0,{ $0+($1.rawURI?.utf8.count ?? 0) }) <= Self.uriByteLimit,
+              state.items.allSatisfy({ ($0.torrent?.byteCount ?? 0) >= 0 && ($0.torrent?.byteCount ?? 0) <= TorrentFile.byteLimit }),
+              state.items.reduce(0,{ $0+($1.torrent?.byteCount ?? 0) }) <= Self.payloadByteLimit else { throw PendingInboxError.corrupt }
         for row in state.items {
-            guard let link = try? MagnetLink(row.rawURI), link.rawURI == row.rawURI, row.createdAt.timeIntervalSince1970.isFinite, row.retainedAt.timeIntervalSince1970.isFinite else { throw PendingInboxError.corrupt }
+            guard (try? row.content()) != nil, row.createdAt.timeIntervalSince1970.isFinite, row.retainedAt.timeIntervalSince1970.isFinite else { throw PendingInboxError.corrupt }
+            if let raw = row.rawURI { guard (try? MagnetLink(raw))?.rawURI == raw else { throw PendingInboxError.corrupt } }
+            if let payload = row.torrent {
+                guard header.version == 2, payload.byteCount >= 0, payload.byteCount <= TorrentFile.byteLimit,
+                      payload.digest.utf8.count == 64, payload.digest.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }),
+                      payload.summary.infoHash.utf8.count == 40, payload.summary.infoHash.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }),
+                      payload.summary.totalBytes >= 0, (1...20_000).contains(payload.summary.fileCount), payload.summary.displayName.utf8.count <= 1024 else { throw PendingInboxError.corrupt }
+                let fd = Darwin.open(payloadURL(row.id).path,O_RDONLY|O_NOFOLLOW|O_CLOEXEC|O_NONBLOCK)
+                guard fd >= 0 else { throw PendingInboxError.corrupt }
+                var info = stat(); let valid = fstat(fd,&info) == 0 && (info.st_mode & S_IFMT) == S_IFREG && info.st_size == payload.byteCount
+                Darwin.close(fd); guard valid else { throw PendingInboxError.corrupt }
+            }
             if let server = row.serverURL { guard server.absoluteString.utf8.count <= 2048, (try? ServerAddress(server.absoluteString)) != nil else { throw PendingInboxError.corrupt } }
             if let lease = row.lease { guard lease.issuedAt.timeIntervalSince1970.isFinite, lease.expiresAt.timeIntervalSince1970.isFinite, abs(lease.expiresAt.timeIntervalSince(lease.issuedAt)-Self.reviewLifetime)<1 else { throw PendingInboxError.corrupt } }
         }
@@ -211,6 +280,9 @@ public struct PendingInbox: Sendable {
         let encoder = JSONEncoder(); encoder.dateEncodingStrategy = .millisecondsSince1970
         let data = try encoder.encode(state)
         guard data.count <= Self.stateByteLimit else { throw PendingInboxError.full }
+        try write(data,to:directory.appendingPathComponent("inbox.json"))
+    }
+    private func write(_ data:Data,to destination:URL) throws {
         let temp = directory.appendingPathComponent(".pending-write-"+UUID().uuidString+".tmp")
         let fd = Darwin.open(temp.path,O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW|O_CLOEXEC,mode_t(0o600))
         guard fd >= 0 else { throw PendingInboxError.unavailable }
@@ -227,13 +299,16 @@ public struct PendingInbox: Sendable {
         }
         guard Darwin.fsync(fd) == 0 else { throw PendingInboxError.unavailable }
         try Task.checkCancellation()
-        guard Darwin.rename(temp.path,directory.appendingPathComponent("inbox.json").path) == 0 else { throw PendingInboxError.unavailable }
+        guard Darwin.rename(temp.path,destination.path) == 0 else { throw PendingInboxError.unavailable }
         // A process crash sees either the prior or complete new snapshot. No post-commit cancellation.
     }
-    private func cleanupTemps() throws {
+    private func cleanup(_ state:Envelope) throws {
+        let referenced = Set(state.items.filter { $0.torrent != nil }.map { $0.id.uuidString+".torrent-payload" })
         for file in try FileManager.default.contentsOfDirectory(at:directory,includingPropertiesForKeys:nil,options:[]) {
             let name = file.lastPathComponent
-            guard name.hasPrefix(".pending-write-"), name.hasSuffix(".tmp"), UUID(uuidString:String(name.dropFirst(15).dropLast(4))) != nil else { continue }
+            let temporary = name.hasPrefix(".pending-write-") && name.hasSuffix(".tmp") && UUID(uuidString:String(name.dropFirst(15).dropLast(4))) != nil
+            let payload = name.hasSuffix(".torrent-payload") && UUID(uuidString:String(name.dropLast(16))) != nil && !referenced.contains(name)
+            guard temporary || payload else { continue }
             guard Darwin.unlink(file.path) == 0 || errno == ENOENT else { throw PendingInboxError.unavailable }
         }
     }

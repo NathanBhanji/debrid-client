@@ -2,8 +2,9 @@ import Foundation
 import Observation
 
 public protocol PendingInboxAccess: Sendable {
-    func snapshot() async throws -> [PendingMagnet]
+    func snapshot() async throws -> [PendingItem]
     func enqueue(_ magnet:MagnetLink,source:PendingSource,target:ServerAddress?) async throws -> PendingReceipt
+    func enqueueTorrent(_ file:TorrentFile,source:PendingSource,target:ServerAddress?) async throws -> PendingReceipt
     func claim(_ id:UUID) async throws -> PendingClaim
     func renew(_ id:UUID,token:UUID) async throws -> Date
     func release(_ id:UUID,token:UUID) async throws
@@ -14,7 +15,7 @@ extension PendingInbox: PendingInboxAccess {}
 
 /// Routing ends at durable review. This type has no server mutation capability.
 @Observable @MainActor public final class MagnetIntakeCoordinator {
-    public private(set) var items: [PendingMagnet] = []
+    public private(set) var items: [PendingItem] = []
     public private(set) var storageMessage: String?
     public private(set) var intakeMessage: String?
     public private(set) var notice: String?
@@ -29,7 +30,13 @@ extension PendingInbox: PendingInboxAccess {}
     public var isPresented = false
     public private(set) var focusID: UUID?
     public var failedCount: Int { failed.count }
-    private struct Input: Sendable { let id = UUID(); let magnet:MagnetLink; let target:ServerAddress? }
+    private enum Content: Sendable {
+        case magnet(MagnetLink), torrent(TorrentFile)
+        var key:String { switch self { case .magnet(let link): link.rawURI; case .torrent(let file): file.digest } }
+        var byteCount:Int { switch self { case .magnet(let link): link.rawURI.utf8.count; case .torrent(let file): file.data.count } }
+    }
+    private struct Input: Sendable { let id = UUID(); let content:Content; let source:PendingSource; let target:ServerAddress? }
+    public private(set) var isImporting = false
     private var failed: [Input] = []
     private var target: ServerAddress?
     private var lastReceiptID: UUID?
@@ -38,10 +45,11 @@ extension PendingInbox: PendingInboxAccess {}
     private var reviewOwner: UUID?
     private var reviewID: UUID?
     private var cleanupClaim: PendingClaim?
+    private let loadDocument: @Sendable (URL) async throws -> TorrentFile
     private let openInbox: @Sendable () throws -> any PendingInboxAccess
     private var cachedInbox: (any PendingInboxAccess)?
     @ObservationIgnored private var renewal: Task<Void,Never>?
-    public init(openInbox: @escaping @Sendable () throws -> any PendingInboxAccess = { try PendingInbox.shared() }) { self.openInbox = openInbox }
+    public init(openInbox: @escaping @Sendable () throws -> any PendingInboxAccess = { try PendingInbox.shared() }, loadDocument:@escaping @Sendable (URL) async throws -> TorrentFile = { try await TorrentDocument.load($0) }) { self.openInbox = openInbox; self.loadDocument = loadDocument }
     public convenience init(inbox:any PendingInboxAccess) { self.init(openInbox:{ inbox }) }
     deinit { renewal?.cancel() }
     private func inbox() throws -> any PendingInboxAccess {
@@ -66,38 +74,61 @@ extension PendingInbox: PendingInboxAccess {}
     }
     /// Ignore authentication and unrelated schemes; ASWebAuthenticationSession owns its callback.
     @discardableResult public func receive(_ url:URL) async -> Bool {
+        if url.isFileURL { await importDocument(url); return true }
         guard url.scheme?.lowercased() == "magnet" else { return false }
         guard !Task.isCancelled else { return true }
+        do { await save(Input(content:.magnet(try MagnetLink(url.absoluteString)),source:.url,target:target)) }
+        catch { intakeMessage = Self.message(error) }; return true
+    }
+    @discardableResult public func paste(_ text:String) async -> Bool {
+        let capturedTarget = target
         do {
-            let input = Input(magnet:try MagnetLink(url.absoluteString),target:target)
-            guard savingCount < PendingInbox.itemLimit else { intakeMessage = "Too many links are arriving. Try opening this link again shortly."; return true }
-            savingCount += 1; defer { savingCount -= 1 }
-            do {
-                let receipt = try await inbox().enqueue(input.magnet,source:.url,target:input.target)
-                failed.removeAll { $0.magnet.rawURI == input.magnet.rawURI && $0.target == input.target }
-                acknowledge(receipt); await refresh()
-            } catch { retainForRetry(input,error:error) }
-        } catch { intakeMessage = Self.message(error) }
-        return true
+            let links = try await MagnetPaste.parse(text)
+            var allSaved = true
+            for link in links { try Task.checkCancellation(); if await !save(Input(content:.magnet(link),source:.paste,target:capturedTarget)) { allSaved = false } }
+            return allSaved
+        } catch { if !Task.isCancelled { intakeMessage = Self.message(error) }; return false }
+    }
+    public func importDocument(_ url:URL) async {
+        guard !isImporting else { intakeMessage = "A file is being imported. Try again when it finishes."; return }
+        isImporting = true; defer { isImporting = false }; let capturedTarget = target
+        do { let file = try await loadDocument(url); try Task.checkCancellation(); await save(Input(content:.torrent(file),source:.file,target:capturedTarget)) }
+        catch { if !Task.isCancelled { intakeMessage = Self.message(error) } }
+    }
+    private func enqueue(_ input:Input) async throws -> PendingReceipt {
+        switch input.content {
+        case .magnet(let link): try await inbox().enqueue(link,source:input.source,target:input.target)
+        case .torrent(let file): try await inbox().enqueueTorrent(file,source:input.source,target:input.target)
+        }
+    }
+    @discardableResult private func save(_ input:Input) async -> Bool {
+        guard !Task.isCancelled else { return false }
+        guard savingCount < PendingInbox.itemLimit else { intakeMessage = "Too many items are arriving. Try opening this item again shortly."; return false }
+        savingCount += 1; defer { savingCount -= 1 }
+        do {
+            let receipt = try await enqueue(input)
+            failed.removeAll { $0.content.key == input.content.key && $0.target == input.target }
+            acknowledge(receipt); await refresh(); return true
+        } catch { retainForRetry(input,error:error); return false }
     }
     private func acknowledge(_ receipt:PendingReceipt) {
         lastReceiptID = receipt.id
-        notice = receipt.wasDuplicate ? "Link is already saved" : "Link saved for review"
+        notice = receipt.wasDuplicate ? "Item is already saved" : "Item saved for review"
         if failed.isEmpty { intakeMessage = nil }
     }
     private func retainForRetry(_ input:Input,error:any Error) {
-        if !failed.contains(where:{ $0.magnet.rawURI == input.magnet.rawURI && $0.target == input.target }) {
-            guard failed.count < PendingInbox.itemLimit else { intakeMessage = "Unsaved links are full. Retry them before opening another link."; return }
+        if !failed.contains(where:{ $0.content.key == input.content.key && $0.target == input.target }) {
+            guard failed.count < PendingInbox.itemLimit, failed.reduce(0,{ $0+$1.content.byteCount })+input.content.byteCount <= TorrentFile.byteLimit else { intakeMessage = "Unsaved items are full. Retry them, then import this item again."; return }
             failed.append(input)
         }
-        intakeMessage = Self.message(error)+" Keep Debrid open and retry to save the received link."
+        intakeMessage = Self.message(error)+" Keep Debrid open and retry to save the received item."
     }
     public func retryFailed() async {
         guard !isRetrying, !Task.isCancelled else { return }; isRetrying = true; defer { isRetrying = false }
         for input in failed {
             guard !Task.isCancelled else { break }
             do {
-                let receipt = try await inbox().enqueue(input.magnet,source:.url,target:input.target)
+                let receipt = try await enqueue(input)
                 failed.removeAll { $0.id == input.id }; acknowledge(receipt)
             } catch { intakeMessage = Self.message(error); break }
         }
@@ -170,6 +201,8 @@ extension PendingInbox: PendingInboxAccess {}
     }
     private func clearReceipt(_ id:UUID) { if lastReceiptID == id { lastReceiptID = nil; notice = nil } }
     private static func message(_ error:any Error) -> String {
+        if let error = error as? TorrentFileError { return error.errorDescription ?? "The torrent file could not be read." }
+        if let error = error as? MagnetPasteError { return error.errorDescription ?? "The pasted text is invalid." }
         if let error = error as? MagnetError { return error.errorDescription ?? "This magnet link is invalid." }
         if let error = error as? PendingInboxError { return error.errorDescription ?? "Pending links are unavailable." }
         return "Pending links are unavailable. Try again."

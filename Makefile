@@ -42,6 +42,7 @@ generate: ## Regenerate sqlc, OpenAPI/client and native wire fixtures
 	cd internal/apiclient && $(OAPI) -config oapi-codegen.yaml openapi.yaml
 	go run ./tools/iosfixtures > testdata/ios-api/contract.json
 	go run ./tools/iosmagnetfixtures > testdata/ios-api/magnets.json
+	go run ./tools/iostorrentfixtures > testdata/ios-api/torrents.json
 
 generate-check: generate ## Fail if generated code is stale or uncommitted
 	@git add -N internal/store/sqlcgen internal/apiclient testdata/ios-api && git diff --exit-code internal/store/sqlcgen internal/apiclient testdata/ios-api || (echo "generated code is stale: run make generate and commit" && exit 1)
