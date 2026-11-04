@@ -220,11 +220,11 @@ final class MagnetHandoffFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["review-received-link"].waitForExistence(timeout:10))
         XCTAssertTrue(app.staticTexts["Preview · Sample server"].waitForExistence(timeout:5))
         app.buttons["review-received-link"].tap()
-        XCTAssertTrue(app.navigationBars["Saved link"].waitForExistence(timeout:5))
+        XCTAssertTrue(app.navigationBars["Saved item"].waitForExistence(timeout:5))
         XCTAssertTrue(app.staticTexts["Fixture Ocean"].waitForExistence(timeout:5))
         XCTAssertTrue(app.staticTexts["No transfer has been added."].exists)
         app.buttons["Keep for later"].tap()
-        XCTAssertTrue(app.navigationBars["Pending links"].waitForExistence(timeout:5))
+        XCTAssertTrue(app.navigationBars["Pending items"].waitForExistence(timeout:5))
         XCTAssertTrue(app.staticTexts["Fixture Ocean"].exists)
         app.buttons["Done"].tap()
         XCTAssertTrue(app.navigationBars["Connect"].waitForExistence(timeout:5))
@@ -232,8 +232,8 @@ final class MagnetHandoffFlowTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Fixture Ocean"].waitForExistence(timeout:5))
         let row = app.buttons.containing(.staticText,identifier:"Fixture Ocean").firstMatch
         row.swipeLeft()
-        app.buttons["Discard saved link"].tap()
-        app.sheets.buttons["Discard saved link"].tap()
+        app.buttons["Discard saved item"].tap()
+        app.sheets.buttons["Discard saved item"].tap()
         XCTAssertTrue(app.staticTexts["No pending links"].waitForExistence(timeout:5))
     }
     func testReceivedBannerAndReviewAtLargestAccessibilitySize() throws {
@@ -243,7 +243,7 @@ final class MagnetHandoffFlowTests: XCTestCase {
         app.open(try XCTUnwrap(URL(string:raw)))
         let review = app.buttons["review-received-link"]
         XCTAssertTrue(review.waitForExistence(timeout:10)); XCTAssertTrue(review.isHittable); review.tap()
-        XCTAssertTrue(app.navigationBars["Saved link"].waitForExistence(timeout:5))
+        XCTAssertTrue(app.navigationBars["Saved item"].waitForExistence(timeout:5))
         for _ in 0..<6 where !app.buttons["Keep for later"].isHittable { app.swipeUp() }
         XCTAssertTrue(app.buttons["Keep for later"].isHittable)
     }
@@ -271,5 +271,55 @@ final class SystemOpenConfirmationTests: XCTestCase {
             }
         }
         print("Confirmed Debrid app-open prompts: \(confirmations)")
+    }
+}
+
+@MainActor
+final class DocumentIntakeFlowTests: XCTestCase {
+    func testNativePasteValidationSaveAndDocumentPickerCancellation() async throws {
+        let app = XCUIApplication(); app.launchArguments = ["-DebridInboxTestNamespace",UUID().uuidString]; app.launch()
+        XCTAssertTrue(app.buttons["pending-links"].waitForExistence(timeout:10)); app.buttons["pending-links"].tap()
+        app.buttons["paste-magnet-links"].tap()
+        XCTAssertTrue(app.navigationBars["Paste links"].waitForExistence(timeout:5))
+        try await Task.sleep(for:.seconds(10))
+        let shot = XCTAttachment(screenshot:app.screenshot()); shot.name = "paste-native"; shot.lifetime = .keepAlways; add(shot)
+        let editor = app.textViews["magnet-paste-editor"]; editor.tap(); editor.typeText("invalid")
+        app.buttons["save-pasted-links"].tap()
+        XCTAssertTrue(app.staticTexts["Use a complete magnet link beginning with magnet:?."].waitForExistence(timeout:5))
+        XCTAssertTrue(editor.value as? String == "invalid")
+        editor.tap(); editor.typeText(String(repeating:XCUIKeyboardKey.delete.rawValue,count:7))
+        editor.typeText("magnet:?xt=urn:btih:"+String(repeating:"0",count:40)+"&dn=Pasted+fixture")
+        app.buttons["save-pasted-links"].tap()
+        XCTAssertTrue(app.navigationBars["Pending items"].waitForExistence(timeout:5))
+        XCTAssertTrue(app.staticTexts["Pasted fixture"].waitForExistence(timeout:5))
+        app.buttons["import-torrent-file"].tap()
+        let cancel = app.buttons["Cancel"].firstMatch
+        XCTAssertTrue(cancel.waitForExistence(timeout:8)); cancel.tap()
+        XCTAssertTrue(app.navigationBars["Pending items"].waitForExistence(timeout:5))
+        XCTAssertTrue(app.staticTexts["Pasted fixture"].exists)
+    }
+    func testPasteControlsRemainReachableAtLargestAccessibilitySize() throws {
+        let app = XCUIApplication(); app.launchArguments = ["-DebridInboxTestNamespace",UUID().uuidString,"-UIPreferredContentSizeCategoryName","UICTContentSizeCategoryAccessibilityXXXL"]; app.launch()
+        XCTAssertTrue(app.buttons["pending-links"].waitForExistence(timeout:10)); app.buttons["pending-links"].tap()
+        let paste = app.buttons["paste-magnet-links"]
+        XCTAssertTrue(paste.waitForExistence(timeout:5)); paste.tap()
+        let editor = app.textViews["magnet-paste-editor"]
+        XCTAssertTrue(editor.waitForExistence(timeout:5)); editor.tap(); editor.typeText("invalid")
+        XCTAssertTrue(app.buttons["save-pasted-links"].isHittable); app.buttons["save-pasted-links"].tap()
+        XCTAssertEqual(editor.value as? String,"invalid")
+        XCTAssertTrue(app.buttons["Cancel"].isHittable); app.buttons["Cancel"].tap()
+        XCTAssertTrue(app.navigationBars["Pending items"].waitForExistence(timeout:5))
+    }
+    func testCopiedTorrentUsesActualNativeReviewWithoutAddingTransfer() async throws {
+        let app = XCUIApplication(); app.launchArguments = ["-DebridInboxTestNamespace",UUID().uuidString,"-DebridInboxCaptureMode","torrent"]; app.launch()
+        XCTAssertTrue(app.navigationBars["Saved item"].waitForExistence(timeout:10))
+        XCTAssertTrue(app.staticTexts["Fixture Ocean.mkv"].waitForExistence(timeout:5))
+        XCTAssertTrue(app.staticTexts["No transfer has been added."].exists)
+        XCTAssertTrue(app.staticTexts["An exact copy is saved on this iPhone. The original file is unchanged."].exists)
+        try await Task.sleep(for:.seconds(10))
+        let shot = XCTAttachment(screenshot:app.screenshot()); shot.name = "torrent-native"; shot.lifetime = .keepAlways; add(shot)
+        app.buttons["Keep for later"].tap()
+        XCTAssertTrue(app.navigationBars["Pending items"].waitForExistence(timeout:5))
+        XCTAssertTrue(app.staticTexts["Fixture Ocean.mkv"].exists)
     }
 }

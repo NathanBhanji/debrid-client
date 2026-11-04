@@ -85,7 +85,7 @@ Apple setup: distinct Debrid app/share identifiers and dedicated AppStore profil
 
 `TransferSummary` derives presentation from both provider and local-download states. Provider `finished` means available remotely, not complete on the NAS; pending/downloading/unpacking/finishing local phases remain distinct. Unknown future states remain unknown. Progress is bounded, uses the correct provider/local field and stays indeterminate when totals/progress are unknown. Provider speed is not misrepresented as NAS speed. Display names are scalar/character-bounded without altering their raw DTO value.
 
-Debug `-TransfersPreview` uses the actual list with in-memory sample DTOs and no auth, network or credential storage. `-TransfersEmpty` and `-TransfersOffline` select explicit states. It exposes no mutation actions; its server sheet states that no session exists. The connected app currently opens Transfers with a server/session sheet; the complete Providers/Settings tab behaviors arrive in their roadmap increments. No detail/file actions or intake controls are presented before they work.
+Debug `-TransfersPreview` uses the actual list with in-memory sample DTOs and no auth, network or credential storage. `-TransfersEmpty` and `-TransfersOffline` select explicit states. It exposes no mutation actions; its server sheet states that no session exists. The connected app currently opens Transfers with a server/session sheet; the complete Providers/Settings tab behaviors arrive in their roadmap increments. Live detail/files and protected intake are described in the milestones below; controls appear as those behaviors become available.
 
 This milestone passed 62 core tests and seven native UI flows, plus real-list light/dark source/visual review. The readout’s actual PNG pixels are present at13.36:1 contrast in both appearances; a viewer displayed the dark crop incorrectly, so source was not changed from that display artifact. No production transfer was submitted, modified or removed in validation. [Delivery/deployment evidence](../docs/plan/ios-delivery-log.md) tracks the released backend separately.
 
@@ -130,3 +130,10 @@ python3 ios/scripts/check-magnet-delivery.py --simulator <UUID> --capture
 ```
 
 Focused selectors are validated and checked for a nonzero test run; default checks still run the full suite. Fixture tests use Debug; Release builds compile without test intake configuration. OS delivery checks use only the named shared Debrid device and a UUID-isolated inbox, with the existing no-network Connect fixture. A bounded opt-in XCTest helper confirms only the system’s Debrid app-open prompt; ordinary test runs skip it. Capture uses actual SwiftUI screens, overwrites four temporary PNGs, restores owned test configuration and shuts down the shared device.
+
+
+## Paste and torrent documents
+
+Pending items now accepts explicit native paste (up to16 line-separated magnets) and the system `.torrent` document importer. It also registers alternate document viewing for externally opened torrent files. Documents are copied under security-scoped access, parsed off the main actor and saved as exact protected payloads with metadata-only review. The originals remain untouched. Cancellation, limits and partial capacity failures remain explicit; neither path adds a server transfer. [Storage migration, parser policy, limits and acceptance checks](../docs/plan/ios-document-intake.md).
+
+The inbox schema is now version2; version1 magnets retain their IDs, raw URIs, server hints and leases during atomic migration. Future/corrupt schemas preserve existing files. Framework clients now consume PendingItem with explicit magnet/torrent content, rather than assuming every pending record has a magnet URI.

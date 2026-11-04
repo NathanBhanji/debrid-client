@@ -22,7 +22,7 @@ private final class InboxClock: @unchecked Sendable {
         _ = try await first.enqueue(try link("&dn=Different"),source:.paste)
         _ = try await first.enqueue(raw,source:.url,target:ServerAddress("https://other.example.test/prefix"))
         let saved = try await second.snapshot()
-        #expect(saved.count == 3 && saved[0].magnet.rawURI == raw.rawURI && saved[0].source == .url)
+        #expect(saved.count == 3 && saved[0].magnet?.rawURI == raw.rawURI && saved[0].source == .url)
         #expect(saved[2].targetServerURL?.absoluteString == "https://other.example.test/prefix")
     }
     @Test func competingInstancesSaveAndClaimExactlyOnce() async throws {
@@ -71,7 +71,7 @@ private final class InboxClock: @unchecked Sendable {
         #expect(try await store.enqueue(magnet,source:.url).wasDuplicate)
         #expect(try await store.snapshot().first?.state == .expired)
         try await store.keep(id); let claim = try await store.claim(id)
-        #expect(claim.item.magnet.rawURI == magnet.rawURI); try await store.release(id,token:claim.token)
+        #expect(claim.item.magnet?.rawURI == magnet.rawURI); try await store.release(id,token:claim.token)
     }
     @Test func countAndByteQuotasPreserveExistingDrafts() async throws {
         let dir = directory(); defer { try? FileManager.default.removeItem(at:dir) }

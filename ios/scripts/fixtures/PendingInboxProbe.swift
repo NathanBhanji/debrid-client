@@ -3,7 +3,7 @@ import Darwin
 import Foundation
 
 @main enum PendingInboxProbe {
-    struct Input: Decodable { var uri:String?; var id:UUID?; var token:UUID? }
+    struct Input: Decodable { var uri:String?; var data:Data?; var id:UUID?; var token:UUID? }
     struct Output: Encodable { var id:UUID?; var token:UUID?; var count:Int?; var duplicate:Bool?; var error:String? }
     static func emit(_ output:Output) throws {
         var data = try JSONEncoder().encode(output); data.append(10)
@@ -35,6 +35,10 @@ import Foundation
             case "enqueue":
                 guard let uri = input.uri else { throw PendingInboxError.unavailable }
                 let receipt = try await store.enqueue(MagnetLink(uri),source:.share)
+                try emit(Output(id:receipt.id,duplicate:receipt.wasDuplicate))
+            case "enqueueTorrent":
+                guard let data = input.data else { throw PendingInboxError.unavailable }
+                let receipt = try await store.enqueueTorrent(TorrentFile(data),source:.share)
                 try emit(Output(id:receipt.id,duplicate:receipt.wasDuplicate))
             case "claim":
                 guard let id = input.id else { throw PendingInboxError.unavailable }

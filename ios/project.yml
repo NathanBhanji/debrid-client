@@ -34,6 +34,18 @@ targets:
           - CFBundleURLName: dev.bhanji.debrid.magnet
             CFBundleTypeRole: Editor
             CFBundleURLSchemes: [magnet]
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: BitTorrent metadata
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [org.bittorrent.torrent]
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: org.bittorrent.torrent
+            UTTypeDescription: BitTorrent metadata
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [torrent]
+              public.mime-type: [application/x-bittorrent]
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         ITSAppUsesNonExemptEncryption: false
