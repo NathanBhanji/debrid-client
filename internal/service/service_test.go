@@ -26,7 +26,8 @@ type recEngine struct {
 func (r *recEngine) WithTorrentOperation(_ context.Context, _ string, run func() error) error {
 	return run()
 }
-func (r *recEngine) Wake() { r.wakes++ }
+func (r *recEngine) ForgetProviderTorrent(string, string) {}
+func (r *recEngine) Wake()                                { r.wakes++ }
 func (r *recEngine) CancelTorrent(_ context.Context, id string) error {
 	r.cancels = append(r.cancels, id)
 	if r.cancelFn != nil {

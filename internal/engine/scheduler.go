@@ -99,7 +99,7 @@ func (e *Engine) tickQueued(ctx context.Context, t *domain.Torrent, now time.Tim
 				e.deferKey(key, e.now().Add(e.backoff(0)))
 				return
 			}
-			e.forgetProviderTorrent(accountID, pt.ID)
+			e.ForgetProviderTorrent(accountID, pt.ID)
 		})
 		return nil
 	}
@@ -730,21 +730,5 @@ func (e *Engine) tickError(ctx context.Context, t *domain.Torrent, now time.Time
 
 // Scheduled cleanup must not delete a new retry incarnation.
 func (e *Engine) deleteErrorTorrent(ctx context.Context, expected domain.Torrent) error {
-	return e.WithTorrentOperation(ctx, expected.ID, func() error {
-		row, err := e.store.GetTorrent(ctx, expected.ID)
-		if store.IsNotFound(err) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		current, err := store.TorrentFromRow(row)
-		if err != nil {
-			return err
-		}
-		if current.Status != domain.TorrentError || current.RetryCount != expected.RetryCount || current.CompletedAt == nil || expected.CompletedAt == nil || !current.CompletedAt.Equal(*expected.CompletedAt) || current.Settings.DeleteOnError <= 0 || e.now().Before(current.CompletedAt.Add(current.Settings.DeleteOnError)) {
-			return nil
-		}
-		return e.svc.DeleteTorrent(ctx, current.ID, service.DeleteOptions{DeleteFiles: true, DeleteFromProvider: true})
-	})
+	return e.svc.DeleteErroredTorrent(ctx, expected, e.now())
 }

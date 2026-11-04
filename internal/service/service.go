@@ -32,6 +32,8 @@ type Engine interface {
 	// CancelTorrent stops any in-flight downloads/unpacks for the torrent.
 	CancelTorrent(ctx context.Context, torrentID string) error
 	WithTorrentOperation(ctx context.Context, torrentID string, run func() error) error
+	// ForgetProviderTorrent invalidates cache and any older in-flight listing.
+	ForgetProviderTorrent(accountID, providerID string)
 }
 
 // NoopEngine satisfies Engine when no engine is running (tests, CLI tools).
@@ -96,3 +98,5 @@ func (s *Service) SetEngine(e Engine) { s.engine = e }
 func validationErr(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", ErrValidation, fmt.Sprintf(format, args...))
 }
+
+func (NoopEngine) ForgetProviderTorrent(string, string) {}
