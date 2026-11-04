@@ -10,6 +10,7 @@ struct LiveTransfers: View {
     @State private var showingServer = false
     @State private var showingFilters = false
     @State private var initialQuery = ""
+    @State private var path: [String] = []
     init(server: AuthenticatedServer, auth: SessionCoordinator) { self.server = server; self.auth = auth }
     #if DEBUG
     init(preview: LiveTransfersPreviewAPI) throws {
@@ -22,7 +23,7 @@ struct LiveTransfers: View {
     }
     #endif
     var body: some View {
-        NavigationStack {
+        NavigationStack(path:$path) {
             List {
                 if auth == nil {
                     Section { Label("Preview · Sample transfers", systemImage:"viewfinder").font(.footnote).foregroundStyle(DebridStyle.secondary) }
@@ -58,7 +59,7 @@ struct LiveTransfers: View {
                     } else {
                         Section {
                             ForEach(model.visibleItems) { item in
-                                LiveTransferRow(item: item).listRowBackground(DebridStyle.surface)
+                                NavigationLink(value:item.id) { LiveTransferRow(item: item) }.listRowBackground(DebridStyle.surface)
                             }
                         } header: {
                             VStack(alignment:.leading,spacing:4) {
@@ -82,6 +83,12 @@ struct LiveTransfers: View {
                     ToolbarItem(placement: .primaryAction) { Button("Server", systemImage: "server.rack") { showingServer = true } }
                 }
                 .refreshable { if let model { await reload(model) } }
+                .sheet(isPresented: $showingServer) { serverSheet }
+                .sheet(isPresented: $showingFilters) { if let model { TransferFiltersView(model:model,preview:auth == nil) } }
+                .navigationDestination(for:String.self) { id in
+                    if let model { LiveTransferDetail(transferID:id,model:model,preview:auth == nil) }
+                }
+        }.tint(DebridStyle.tint)
                 .task(id: scenePhase) {
                     guard scenePhase == .active else { model?.stopLiveUpdates(); return }
                     do {
@@ -93,6 +100,7 @@ struct LiveTransfers: View {
                         await model?.restoreSearchIfNeeded()
                         #if DEBUG
                         if auth == nil, ProcessInfo.processInfo.arguments.contains("-FiltersPreview") { showingFilters = true }
+                        if auth == nil, path.isEmpty, ProcessInfo.processInfo.arguments.contains("-DetailPreview") { path = ["sample-nas"] }
                         #endif
                     } catch { setupFailed = true }
                 }
@@ -104,9 +112,6 @@ struct LiveTransfers: View {
                     }
                 }
                 .onDisappear { model?.stopLiveUpdates() }
-                .sheet(isPresented: $showingServer) { serverSheet }
-                .sheet(isPresented: $showingFilters) { if let model { TransferFiltersView(model:model,preview:auth == nil) } }
-        }.tint(DebridStyle.tint)
     }
     private func reload(_ model: TransferListModel) async {
         await model.refreshWhileActive()
@@ -215,6 +220,7 @@ struct LiveTransfersPreviewAPI: TransferListing, AccountListing {
         provider["id"] = "sample-provider"; provider["name"] = "The Open Ocean"; provider["status"] = "downloading"; provider["category"] = "Documentaries"
         var nas = base
         nas["id"] = "sample-nas"; nas["name"] = "Earth from Above"; nas["status"] = "finished"; nas["local_progress"] = 0.64
+        nas["dir_name"] = "Earth from Above"; nas["category"] = "Documentaries"; nas["provider_progress"] = 1
         nas["downloads"] = [["id":"sample-download","torrent_id":"sample-nas","path":"Earth.mkv","filename":"Earth.mkv","size":10_000_000_000,"bytes_done":6_400_000_000,"progress":0.64,"state":"downloading","retry_count":0,"queued_at":time]]
         var selection = base
         selection["id"] = "sample-selection"; selection["name"] = "Field Recordings · Vol. 02"; selection["status"] = "waiting_selection"; selection["category"] = "Audio"; selection["account_id"] = "sample-rd"

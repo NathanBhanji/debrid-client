@@ -1,0 +1,13 @@
+# Live native transfer detail
+
+Roadmap 10 adds a native destination from each live transfer. Detail reads the same complete server snapshot as the list, independently of search filters, and uses the navigation stack’s single foreground SSE/resync lifecycle. The lifecycle modifiers belong to NavigationStack so pushing a detail does not stop the list model’s updates or create another stream. Backgrounding, leaving the whole stack, server changes and rejected sessions retain the existing cancellation boundaries.
+
+Provider availability and NAS completion are separate. The provider can be ready while the NAS is queued, downloading, unpacking or finalizing. NAS byte progress sums only download rows, with negative values clamped and invalid/overflowing totals treated as unknown. A done download contributes its full size, matching the backend. Unknown totals show no percentage. Mixed unpacking and downloading never claim that all downloads finished. Only the server’s completed transfer status labels the whole transfer complete.
+
+Storage shows the category and bounded folder actually reported by the server, with an explicit server-location label. It does not infer a download root or offer a phone file URL. An unassigned folder stays unassigned. Selected-file counts, account, dates, retry count and bounded info hash are informational; file browsing and mutations remain later milestones. Raw provider error/status messages can contain signed URLs or credentials, so detail uses a small allowlist of useful domain explanations and a generic error fallback.
+
+A failed refresh retains the last snapshot and labels it stale. A transfer missing from a successfully loaded snapshot has a native no-longer-listed state and back action. Detail refresh shares the existing model’s cancellation and auth handling. All preview captures and interaction tests use fictional data and perform no production mutations.
+
+Validation: 89 core Swift Testing functions and 12 UI tests passed on the shared iOS 27.0 simulator. Coverage includes separate stages, selected download totals, unknown/zero/negative/overflow byte values, mixed unpack/download states, unsafe provider messages, native detail/back with search retained, and accessibility-size storage navigation and the missing-transfer back action. Physical VoiceOver and signed-device lifecycle validation remain delivery checks.
+
+Simulator and unsigned arm64 iPhone compilation/linking passed. Independent source review and settled actual SwiftUI captures in both appearances were approved. One reused simulator, one latest test result, six temporary screenshots and the existing bounded build directory are retained.
