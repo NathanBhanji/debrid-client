@@ -34,4 +34,31 @@ final class DemoFlowTests: XCTestCase {
         app.buttons["Done"].tap()
         XCTAssertTrue(app.navigationBars["Transfers"].waitForExistence(timeout: 5))
     }
+    func testNativeGalleryKeepsActionsExplicitlyLocal() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["-DesignScreen", "sign-in"]
+        app.launch()
+        let signIn = app.buttons["Continue with Pocket ID"]
+        XCTAssertTrue(signIn.waitForExistence(timeout: 10))
+        signIn.tap()
+        XCTAssertTrue(app.alerts["Preview only"].waitForExistence(timeout: 5))
+        app.alerts.buttons["OK"].tap()
+        app.terminate()
+        app.launchArguments = ["-DesignScreen", "selection"]
+        app.launch()
+        XCTAssertTrue(app.navigationBars["Choose files"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.switches["The Open Ocean.mkv · 9.8 GB"].exists)
+        app.switches["The Open Ocean.mkv · 9.8 GB"].coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+        XCTAssertEqual(app.switches["The Open Ocean.mkv · 9.8 GB"].value as? String, "0")
+        let disabled = NSPredicate(format: "enabled == false")
+        expectation(for: disabled, evaluatedWith: app.buttons["Download selected files"])
+        waitForExpectations(timeout: 5)
+        app.terminate()
+        app.launchArguments = ["-DesignScreen", "removal"]
+        app.launch()
+        XCTAssertTrue(app.navigationBars["Remove transfer"].waitForExistence(timeout: 10))
+        XCTAssertEqual(app.switches["Downloaded files on your NAS"].value as? String, "0")
+        XCTAssertEqual(app.switches["At the debrid provider"].value as? String, "0")
+    }
+
 }

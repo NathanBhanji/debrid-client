@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Bounded checks. No implicit simulator creation, downloads or signing changes."""
 import argparse
-import fcntl
 import os
 from pathlib import Path
 import signal
 import subprocess
 import sys
 import threading
+from workflow import acquire_lock, simulator_lock
 
 ROOT = Path(__file__).resolve().parents[1]
 p = argparse.ArgumentParser()
@@ -18,11 +18,8 @@ if a.mode == "test" and not a.simulator:
     p.error("test requires --simulator UUID; reuse the Debrid shared device")
 artifacts = ROOT / ".artifacts"
 artifacts.mkdir(exist_ok=True)
-lock = (artifacts / "check.lock").open("w")
-try:
-    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-except BlockingIOError:
-    sys.exit("Another Debrid check owns this checkout. Wait for it to finish.")
+lock = acquire_lock(artifacts / "check.lock")
+sim_lock = simulator_lock(a.simulator) if a.mode == "test" else None
 
 def run(command, name):
     path = artifacts / (name + ".log")
@@ -62,7 +59,10 @@ run(["xcodegen", "generate"], "generate")
 command = ["xcodebuild", "-project", "Debrid.xcodeproj", "-scheme", "Debrid", "-configuration", "Debug",
            "-derivedDataPath", str(ROOT / ".build"), "CODE_SIGNING_ALLOWED=NO"]
 if a.mode == "test":
-    command += ["-destination", "platform=iOS Simulator,id=" + a.simulator, "-parallel-testing-enabled", "NO", "test"]
+    command += ["-destination", "platform=iOS Simulator,id=" + a.simulator, "-parallel-testing-enabled", "NO", "-collect-test-diagnostics", "never", "test"]
 else:
     command += ["-destination", "generic/platform=iOS" if a.mode == "device" else "generic/platform=iOS Simulator", "build"]
 run(command, a.mode)
+
+if a.mode in ("build", "test"):
+    (artifacts / "simulator-build.stamp").write_text("Successful simulator build\n")

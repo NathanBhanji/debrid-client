@@ -24,3 +24,18 @@ Never create a simulator per PR or reviewer. Check `xcrun simctl list devices av
 Checks have a 15 minute process-group timeout, one derived-data directory, no parallel simulator clones, no explicit xcresult archive, and one log per operation. Logs retain the final 2 MB after completion. Xcode activity/results can still grow under `.build`: after each milestone inspect `du -sh .build .artifacts`, retain at most one relevant result and 8 screenshots, and remove only this checkout's generated artifacts once no owned test is running. Never erase unrelated caches/devices or delete a runtime. Shut down the Debrid simulator after use; retain it for reuse. Use this worktree for the train; only create another when independent work actually requires it. Remove completed worktrees only after checking clean state, pushed branch and PR safety. Never delete uncommitted changes.
 
 Design: [spec](../docs/design/ios/README.md), [board](../docs/design/ios/board.html). Delivery: [29-PR plan](../docs/plan/ios-native.md). Audit: [API/platform evidence](../docs/plan/ios-audit.md).
+
+## Native design gallery
+
+Nathan requested native simulator evidence for the complete screen family. Debug builds expose `-DesignGallery` (browse sheets) and `-DesignScreen <slug>` (standalone capture). Screens use real SwiftUI forms/navigation/pickers and shared design components, with fictional data and honest preview-only action alerts. The gallery is compiled out of Release; it does not implement live features ahead of their roadmap milestones.
+
+```sh
+python3 scripts/check.py build
+python3 scripts/capture-gallery.py --simulator <existing-Debrid-simulator-UUID>
+# Optional small recapture batch:
+python3 scripts/capture-gallery.py --simulator <UUID> --screens connect sign-in add
+```
+
+Check/test/capture share a checkout lock; test and capture additionally acquire a canonical UUID lock under `~/Library/Caches/dev.bhanji.debrid/locks`, spanning worktrees. Capture refuses a booted device, creates no devices, has bounded subprocesses and restores/shuts down only the shared device it booted. Capture and tests must run serially.
+
+Gallery retention is one catalog of **at most 32 screenshots**, one per route, plus the existing two primary appearance references. This explicitly replaces the eight-image local limit for Nathan’s requested all-screen catalog; keep it below 15 MB, overwrite the same route files rather than keeping per-PR sets, and retain at most eight temporary captures. Never copy derived data or make a simulator per screen. Future state permutations are interactive studies, not an assertion that every state has been captured.

@@ -9,6 +9,7 @@ public struct ServerAddress: Equatable, Sendable {
         case httpsRequired
         case credentialsNotAllowed
         case queryOrFragmentNotAllowed
+        case invalidPathComponent
     }
 
     public init(_ input: String) throws {
@@ -21,10 +22,15 @@ public struct ServerAddress: Equatable, Sendable {
         self.url = url
     }
 
-    /// Appends individual path components rather than allowing a leading slash to discard the prefix.
-    public func endpoint(_ components: String...) -> URL {
-        components.reduce(url.appendingPathComponent("api").appendingPathComponent("v1")) {
-            $0.appendingPathComponent($1)
+    /// Route names and resource IDs are individual components, never relative path syntax.
+    public func endpoint(_ components: String...) throws -> URL {
+        var result = url.appendingPathComponent("api").appendingPathComponent("v1")
+        for component in components {
+            guard !component.isEmpty, component != ".", component != "..",
+                  !component.contains(where: { "/\\%?#".contains($0) || $0.isNewline || $0.asciiValue.map({ $0 < 32 }) == true })
+            else { throw ValidationError.invalidPathComponent }
+            result.appendPathComponent(component)
         }
+        return result
     }
 }

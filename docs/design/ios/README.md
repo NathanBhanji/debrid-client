@@ -4,7 +4,7 @@
 
 Research and the applied Emil skill review: [research.md](research.md). This is the design contract for both the board and the real SwiftUI code, not just a mood board.
 
-Open [board.html](board.html) for screen compositions, and [native-review.html](native-review.html) for actual simulator captures. It is a review artifact, not shipped UI. The native app intentionally implements only the first fixture shell, search, navigation and review layout. Full board flows arrive through the roadmap.
+The SwiftUI gallery and its simulator captures are now the primary design review artifact. The earlier [board.html](board.html) is a historical sketch, not the visual reference. [native-review.html](native-review.html) retains the main light/dark captures. It is a review artifact, not shipped UI. The native app intentionally implements only the first fixture shell, search, navigation and review layout. Full board flows arrive through the roadmap.
 
 ## Tokens and native behavior
 
@@ -49,3 +49,9 @@ Offline: cached transfers are read-only with age shown; draft intake remains ava
 ## Review and acceptance
 
 The initial teal direction is superseded. Review the revised web-family styling, native material/gesture behavior, terminology and add/share flow here before wider UI implementation. Use Pocket ID SSO for primary onboarding; defer advanced API-key fallback. Confirm physical iPhone OS before locking iOS 27 minimum. Test light/dark, largest Dynamic Type, VoiceOver, Reduce Motion, landscape, long names, empty/failed states and an interrupted add. Board typography is illustrative; only simulator/device screenshots establish native HIG behavior. Platform routing limitations and evidence: [audit](../../plan/ios-audit.md).
+
+## Native screen catalog
+
+The debug gallery covers 32 routes: server connection, Pocket ID sign-in, transfer queue/detail/files/selection, intake and add review, offline Share Extension study, saved drafts, duplicate and uncertain submissions, filters, provider list/detail/edit/removal, settings/categories/download policy/organization/overrides, transfer removal/cancellation, offline/empty/file error/expired session, diagnostics, settings conflict, certificate failure and server update required. These are screen families and representative states, not an exhaustive test of every network or accessibility permutation.
+
+The Share Extension and cancellation screens are SwiftUI studies in the main app gallery, not implemented extension/server capabilities. Every simulated mutation presents a preview notice; none reports a fabricated successful request. Paste accesses the clipboard only through the native explicit Paste control; import remains a preview action until PR 15. Gallery navigation uses one stack per root/sheet and content-only destinations. Future live features should reuse the design components while adding their own tested state and transport boundaries.

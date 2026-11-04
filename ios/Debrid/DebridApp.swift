@@ -4,7 +4,19 @@ import DebridKit
 @main
 struct DebridApp: App {
     var body: some Scene {
-        WindowGroup { DemoRoot() }
+        WindowGroup {
+            #if DEBUG
+            if let index = ProcessInfo.processInfo.arguments.firstIndex(of: "-DesignScreen"),
+               ProcessInfo.processInfo.arguments.indices.contains(index + 1),
+               let screen = DesignScreen(rawValue: ProcessInfo.processInfo.arguments[index + 1]) {
+                DesignScene(screen: screen)
+            } else if ProcessInfo.processInfo.arguments.contains("-DesignGallery") {
+                DesignGallery()
+            } else { DemoRoot() }
+            #else
+            DemoRoot()
+            #endif
+        }
     }
 }
 

@@ -38,3 +38,20 @@ Local skill files live in `~/.codex/skills/{emil-design-eng,apple-design,write-s
 No new custom animation is justified for this fixture shell. Tab navigation, back swipe, scrolling, toolbar press and sheet presentation/dismissal remain system-owned, including interruption and Reduce Motion/Transparency preferences. No pulsing brand LED, blinking progress, staggered queue reveal, artificial delay or CSS physics ported to SwiftUI. The board's theme/size controls don't add entrance animation; press feedback is immediate and cancellable.
 
 The HTML board is an approximation for review, never proof of native material or gesture behavior. Simulator capture and interaction checks establish the current implementation; signed-device and VoiceOver checks remain explicit gates. The foundation still has no live requests or submission path.
+
+## Independent review and native catalog · 2026-11-04
+
+A separate Codex subagent reviewed the foundation and gallery read-only using all three Emil skills and actual simulator captures. No critical issue was found. Findings and responses:
+
+| Before | After | Why |
+|---|---|---|
+| Resource IDs could introduce endpoint path syntax | Reject dot segments, separators, encoded syntax and controls; add tests | Enforce one-component API boundaries before transport |
+| Capture/test use could race across checkouts | Shared canonical simulator UUID lock plus checkout lock | Reuse one device without collisions |
+| Interactive gallery pushed nested NavigationStacks | Root/sheet owns a stack, pushed destinations are content-only | Preserve native back navigation |
+| Gallery buttons inherited normal body ink | Explicit action/destructive tint and one native prominent primary action | Make the real simulator designs visibly actionable |
+| Overrides footer described API mechanics | Describe effects on this transfer only | Keep implementation details out of product copy |
+| No input/conflict/cancellation studies | Add intake, conflict, cancellation-capability, TLS, update and account-removal studies | Cover the full screen families while labelling unavailable capabilities |
+
+The 32 native routes are studies of screen families and representative states. They do not prove all state permutations, extension hosting, production mutations or complete accessibility. The subagent verified source fixes; updated captures are the subsequent visual review evidence. Gallery actions never claim server success. Destructive switches begin off and file selection must remain nonempty.
+
+Final independent review approved the gallery as a native design-study increment with no remaining P1/P2 findings. The reviewer inspected final source and eight updated simulator captures (sign-in, selection, add, share, transfer/account removal, conflict and intake), confirming corrected action styling and native navigation boundaries. This review covered light captures; it did not certify full dark/Dynamic Type/VoiceOver/device/extension behavior.
