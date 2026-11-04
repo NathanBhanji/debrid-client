@@ -303,6 +303,8 @@ func (s *Service) loadTorrent(ctx context.Context, ref string) (domain.Torrent, 
 
 // DeleteOptions control what DeleteTorrent removes besides the local record.
 type DeleteOptions struct {
+	// ExpectedRevision optionally binds native removal to an exact incarnation.
+	ExpectedRevision string
 	// DeleteFiles removes downloaded files from disk.
 	DeleteFiles bool
 	// DeleteFromProvider removes the torrent at the debrid provider too.
@@ -311,9 +313,15 @@ type DeleteOptions struct {
 
 // DeleteTorrent cancels in-flight work and removes the torrent.
 func (s *Service) DeleteTorrent(ctx context.Context, idOrHash string, opts DeleteOptions) error {
+	if opts.ExpectedRevision != "" && !domain.ValidSelectionRevision(opts.ExpectedRevision) {
+		return validationErr("invalid removal revision")
+	}
 	t, err := s.loadTorrent(ctx, idOrHash)
 	if err != nil {
 		return err
+	}
+	if opts.ExpectedRevision != "" && t.ID != idOrHash {
+		return validationErr("reviewed removal requires exact transfer id")
 	}
 	return s.deleteTorrentGuarded(ctx, t.ID, opts, nil)
 }
@@ -339,6 +347,9 @@ func (s *Service) deleteTorrentGuarded(ctx context.Context, id string, opts Dele
 		if eligible != nil && !eligible(current) {
 			return nil
 		}
+		if err := s.requireRemovalRevision(ctx, id, opts.ExpectedRevision); err != nil {
+			return err
+		}
 		if err := s.engine.CancelTorrent(ctx, id); err != nil {
 			return fmt.Errorf("stop torrent work before deletion: %w", err)
 		}
@@ -350,6 +361,9 @@ func (s *Service) deleteTorrentGuarded(ctx context.Context, id string, opts Dele
 		}
 		if eligible != nil && !eligible(current) {
 			return nil
+		}
+		if err := s.requireRemovalRevision(ctx, id, opts.ExpectedRevision); err != nil {
+			return err
 		}
 		return s.deleteTorrentStopped(ctx, current, opts)
 	})

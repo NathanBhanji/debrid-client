@@ -99,6 +99,7 @@ type addTorrentFileIn struct {
 	}]
 }
 type deleteTorrentIn struct {
+	IfMatch  string `header:"If-Match" maxLength:"66" doc:"Optional single strong quoted revision from removal-review; native clients require this. Weak/wildcard/list values are rejected."`
 	ID       string `path:"id"`
 	Files    bool   `query:"files" doc:"Delete downloaded files"`
 	Provider bool   `query:"provider" doc:"Delete at the debrid provider too"`
@@ -145,7 +146,7 @@ func (h *Handler) registerRoutes(p string) {
 			out := &healthOut{}
 			out.Body.OK = true
 			out.Body.Version = buildinfo.Version
-			out.Body.Capabilities = []string{"torrent_submissions_v1", "multipart_torrent_settings_v1", "manual_file_selection_v1", "native_retry_v1", "native_cancellation_v1"}
+			out.Body.Capabilities = []string{"torrent_submissions_v1", "multipart_torrent_settings_v1", "manual_file_selection_v1", "native_retry_v1", "native_cancellation_v1", "native_removal_precondition_v1"}
 			return out, nil
 		})
 	huma.Register(api, huma.Operation{OperationID: "get-status", Method: http.MethodGet, Path: p + "/system/status", Summary: "System status", Tags: []string{"system"}},
@@ -299,9 +300,17 @@ func (h *Handler) registerRoutes(p string) {
 			}
 			return &torrentOut{Body: apimodel.FromTorrent(t)}, nil
 		})
-	huma.Register(api, huma.Operation{OperationID: "delete-torrent", Method: http.MethodDelete, Path: p + "/torrents/{id}", Summary: "Delete a torrent", Tags: []string{"torrents"}, DefaultStatus: http.StatusNoContent},
+	huma.Register(api, huma.Operation{OperationID: "delete-torrent", Method: http.MethodDelete, Path: p + "/torrents/{id}", Summary: "Delete a torrent", Tags: []string{"torrents"}, DefaultStatus: http.StatusNoContent, Middlewares: huma.Middlewares{retryNoStore, h.validateRemovalIfMatch}},
 		func(ctx context.Context, in *deleteTorrentIn) (*struct{}, error) {
-			return nil, h.mapErr(h.svc.DeleteTorrent(ctx, in.ID, service.DeleteOptions{DeleteFiles: in.Files, DeleteFromProvider: in.Provider}))
+			var revision string
+			if in.IfMatch != "" {
+				var err error
+				revision, err = parseRemovalIfMatch(in.IfMatch)
+				if err != nil {
+					return nil, err
+				}
+			}
+			return nil, h.mapErr(h.svc.DeleteTorrent(ctx, in.ID, service.DeleteOptions{DeleteFiles: in.Files, DeleteFromProvider: in.Provider, ExpectedRevision: revision}))
 		})
 	huma.Register(api, huma.Operation{OperationID: "retry-torrent", Method: http.MethodPost, Path: p + "/torrents/{id}/retry", Summary: "Retry an errored, completed or cancelled torrent from scratch", Tags: []string{"torrents"}},
 		func(ctx context.Context, in *torrentIDIn) (*torrentOut, error) {
@@ -344,6 +353,7 @@ func (h *Handler) registerRoutes(p string) {
 
 	h.registerRetryRoutes(p)
 	h.registerCancellationRoutes(p)
+	h.registerRemovalReviewRoute(p)
 
 	// Settings
 	huma.Register(api, huma.Operation{OperationID: "get-settings", Method: http.MethodGet, Path: p + "/settings", Summary: "Get runtime settings", Tags: []string{"settings"}},
