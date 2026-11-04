@@ -28,6 +28,9 @@ targets:
       properties:
         CFBundleDisplayName: Debrid
         DebridKeychainAccessGroup: $(AppIdentifierPrefix)dev.bhanji.debrid
+        CFBundleURLTypes:
+          - CFBundleURLName: dev.bhanji.debrid.auth
+            CFBundleURLSchemes: [dev.bhanji.debrid]
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         ITSAppUsesNonExemptEncryption: false

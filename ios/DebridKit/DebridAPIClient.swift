@@ -70,12 +70,30 @@ public final class DebridAPIClient: Sendable {
     public func settings() async throws -> SettingsDTO { try await get(["settings"]) }
     public func systemStatus() async throws -> SystemStatusDTO { try await get(["system", "status"]) }
 
+    public func startNative(challenge: String, state: String) async throws -> NativeStartDTO {
+        struct Body: Encodable { let challenge: String; let state: String }
+        return try await send(["auth", "native", "start"], method: "POST", body: JSONEncoder().encode(Body(challenge: challenge, state: state)))
+    }
+    public func exchangeNative(code: String, verifier: String) async throws -> NativeSessionDTO {
+        struct Body: Encodable { let code: String; let verifier: String }
+        return try await send(["auth", "native", "exchange"], method: "POST", body: JSONEncoder().encode(Body(code: code, verifier: verifier)))
+    }
+    public func logout() async throws {
+        let _: EmptyAPIResponse = try await send(["auth", "logout"], method: "POST", allowsEmpty: true)
+    }
+    private struct EmptyAPIResponse: Decodable, Sendable {}
+    private func get<Response: Decodable & Sendable>(_ path: [String]) async throws -> Response {
+        try await send(path, method: "GET")
+    }
+
     /// Bounded byte collection and JSON decoding run away from a caller's UI actor.
-    @concurrent private func get<Response: Decodable & Sendable>(_ path: [String]) async throws -> Response {
+    @concurrent private func send<Response: Decodable & Sendable>(_ path: [String], method: String, body: Data? = nil, allowsEmpty: Bool = false) async throws -> Response {
         try Task.checkCancellation()
         let url = try server.endpoint(components: path)
         var request = URLRequest(url: url)
-        request.httpMethod = "GET"
+        request.httpMethod = method
+        request.httpBody = body
+        if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         credential?.apply(to: &request)
         do {
@@ -90,7 +108,8 @@ public final class DebridAPIClient: Sendable {
             case 429: throw APIError.rateLimited(retryAfter: Self.retryAfter(response.value(forHTTPHeaderField: "Retry-After")))
             default: throw APIError.http(status: response.statusCode)
             }
-            guard let mime = response.mimeType?.lowercased(), mime == "application/json" || mime.hasSuffix("+json") else { throw APIError.invalidContentType }
+            let isJSON = response.mimeType.map { $0.lowercased() == "application/json" || $0.lowercased().hasSuffix("+json") } == true
+            guard isJSON || allowsEmpty else { throw APIError.invalidContentType }
             guard response.expectedContentLength <= Int64(maximumResponseBytes) else { throw APIError.responseTooLarge }
             var data = Data()
             for try await byte in bytes {
@@ -98,6 +117,8 @@ public final class DebridAPIClient: Sendable {
                 data.append(byte)
             }
             try Task.checkCancellation()
+            if allowsEmpty && data.isEmpty { return try Self.decoder().decode(Response.self, from: Data("{}".utf8)) }
+            guard isJSON else { throw APIError.invalidContentType }
             do { return try Self.decoder().decode(Response.self, from: data) }
             catch { throw APIError.invalidResponse }
         } catch let error as URLError {

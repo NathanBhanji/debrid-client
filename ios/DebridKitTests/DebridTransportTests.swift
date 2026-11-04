@@ -209,4 +209,32 @@ struct DebridTransportTests {
         #expect(DebridAPIClient.retryAfter("Thu, 01 Jan 1970 00:00:30 GMT", now:Date(timeIntervalSince1970:0)) == 30)
         #expect(DebridAPIClient.retryAfter("-10") == nil)
     }
+    @Test func nativeAuthPostsSecretsOnlyInJSONAndLogoutAcceptsEmptyBody() async throws {
+        let (client, host) = try setup(StubReply(data: Data(#"{"authorization_url":"https://id.example.test/authorize"}"#.utf8)))
+        defer { remove(host) }
+        let started = try await client.startNative(challenge:"fixture_challenge",state:"fixture_state")
+        #expect(started.authorizationUrl == "https://id.example.test/authorize")
+        APIStub.states.withLock { $0[host]!.reply.data = Data(#"{"session_token":"fixture_session","username":"Fixture"}"#.utf8) }
+        let session = try await client.exchangeNative(code:"fixture_code",verifier:"fixture_verifier")
+        #expect(!String(reflecting:session).contains("fixture_session"))
+        APIStub.states.withLock { $0[host]!.reply = StubReply(headers:[:],data:Data()) }
+        try await client.logout()
+        let requests = APIStub.states.withLock { $0[host]!.requests }
+        #expect(requests.map(\.httpMethod) == ["POST","POST","POST"])
+        #expect(requests.allSatisfy { $0.url?.query == nil && $0.value(forHTTPHeaderField:"Cookie") == nil && $0.value(forHTTPHeaderField:"Authorization") == nil })
+        #expect(requests[0].url?.path == "/debrid/api/v1/auth/native/start")
+        #expect(requests[1].url?.path == "/debrid/api/v1/auth/native/exchange")
+        #expect(requests[0].value(forHTTPHeaderField:"Content-Type") == "application/json")
+        // URLSession may expose a body as an input stream to URLProtocol.
+        var posted = Data()
+        if let data = requests[1].httpBody { posted = data }
+        else if let stream = requests[1].httpBodyStream {
+            stream.open(); defer { stream.close() }
+            var buffer = [UInt8](repeating:0,count:1024)
+            while stream.hasBytesAvailable { let count = stream.read(&buffer,maxLength:buffer.count); if count <= 0 { break }; posted.append(buffer,count:count) }
+        }
+        let body = try JSONDecoder().decode([String:String].self,from:posted)
+        #expect(body == ["code":"fixture_code","verifier":"fixture_verifier"])
+    }
+
 }
