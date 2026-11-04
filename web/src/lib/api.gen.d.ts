@@ -354,6 +354,26 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/torrent-submissions/{key}': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Reconcile an accepted torrent submission
+     * @description 200 proves a prior local enqueue, even after deletion. 404 means no committed receipt is visible: an original request may still be running. Retry only the same immutable intent with the same key; never mint another key automatically.
+     */
+    get: operations['get-torrent-submission']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/torrents': {
     parameters: {
       query?: never
@@ -364,7 +384,10 @@ export interface paths {
     /** List torrents */
     get: operations['list-torrents']
     put?: never
-    /** Add a torrent from a magnet link */
+    /**
+     * Add a torrent from a magnet link
+     * @description Optional Idempotency-Key identifies one immutable add intent (UUIDv4, bare or quoted). A committed replay returns 201 with the current torrent and X-Debrid-Submission-Replayed: true, without requeueing. Receipt and torrent commit atomically. Reuse with different payload/account/category/settings returns 422 and X-Debrid-Error-Code: idempotency_mismatch. A removed accepted torrent returns 409/submission_removed and is never recreated. Other active duplicates return 409/active_torrent plus X-Debrid-Existing-Torrent-ID. Existing unkeyed clients keep ordinary add semantics. Receipts persist across restart/deletion. GET torrent-submissions/{key} reconciles timeouts; 404 does not mean an original request has finished. This is local enqueue deduplication, not a guarantee of exactly-once provider execution.
+     */
     post: operations['add-torrent']
     delete?: never
     options?: never
@@ -381,7 +404,10 @@ export interface paths {
     }
     get?: never
     put?: never
-    /** Add a torrent from a .torrent file (multipart) */
+    /**
+     * Add a torrent from a .torrent file (multipart)
+     * @description Optional Idempotency-Key identifies one immutable add intent (UUIDv4, bare or quoted). A committed replay returns 201 with the current torrent and X-Debrid-Submission-Replayed: true, without requeueing. Receipt and torrent commit atomically. Reuse with different payload/account/category/settings returns 422 and X-Debrid-Error-Code: idempotency_mismatch. A removed accepted torrent returns 409/submission_removed and is never recreated. Other active duplicates return 409/active_torrent plus X-Debrid-Existing-Torrent-ID. Existing unkeyed clients keep ordinary add semantics. Receipts persist across restart/deletion. GET torrent-submissions/{key} reconciles timeouts; 404 does not mean an original request has finished. This is local enqueue deduplication, not a guarantee of exactly-once provider execution.
+     */
     post: operations['add-torrent-file']
     delete?: never
     options?: never
@@ -683,6 +709,8 @@ export interface components {
        * @example https://example.com/schemas/HealthOutBody.json
        */
       readonly $schema?: string
+      /** @description Additive feature identifiers; missing features must not be assumed */
+      capabilities: string[]
       ok: boolean
       version: string
     }
@@ -992,6 +1020,19 @@ export interface components {
       torrent_retries?: number
       /** @description Extract archives after download */
       unpack?: boolean
+    }
+    TorrentSubmission: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://example.com/schemas/TorrentSubmission.json
+       */
+      readonly $schema?: string
+      /** Format: date-time */
+      accepted_at: string
+      /** @description False means it was removed; the original key must not recreate it */
+      torrent_exists: boolean
+      torrent_id: string
     }
     UpdateAccountInBody: {
       /**
@@ -1880,6 +1921,39 @@ export interface operations {
       }
     }
   }
+  'get-torrent-submission': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        /** @description Original UUIDv4 submission key */
+        key: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          'Cache-Control'?: string
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['TorrentSubmission']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
   'list-torrents': {
     parameters: {
       query?: {
@@ -1926,7 +2000,10 @@ export interface operations {
   'add-torrent': {
     parameters: {
       query?: never
-      header?: never
+      header?: {
+        /** @description Optional fresh UUIDv4 (bare or quoted). Persist and reuse only with the identical submitted intent until reconciled. */
+        'Idempotency-Key'?: string
+      }
       path?: never
       cookie?: never
     }
@@ -1939,6 +2016,7 @@ export interface operations {
       /** @description Created */
       201: {
         headers: {
+          'X-Debrid-Submission-Replayed'?: boolean
           [name: string]: unknown
         }
         content: {
@@ -1959,7 +2037,10 @@ export interface operations {
   'add-torrent-file': {
     parameters: {
       query?: never
-      header?: never
+      header?: {
+        /** @description Optional fresh UUIDv4 (bare or quoted); same reconciliation contract as magnet adds */
+        'Idempotency-Key'?: string
+      }
       path?: never
       cookie?: never
     }
@@ -1970,6 +2051,8 @@ export interface operations {
           category?: string
           /** Format: binary */
           file: string
+          /** @description Optional JSON TorrentSettings object, full replacement of defaults, not merged (16 KiB maximum) */
+          settings?: string
         }
       }
     }
@@ -1977,6 +2060,7 @@ export interface operations {
       /** @description Created */
       201: {
         headers: {
+          'X-Debrid-Submission-Replayed'?: boolean
           [name: string]: unknown
         }
         content: {

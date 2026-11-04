@@ -35,7 +35,10 @@ func DefaultSettings() Settings {
 
 // GetSettings loads settings, falling back to defaults.
 func (s *Service) GetSettings(ctx context.Context) (Settings, error) {
-	raw, err := s.store.GetSetting(ctx, settingsKey)
+	return settingsWithQueries(ctx, s.store.Queries)
+}
+func settingsWithQueries(ctx context.Context, q *sqlcgen.Queries) (Settings, error) {
+	raw, err := q.GetSetting(ctx, settingsKey)
 	if err != nil {
 		if store.IsNotFound(err) {
 			return DefaultSettings(), nil

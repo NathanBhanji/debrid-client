@@ -21,8 +21,10 @@ import (
 // AddTorrentInput describes a torrent to add. Exactly one of Magnet or
 // TorrentFile must be set.
 type AddTorrentInput struct {
-	Magnet      string
-	TorrentFile []byte
+	// SubmissionKey is optional. A fresh UUIDv4 identifies one immutable add intent.
+	SubmissionKey string
+	Magnet        string
+	TorrentFile   []byte
 	// Account is an account id or name; empty uses the default account.
 	Account  string
 	Category string
@@ -32,8 +34,10 @@ type AddTorrentInput struct {
 
 // TorrentDetail is a torrent with its downloads.
 type TorrentDetail struct {
-	Torrent   domain.Torrent
-	Downloads []domain.Download
+	// SubmissionReplayed is transient metadata, never a stored torrent field.
+	SubmissionReplayed bool `json:"-"`
+	Torrent            domain.Torrent
+	Downloads          []domain.Download
 }
 
 // LocalProgress is 0..1 across all downloads (by bytes).
@@ -89,71 +93,99 @@ func (s *Service) AddTorrent(ctx context.Context, in AddTorrentInput) (TorrentDe
 		return TorrentDetail{}, validationErr("a magnet link or torrent file is required")
 	}
 
-	var acc domain.ProviderAccount
-	if in.Account == "" {
-		acc, err = s.DefaultAccount(ctx)
-	} else {
-		acc, err = s.account(ctx, in.Account)
-	}
+	keyHash, requestHash, err := submissionIdentity(in, meta)
 	if err != nil {
 		return TorrentDetail{}, err
 	}
-	if !acc.Enabled {
-		return TorrentDetail{}, validationErr("account %q is disabled", acc.Name)
+	var out TorrentDetail
+	err = s.store.WithTx(ctx, func(q *sqlcgen.Queries) error {
+		if keyHash != "" {
+			previous, err := q.GetTorrentSubmission(ctx, keyHash)
+			if err == nil {
+				if previous.RequestHash != requestHash {
+					return &TorrentConflict{Code: SubmissionMismatch}
+				}
+				if !previous.TorrentExists {
+					return &TorrentConflict{Code: SubmissionRemoved, TorrentID: previous.TorrentID}
+				}
+				out, err = torrentDetailWithQueries(ctx, q, previous.TorrentID)
+				out.SubmissionReplayed = true
+				return err
+			}
+			if !store.IsNotFound(err) {
+				return err
+			}
+		}
+		var acc domain.ProviderAccount
+		var err error
+		if in.Account == "" {
+			acc, err = defaultAccountWithQueries(ctx, q)
+		} else {
+			acc, err = accountWithQueries(ctx, q, in.Account)
+		}
+		if err != nil {
+			return err
+		}
+		if !acc.Enabled {
+			return validationErr("account %q is disabled", acc.Name)
+		}
+		settings, err := settingsWithQueries(ctx, q)
+		if err != nil {
+			return err
+		}
+		ts := settings.TorrentDefaults
+		if in.Settings != nil {
+			ts = *in.Settings
+			if ts.FinishedAction == "" {
+				ts.FinishedAction = domain.FinishedKeep
+			}
+		}
+		if err := ValidateTorrentSettings(ts); err != nil {
+			return err
+		}
+		if in.Category != "" {
+			if err := validateCategory(in.Category); err != nil {
+				return err
+			}
+		}
+		if err := checkActiveTorrent(ctx, q, acc.ID, meta.Hash, ""); err != nil {
+			return err
+		}
+		now := s.now()
+		t := meta
+		t.ID = s.newID()
+		t.AccountID = acc.ID
+		t.Category = in.Category
+		t.Status = domain.TorrentQueued
+		t.StatusReason = "queued locally"
+		t.Settings = ts
+		t.AddedAt = now
+		t.UpdatedAt = now
+		params, err := store.TorrentInsertParams(t)
+		if err != nil {
+			return err
+		}
+		if err := q.InsertTorrent(ctx, params); err != nil {
+			return err
+		}
+		if keyHash != "" {
+			if err := q.InsertTorrentSubmission(ctx, sqlcgen.InsertTorrentSubmissionParams{KeyHash: keyHash, RequestHash: requestHash, TorrentID: t.ID, CreatedAt: store.FormatTime(now)}); err != nil {
+				return err
+			}
+		}
+		out = TorrentDetail{Torrent: t, Downloads: []domain.Download{}}
+		return nil
+	})
+	if err != nil {
+		return TorrentDetail{}, err
+	}
+	if out.SubmissionReplayed {
+		return out, nil
 	}
 
-	settings, err := s.GetSettings(ctx)
-	if err != nil {
-		return TorrentDetail{}, err
-	}
-	ts := settings.TorrentDefaults
-	if in.Settings != nil {
-		ts = *in.Settings
-		if ts.FinishedAction == "" {
-			ts.FinishedAction = domain.FinishedKeep
-		}
-	}
-	if err := ValidateTorrentSettings(ts); err != nil {
-		return TorrentDetail{}, err
-	}
-	if in.Category != "" {
-		if err := validateCategory(in.Category); err != nil {
-			return TorrentDetail{}, err
-		}
-	}
-
-	// Duplicate guard: any non-terminal torrent with this hash on the account
-	// (not just the newest row — a retried older row counts too).
-	rows, err := s.store.ListTorrentsByAccount(ctx, acc.ID)
-	if err != nil {
-		return TorrentDetail{}, err
-	}
-	for _, r := range rows {
-		if r.Hash == meta.Hash && !domain.TorrentStatus(r.Status).IsTerminal() {
-			return TorrentDetail{}, fmt.Errorf("%w: torrent %s already exists on account %s (id %s, %s)", ErrConflict, meta.Hash, acc.Name, r.ID, r.Status)
-		}
-	}
-
-	now := s.now()
-	t := meta
-	t.ID = s.newID()
-	t.AccountID = acc.ID
-	t.Category = in.Category
-	t.Status = domain.TorrentQueued
-	t.StatusReason = "queued locally"
-	t.Settings = ts
-	t.AddedAt = now
-	t.UpdatedAt = now
-	params, err := store.TorrentInsertParams(t)
-	if err != nil {
-		return TorrentDetail{}, err
-	}
-	if err := s.store.InsertTorrent(ctx, params); err != nil {
-		return TorrentDetail{}, err
-	}
-	s.events.Publish(events.Event{Type: events.TorrentAdded, TorrentID: t.ID})
+	s.events.Publish(events.Event{Type: events.TorrentAdded, TorrentID: out.Torrent.ID})
 	s.engine.Wake()
-	return TorrentDetail{Torrent: t, Downloads: []domain.Download{}}, nil
+	return out, nil
 }
 
 // ListTorrents returns torrents (newest first) with their downloads.
@@ -445,6 +477,9 @@ func (s *Service) RetryTorrent(ctx context.Context, idOrHash string) (TorrentDet
 		if !t.Status.IsTerminal() {
 			return fmt.Errorf("%w: torrent is %s; only errored or completed torrents can be retried", ErrConflict, t.Status)
 		}
+		if err := checkActiveTorrent(ctx, q, t.AccountID, t.Hash, t.ID); err != nil {
+			return err
+		}
 		if err := t.Transition(domain.TorrentQueued, "retry requested"); err != nil {
 			return err
 		}
@@ -503,9 +538,46 @@ func (s *Service) RetryTorrent(ctx context.Context, idOrHash string) (TorrentDet
 
 // RetryDownload re-queues a single errored download.
 func (s *Service) RetryDownload(ctx context.Context, downloadID string) (domain.Download, error) {
-	d, err := s.store.MutateDownload(ctx, downloadID, func(d *domain.Download) error {
+	var d domain.Download
+	parentChanged := false
+	err := s.store.WithTx(ctx, func(q *sqlcgen.Queries) error {
+		row, err := q.GetDownload(ctx, downloadID)
+		if err != nil {
+			return err
+		}
+		d, err = store.DownloadFromRow(row)
+		if err != nil {
+			return err
+		}
 		if d.State != domain.DownloadError {
 			return fmt.Errorf("%w: download is %s, not in error", ErrConflict, d.State)
+		}
+		parent, err := q.GetTorrent(ctx, d.TorrentID)
+		if err != nil {
+			return err
+		}
+		t, err := store.TorrentFromRow(parent)
+		if err != nil {
+			return err
+		}
+		if t.Status == domain.TorrentError {
+			if err := checkActiveTorrent(ctx, q, t.AccountID, t.Hash, t.ID); err != nil {
+				return err
+			}
+			if err := t.Transition(domain.TorrentFinished, "download retry requested"); err != nil {
+				return err
+			}
+			t.Error = ""
+			t.CompletedAt = nil
+			t.UpdatedAt = s.now()
+			params, err := store.TorrentUpdateParams(t)
+			if err != nil {
+				return err
+			}
+			if err := q.UpdateTorrent(ctx, params); err != nil {
+				return err
+			}
+			parentChanged = true
 		}
 		if err := d.Transition(domain.DownloadPending); err != nil {
 			return err
@@ -513,9 +585,11 @@ func (s *Service) RetryDownload(ctx context.Context, downloadID string) (domain.
 		d.Error = ""
 		d.RetryCount = 0
 		d.DirectURL = ""
-		d.StartedAt, d.FinishedAt, d.CompletedAt = nil, nil, nil
+		d.StartedAt = nil
+		d.FinishedAt = nil
+		d.CompletedAt = nil
 		d.UpdatedAt = s.now()
-		return nil
+		return q.UpdateDownload(ctx, store.DownloadUpdateParams(d))
 	})
 	if err != nil {
 		if store.IsNotFound(err) {
@@ -523,19 +597,10 @@ func (s *Service) RetryDownload(ctx context.Context, downloadID string) (domain.
 		}
 		return domain.Download{}, err
 	}
-	// The torrent may have been marked errored because of this download.
-	_, _ = s.store.MutateTorrent(ctx, d.TorrentID, func(t *domain.Torrent) error {
-		if t.Status != domain.TorrentError {
-			return store.ErrSkip
-		}
-		if err := t.Transition(domain.TorrentFinished, "download retry requested"); err != nil {
-			return store.ErrSkip
-		}
-		t.Error = ""
-		t.CompletedAt = nil
-		t.UpdatedAt = s.now()
-		return nil
-	})
+	if parentChanged {
+		s.events.Publish(events.Event{Type: events.TorrentUpdated, TorrentID: d.TorrentID})
+	}
+
 	s.events.Publish(events.Event{Type: events.DownloadUpdated, TorrentID: d.TorrentID, DownloadID: d.ID})
 	s.engine.Wake()
 	return d, nil

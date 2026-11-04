@@ -38,7 +38,7 @@ func newTorrentsCmd(g *globalFlags, cf *clientFlags) *cobra.Command {
 					if addCategory != "" {
 						body.Category = &addCategory
 					}
-					resp, err := cl.AddTorrentWithResponse(cmd.Context(), body)
+					resp, err := cl.AddTorrentWithResponse(cmd.Context(), nil, body)
 					if err != nil {
 						return err
 					}
@@ -65,7 +65,7 @@ func newTorrentsCmd(g *globalFlags, cf *clientFlags) *cobra.Command {
 					_ = mw.WriteField("category", addCategory)
 				}
 				_ = mw.Close()
-				resp, err := cl.AddTorrentFileWithBodyWithResponse(cmd.Context(), mw.FormDataContentType(), &buf)
+				resp, err := cl.AddTorrentFileWithBodyWithResponse(cmd.Context(), nil, mw.FormDataContentType(), &buf)
 				if err != nil {
 					return err
 				}

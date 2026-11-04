@@ -131,6 +131,19 @@ func constantTimeEq(a, b string) bool {
 // mapErr converts service errors to HTTP problems. Unknown errors are logged
 // and returned as an opaque 500 so internals never reach clients.
 func (h *Handler) mapErr(err error) error {
+	var conflict *service.TorrentConflict
+	if errors.As(err, &conflict) {
+		status := http.StatusConflict
+		if conflict.Code == service.SubmissionMismatch {
+			status = http.StatusUnprocessableEntity
+		}
+		headers := http.Header{"X-Debrid-Error-Code": []string{string(conflict.Code)}, "Cache-Control": []string{"no-store"}}
+		if conflict.Code == service.ActiveTorrent && conflict.TorrentID != "" {
+			headers.Set("X-Debrid-Existing-Torrent-ID", conflict.TorrentID)
+		}
+		return huma.ErrorWithHeaders(huma.NewError(status, conflict.Error()), headers)
+	}
+
 	switch {
 	case err == nil:
 		return nil

@@ -442,9 +442,12 @@ type HealthOutBody struct {
 	// Schema A URL to the JSON Schema for this object.
 	//
 	// Example: https://example.com/schemas/HealthOutBody.json
-	Schema  *string `json:"$schema,omitempty"`
-	Ok      bool    `json:"ok"`
-	Version string  `json:"version"`
+	Schema *string `json:"$schema,omitempty"`
+
+	// Capabilities Additive feature identifiers; missing features must not be assumed
+	Capabilities []string `json:"capabilities"`
+	Ok           bool     `json:"ok"`
+	Version      string   `json:"version"`
 }
 
 // Heartbeat defines model for Heartbeat.
@@ -754,6 +757,19 @@ type TorrentSettings struct {
 // TorrentSettingsFinishedAction What to do at the provider after local completion
 type TorrentSettingsFinishedAction string
 
+// TorrentSubmission defines model for TorrentSubmission.
+type TorrentSubmission struct {
+	// Schema A URL to the JSON Schema for this object.
+	//
+	// Example: https://example.com/schemas/TorrentSubmission.json
+	Schema     *string   `json:"$schema,omitempty"`
+	AcceptedAt time.Time `json:"accepted_at"`
+
+	// TorrentExists False means it was removed; the original key must not recreate it
+	TorrentExists bool   `json:"torrent_exists"`
+	TorrentId     string `json:"torrent_id"`
+}
+
 // UpdateAccountInBody defines model for UpdateAccountInBody.
 type UpdateAccountInBody struct {
 	// Schema A URL to the JSON Schema for this object.
@@ -815,11 +831,26 @@ type ListTorrentsParams struct {
 // ListTorrentsParamsStatus defines parameters for ListTorrents.
 type ListTorrentsParamsStatus string
 
+// AddTorrentParams defines parameters for AddTorrent.
+type AddTorrentParams struct {
+	// IdempotencyKey Optional fresh UUIDv4 (bare or quoted). Persist and reuse only with the identical submitted intent until reconciled.
+	IdempotencyKey *string `json:"Idempotency-Key,omitempty"`
+}
+
 // AddTorrentFileMultipartBody defines parameters for AddTorrentFile.
 type AddTorrentFileMultipartBody struct {
 	Account  *string            `json:"account,omitempty"`
 	Category *string            `json:"category,omitempty"`
 	File     openapi_types.File `json:"file"`
+
+	// Settings Optional JSON TorrentSettings object, full replacement of defaults, not merged (16 KiB maximum)
+	Settings *string `json:"settings,omitempty"`
+}
+
+// AddTorrentFileParams defines parameters for AddTorrentFile.
+type AddTorrentFileParams struct {
+	// IdempotencyKey Optional fresh UUIDv4 (bare or quoted); same reconciliation contract as magnet adds
+	IdempotencyKey *string `json:"Idempotency-Key,omitempty"`
 }
 
 // DeleteTorrentParams defines parameters for DeleteTorrent.
@@ -1163,6 +1194,13 @@ type ClientInterface interface {
 	// Corresponds with GET /api/v1/system/status (the `GetStatus` operationId).
 	GetStatus(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetTorrentSubmission Reconcile an accepted torrent submission
+	//
+	// 200 proves a prior local enqueue, even after deletion. 404 means no committed receipt is visible: an original request may still be running. Retry only the same immutable intent with the same key; never mint another key automatically.
+	//
+	// Corresponds with GET /api/v1/torrent-submissions/{key} (the `GetTorrentSubmission` operationId).
+	GetTorrentSubmission(ctx context.Context, key string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListTorrents List torrents
 	//
 	// Corresponds with GET /api/v1/torrents (the `ListTorrents` operationId).
@@ -1170,24 +1208,30 @@ type ClientInterface interface {
 
 	// AddTorrentWithBody Add a torrent from a magnet link
 	//
+	// Optional Idempotency-Key identifies one immutable add intent (UUIDv4, bare or quoted). A committed replay returns 201 with the current torrent and X-Debrid-Submission-Replayed: true, without requeueing. Receipt and torrent commit atomically. Reuse with different payload/account/category/settings returns 422 and X-Debrid-Error-Code: idempotency_mismatch. A removed accepted torrent returns 409/submission_removed and is never recreated. Other active duplicates return 409/active_torrent plus X-Debrid-Existing-Torrent-ID. Existing unkeyed clients keep ordinary add semantics. Receipts persist across restart/deletion. GET torrent-submissions/{key} reconciles timeouts; 404 does not mean an original request has finished. This is local enqueue deduplication, not a guarantee of exactly-once provider execution.
+	//
 	// Takes any type of body and a specified content type.
 	//
 	// Corresponds with POST /api/v1/torrents (the `AddTorrent` operationId).
-	AddTorrentWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	AddTorrentWithBody(ctx context.Context, params *AddTorrentParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// AddTorrent Add a torrent from a magnet link
+	//
+	// Optional Idempotency-Key identifies one immutable add intent (UUIDv4, bare or quoted). A committed replay returns 201 with the current torrent and X-Debrid-Submission-Replayed: true, without requeueing. Receipt and torrent commit atomically. Reuse with different payload/account/category/settings returns 422 and X-Debrid-Error-Code: idempotency_mismatch. A removed accepted torrent returns 409/submission_removed and is never recreated. Other active duplicates return 409/active_torrent plus X-Debrid-Existing-Torrent-ID. Existing unkeyed clients keep ordinary add semantics. Receipts persist across restart/deletion. GET torrent-submissions/{key} reconciles timeouts; 404 does not mean an original request has finished. This is local enqueue deduplication, not a guarantee of exactly-once provider execution.
 	//
 	// Takes a body of the `application/json` content type.
 	//
 	// Corresponds with POST /api/v1/torrents (the `AddTorrent` operationId).
-	AddTorrent(ctx context.Context, body AddTorrentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	AddTorrent(ctx context.Context, params *AddTorrentParams, body AddTorrentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// AddTorrentFileWithBody Add a torrent from a .torrent file (multipart)
+	//
+	// Optional Idempotency-Key identifies one immutable add intent (UUIDv4, bare or quoted). A committed replay returns 201 with the current torrent and X-Debrid-Submission-Replayed: true, without requeueing. Receipt and torrent commit atomically. Reuse with different payload/account/category/settings returns 422 and X-Debrid-Error-Code: idempotency_mismatch. A removed accepted torrent returns 409/submission_removed and is never recreated. Other active duplicates return 409/active_torrent plus X-Debrid-Existing-Torrent-ID. Existing unkeyed clients keep ordinary add semantics. Receipts persist across restart/deletion. GET torrent-submissions/{key} reconciles timeouts; 404 does not mean an original request has finished. This is local enqueue deduplication, not a guarantee of exactly-once provider execution.
 	//
 	// Takes any type of body and a specified content type.
 	//
 	// Corresponds with POST /api/v1/torrents/file (the `AddTorrentFile` operationId).
-	AddTorrentFileWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	AddTorrentFileWithBody(ctx context.Context, params *AddTorrentFileParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteTorrent Delete a torrent
 	//
@@ -1789,6 +1833,23 @@ func (c *Client) GetStatus(ctx context.Context, reqEditors ...RequestEditorFn) (
 	return c.Client.Do(req)
 }
 
+// GetTorrentSubmission Reconcile an accepted torrent submission
+//
+// 200 proves a prior local enqueue, even after deletion. 404 means no committed receipt is visible: an original request may still be running. Retry only the same immutable intent with the same key; never mint another key automatically.
+//
+// Corresponds with GET /api/v1/torrent-submissions/{key} (the `GetTorrentSubmission` operationId).
+func (c *Client) GetTorrentSubmission(ctx context.Context, key string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetTorrentSubmissionRequest(c.Server, key)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // ListTorrents List torrents
 //
 // Corresponds with GET /api/v1/torrents (the `ListTorrents` operationId).
@@ -1806,11 +1867,13 @@ func (c *Client) ListTorrents(ctx context.Context, params *ListTorrentsParams, r
 
 // AddTorrentWithBody Add a torrent from a magnet link
 //
+// Optional Idempotency-Key identifies one immutable add intent (UUIDv4, bare or quoted). A committed replay returns 201 with the current torrent and X-Debrid-Submission-Replayed: true, without requeueing. Receipt and torrent commit atomically. Reuse with different payload/account/category/settings returns 422 and X-Debrid-Error-Code: idempotency_mismatch. A removed accepted torrent returns 409/submission_removed and is never recreated. Other active duplicates return 409/active_torrent plus X-Debrid-Existing-Torrent-ID. Existing unkeyed clients keep ordinary add semantics. Receipts persist across restart/deletion. GET torrent-submissions/{key} reconciles timeouts; 404 does not mean an original request has finished. This is local enqueue deduplication, not a guarantee of exactly-once provider execution.
+//
 // Takes any type of body and a specified content type.
 //
 // Corresponds with POST /api/v1/torrents (the `AddTorrent` operationId).
-func (c *Client) AddTorrentWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewAddTorrentRequestWithBody(c.Server, contentType, body)
+func (c *Client) AddTorrentWithBody(ctx context.Context, params *AddTorrentParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAddTorrentRequestWithBody(c.Server, params, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1823,11 +1886,13 @@ func (c *Client) AddTorrentWithBody(ctx context.Context, contentType string, bod
 
 // AddTorrent Add a torrent from a magnet link
 //
+// Optional Idempotency-Key identifies one immutable add intent (UUIDv4, bare or quoted). A committed replay returns 201 with the current torrent and X-Debrid-Submission-Replayed: true, without requeueing. Receipt and torrent commit atomically. Reuse with different payload/account/category/settings returns 422 and X-Debrid-Error-Code: idempotency_mismatch. A removed accepted torrent returns 409/submission_removed and is never recreated. Other active duplicates return 409/active_torrent plus X-Debrid-Existing-Torrent-ID. Existing unkeyed clients keep ordinary add semantics. Receipts persist across restart/deletion. GET torrent-submissions/{key} reconciles timeouts; 404 does not mean an original request has finished. This is local enqueue deduplication, not a guarantee of exactly-once provider execution.
+//
 // Takes a body of the `application/json` content type.
 //
 // Corresponds with POST /api/v1/torrents (the `AddTorrent` operationId).
-func (c *Client) AddTorrent(ctx context.Context, body AddTorrentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewAddTorrentRequest(c.Server, body)
+func (c *Client) AddTorrent(ctx context.Context, params *AddTorrentParams, body AddTorrentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAddTorrentRequest(c.Server, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1840,11 +1905,13 @@ func (c *Client) AddTorrent(ctx context.Context, body AddTorrentJSONRequestBody,
 
 // AddTorrentFileWithBody Add a torrent from a .torrent file (multipart)
 //
+// Optional Idempotency-Key identifies one immutable add intent (UUIDv4, bare or quoted). A committed replay returns 201 with the current torrent and X-Debrid-Submission-Replayed: true, without requeueing. Receipt and torrent commit atomically. Reuse with different payload/account/category/settings returns 422 and X-Debrid-Error-Code: idempotency_mismatch. A removed accepted torrent returns 409/submission_removed and is never recreated. Other active duplicates return 409/active_torrent plus X-Debrid-Existing-Torrent-ID. Existing unkeyed clients keep ordinary add semantics. Receipts persist across restart/deletion. GET torrent-submissions/{key} reconciles timeouts; 404 does not mean an original request has finished. This is local enqueue deduplication, not a guarantee of exactly-once provider execution.
+//
 // Takes any type of body and a specified content type.
 //
 // Corresponds with POST /api/v1/torrents/file (the `AddTorrentFile` operationId).
-func (c *Client) AddTorrentFileWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewAddTorrentFileRequestWithBody(c.Server, contentType, body)
+func (c *Client) AddTorrentFileWithBody(ctx context.Context, params *AddTorrentFileParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAddTorrentFileRequestWithBody(c.Server, params, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2871,6 +2938,40 @@ func NewGetStatusRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewGetTorrentSubmissionRequest constructs an http.Request for the GetTorrentSubmission method
+func NewGetTorrentSubmissionRequest(server string, key string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "key", key, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/torrent-submissions/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewListTorrentsRequest constructs an http.Request for the ListTorrents method
 func NewListTorrentsRequest(server string, params *ListTorrentsParams) (*http.Request, error) {
 	var err error
@@ -2950,18 +3051,18 @@ func NewListTorrentsRequest(server string, params *ListTorrentsParams) (*http.Re
 }
 
 // NewAddTorrentRequest calls the generic AddTorrent builder with application/json body
-func NewAddTorrentRequest(server string, body AddTorrentJSONRequestBody) (*http.Request, error) {
+func NewAddTorrentRequest(server string, params *AddTorrentParams, body AddTorrentJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
 	bodyReader = bytes.NewReader(buf)
-	return NewAddTorrentRequestWithBody(server, "application/json", bodyReader)
+	return NewAddTorrentRequestWithBody(server, params, "application/json", bodyReader)
 }
 
 // NewAddTorrentRequestWithBody constructs an http.Request for the AddTorrent method, with any body, and a specified content type
-func NewAddTorrentRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+func NewAddTorrentRequestWithBody(server string, params *AddTorrentParams, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -2986,11 +3087,26 @@ func NewAddTorrentRequestWithBody(server string, contentType string, body io.Rea
 
 	req.Header.Add("Content-Type", contentType)
 
+	if params != nil {
+
+		if params.IdempotencyKey != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Idempotency-Key", *params.IdempotencyKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Idempotency-Key", headerParam0)
+		}
+
+	}
+
 	return req, nil
 }
 
 // NewAddTorrentFileRequestWithBody constructs an http.Request for the AddTorrentFile method, with any body, and a specified content type
-func NewAddTorrentFileRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+func NewAddTorrentFileRequestWithBody(server string, params *AddTorrentFileParams, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -3014,6 +3130,21 @@ func NewAddTorrentFileRequestWithBody(server string, contentType string, body io
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.IdempotencyKey != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Idempotency-Key", *params.IdempotencyKey, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Idempotency-Key", headerParam0)
+		}
+
+	}
 
 	return req, nil
 }
@@ -3541,6 +3672,15 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /api/v1/system/status (the `GetStatus` operationId).
 	GetStatusWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetStatusResponse, error)
 
+	// GetTorrentSubmissionWithResponse Reconcile an accepted torrent submission
+	//
+	// 200 proves a prior local enqueue, even after deletion. 404 means no committed receipt is visible: an original request may still be running. Retry only the same immutable intent with the same key; never mint another key automatically.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/torrent-submissions/{key} (the `GetTorrentSubmission` operationId).
+	GetTorrentSubmissionWithResponse(ctx context.Context, key string, reqEditors ...RequestEditorFn) (*GetTorrentSubmissionResponse, error)
+
 	// ListTorrentsWithResponse List torrents
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -3550,24 +3690,30 @@ type ClientWithResponsesInterface interface {
 
 	// AddTorrentWithBodyWithResponse Add a torrent from a magnet link
 	//
+	// Optional Idempotency-Key identifies one immutable add intent (UUIDv4, bare or quoted). A committed replay returns 201 with the current torrent and X-Debrid-Submission-Replayed: true, without requeueing. Receipt and torrent commit atomically. Reuse with different payload/account/category/settings returns 422 and X-Debrid-Error-Code: idempotency_mismatch. A removed accepted torrent returns 409/submission_removed and is never recreated. Other active duplicates return 409/active_torrent plus X-Debrid-Existing-Torrent-ID. Existing unkeyed clients keep ordinary add semantics. Receipts persist across restart/deletion. GET torrent-submissions/{key} reconciles timeouts; 404 does not mean an original request has finished. This is local enqueue deduplication, not a guarantee of exactly-once provider execution.
+	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with POST /api/v1/torrents (the `AddTorrent` operationId).
-	AddTorrentWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AddTorrentResponse, error)
+	AddTorrentWithBodyWithResponse(ctx context.Context, params *AddTorrentParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AddTorrentResponse, error)
 
 	// AddTorrentWithResponse Add a torrent from a magnet link
+	//
+	// Optional Idempotency-Key identifies one immutable add intent (UUIDv4, bare or quoted). A committed replay returns 201 with the current torrent and X-Debrid-Submission-Replayed: true, without requeueing. Receipt and torrent commit atomically. Reuse with different payload/account/category/settings returns 422 and X-Debrid-Error-Code: idempotency_mismatch. A removed accepted torrent returns 409/submission_removed and is never recreated. Other active duplicates return 409/active_torrent plus X-Debrid-Existing-Torrent-ID. Existing unkeyed clients keep ordinary add semantics. Receipts persist across restart/deletion. GET torrent-submissions/{key} reconciles timeouts; 404 does not mean an original request has finished. This is local enqueue deduplication, not a guarantee of exactly-once provider execution.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with POST /api/v1/torrents (the `AddTorrent` operationId).
-	AddTorrentWithResponse(ctx context.Context, body AddTorrentJSONRequestBody, reqEditors ...RequestEditorFn) (*AddTorrentResponse, error)
+	AddTorrentWithResponse(ctx context.Context, params *AddTorrentParams, body AddTorrentJSONRequestBody, reqEditors ...RequestEditorFn) (*AddTorrentResponse, error)
 
 	// AddTorrentFileWithBodyWithResponse Add a torrent from a .torrent file (multipart)
+	//
+	// Optional Idempotency-Key identifies one immutable add intent (UUIDv4, bare or quoted). A committed replay returns 201 with the current torrent and X-Debrid-Submission-Replayed: true, without requeueing. Receipt and torrent commit atomically. Reuse with different payload/account/category/settings returns 422 and X-Debrid-Error-Code: idempotency_mismatch. A removed accepted torrent returns 409/submission_removed and is never recreated. Other active duplicates return 409/active_torrent plus X-Debrid-Existing-Torrent-ID. Existing unkeyed clients keep ordinary add semantics. Receipts persist across restart/deletion. GET torrent-submissions/{key} reconciles timeouts; 404 does not mean an original request has finished. This is local enqueue deduplication, not a guarantee of exactly-once provider execution.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with POST /api/v1/torrents/file (the `AddTorrentFile` operationId).
-	AddTorrentFileWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AddTorrentFileResponse, error)
+	AddTorrentFileWithBodyWithResponse(ctx context.Context, params *AddTorrentFileParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AddTorrentFileResponse, error)
 
 	// DeleteTorrentWithResponse Delete a torrent
 	//
@@ -4781,6 +4927,61 @@ func (r GetStatusResponse) ContentType() string {
 	return ""
 }
 
+// GetTorrentSubmissionResponse200Headers the declared response headers of an HTTP 200 response for GetTorrentSubmission
+type GetTorrentSubmissionResponse200Headers struct {
+	CacheControl *string
+}
+
+type GetTorrentSubmissionResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *TorrentSubmission
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *GetTorrentSubmissionResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetTorrentSubmissionResponse) GetJSON200() *TorrentSubmission {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r GetTorrentSubmissionResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetTorrentSubmissionResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetTorrentSubmissionResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetTorrentSubmissionResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetTorrentSubmissionResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ListTorrentsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -4829,6 +5030,11 @@ func (r ListTorrentsResponse) ContentType() string {
 	return ""
 }
 
+// AddTorrentResponse201Headers the declared response headers of an HTTP 201 response for AddTorrent
+type AddTorrentResponse201Headers struct {
+	XDebridSubmissionReplayed *bool
+}
+
 type AddTorrentResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -4836,6 +5042,8 @@ type AddTorrentResponse struct {
 	JSON201 *Torrent
 	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
 	ApplicationproblemJSONDefault *ErrorModel
+	// Headers201 the parsed response headers for an HTTP 201 response
+	Headers201 *AddTorrentResponse201Headers
 }
 
 // GetJSON201 returns the response for an HTTP 201 `application/json` response
@@ -4877,6 +5085,11 @@ func (r AddTorrentResponse) ContentType() string {
 	return ""
 }
 
+// AddTorrentFileResponse201Headers the declared response headers of an HTTP 201 response for AddTorrentFile
+type AddTorrentFileResponse201Headers struct {
+	XDebridSubmissionReplayed *bool
+}
+
 type AddTorrentFileResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -4884,6 +5097,8 @@ type AddTorrentFileResponse struct {
 	JSON201 *Torrent
 	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
 	ApplicationproblemJSONDefault *ErrorModel
+	// Headers201 the parsed response headers for an HTTP 201 response
+	Headers201 *AddTorrentFileResponse201Headers
 }
 
 // GetJSON201 returns the response for an HTTP 201 `application/json` response
@@ -5606,6 +5821,21 @@ func (c *ClientWithResponses) GetStatusWithResponse(ctx context.Context, reqEdit
 	return ParseGetStatusResponse(rsp)
 }
 
+// GetTorrentSubmissionWithResponse Reconcile an accepted torrent submission
+//
+// 200 proves a prior local enqueue, even after deletion. 404 means no committed receipt is visible: an original request may still be running. Retry only the same immutable intent with the same key; never mint another key automatically.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/torrent-submissions/{key} (the `GetTorrentSubmission` operationId).
+func (c *ClientWithResponses) GetTorrentSubmissionWithResponse(ctx context.Context, key string, reqEditors ...RequestEditorFn) (*GetTorrentSubmissionResponse, error) {
+	rsp, err := c.GetTorrentSubmission(ctx, key, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetTorrentSubmissionResponse(rsp)
+}
+
 // ListTorrentsWithResponse List torrents
 //
 // Returns a wrapper object for the known response body format(s).
@@ -5621,11 +5851,13 @@ func (c *ClientWithResponses) ListTorrentsWithResponse(ctx context.Context, para
 
 // AddTorrentWithBodyWithResponse Add a torrent from a magnet link
 //
+// Optional Idempotency-Key identifies one immutable add intent (UUIDv4, bare or quoted). A committed replay returns 201 with the current torrent and X-Debrid-Submission-Replayed: true, without requeueing. Receipt and torrent commit atomically. Reuse with different payload/account/category/settings returns 422 and X-Debrid-Error-Code: idempotency_mismatch. A removed accepted torrent returns 409/submission_removed and is never recreated. Other active duplicates return 409/active_torrent plus X-Debrid-Existing-Torrent-ID. Existing unkeyed clients keep ordinary add semantics. Receipts persist across restart/deletion. GET torrent-submissions/{key} reconciles timeouts; 404 does not mean an original request has finished. This is local enqueue deduplication, not a guarantee of exactly-once provider execution.
+//
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
 // Corresponds with POST /api/v1/torrents (the `AddTorrent` operationId).
-func (c *ClientWithResponses) AddTorrentWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AddTorrentResponse, error) {
-	rsp, err := c.AddTorrentWithBody(ctx, contentType, body, reqEditors...)
+func (c *ClientWithResponses) AddTorrentWithBodyWithResponse(ctx context.Context, params *AddTorrentParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AddTorrentResponse, error) {
+	rsp, err := c.AddTorrentWithBody(ctx, params, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -5634,11 +5866,13 @@ func (c *ClientWithResponses) AddTorrentWithBodyWithResponse(ctx context.Context
 
 // AddTorrentWithResponse Add a torrent from a magnet link
 //
+// Optional Idempotency-Key identifies one immutable add intent (UUIDv4, bare or quoted). A committed replay returns 201 with the current torrent and X-Debrid-Submission-Replayed: true, without requeueing. Receipt and torrent commit atomically. Reuse with different payload/account/category/settings returns 422 and X-Debrid-Error-Code: idempotency_mismatch. A removed accepted torrent returns 409/submission_removed and is never recreated. Other active duplicates return 409/active_torrent plus X-Debrid-Existing-Torrent-ID. Existing unkeyed clients keep ordinary add semantics. Receipts persist across restart/deletion. GET torrent-submissions/{key} reconciles timeouts; 404 does not mean an original request has finished. This is local enqueue deduplication, not a guarantee of exactly-once provider execution.
+//
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
 // Corresponds with POST /api/v1/torrents (the `AddTorrent` operationId).
-func (c *ClientWithResponses) AddTorrentWithResponse(ctx context.Context, body AddTorrentJSONRequestBody, reqEditors ...RequestEditorFn) (*AddTorrentResponse, error) {
-	rsp, err := c.AddTorrent(ctx, body, reqEditors...)
+func (c *ClientWithResponses) AddTorrentWithResponse(ctx context.Context, params *AddTorrentParams, body AddTorrentJSONRequestBody, reqEditors ...RequestEditorFn) (*AddTorrentResponse, error) {
+	rsp, err := c.AddTorrent(ctx, params, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -5647,11 +5881,13 @@ func (c *ClientWithResponses) AddTorrentWithResponse(ctx context.Context, body A
 
 // AddTorrentFileWithBodyWithResponse Add a torrent from a .torrent file (multipart)
 //
+// Optional Idempotency-Key identifies one immutable add intent (UUIDv4, bare or quoted). A committed replay returns 201 with the current torrent and X-Debrid-Submission-Replayed: true, without requeueing. Receipt and torrent commit atomically. Reuse with different payload/account/category/settings returns 422 and X-Debrid-Error-Code: idempotency_mismatch. A removed accepted torrent returns 409/submission_removed and is never recreated. Other active duplicates return 409/active_torrent plus X-Debrid-Existing-Torrent-ID. Existing unkeyed clients keep ordinary add semantics. Receipts persist across restart/deletion. GET torrent-submissions/{key} reconciles timeouts; 404 does not mean an original request has finished. This is local enqueue deduplication, not a guarantee of exactly-once provider execution.
+//
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
 // Corresponds with POST /api/v1/torrents/file (the `AddTorrentFile` operationId).
-func (c *ClientWithResponses) AddTorrentFileWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AddTorrentFileResponse, error) {
-	rsp, err := c.AddTorrentFileWithBody(ctx, contentType, body, reqEditors...)
+func (c *ClientWithResponses) AddTorrentFileWithBodyWithResponse(ctx context.Context, params *AddTorrentFileParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AddTorrentFileResponse, error) {
+	rsp, err := c.AddTorrentFileWithBody(ctx, params, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -6626,6 +6862,52 @@ func ParseGetStatusResponse(rsp *http.Response) (*GetStatusResponse, error) {
 	return response, nil
 }
 
+// ParseGetTorrentSubmissionResponse parses an HTTP response from a GetTorrentSubmissionWithResponse call
+func ParseGetTorrentSubmissionResponse(rsp *http.Response) (*GetTorrentSubmissionResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetTorrentSubmissionResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest TorrentSubmission
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers GetTorrentSubmissionResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
 // ParseListTorrentsResponse parses an HTTP response from a ListTorrentsWithResponse call
 func ParseListTorrentsResponse(rsp *http.Response) (*ListTorrentsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -6689,6 +6971,19 @@ func ParseAddTorrentResponse(rsp *http.Response) (*AddTorrentResponse, error) {
 
 	}
 
+	switch {
+	case rsp.StatusCode == 201:
+		var headers AddTorrentResponse201Headers
+		if values := rsp.Header.Values("X-Debrid-Submission-Replayed"); len(values) > 0 {
+			var value bool
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Debrid-Submission-Replayed", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XDebridSubmissionReplayed = &value
+		}
+		response.Headers201 = &headers
+	}
+
 	return response, nil
 }
 
@@ -6720,6 +7015,19 @@ func ParseAddTorrentFileResponse(rsp *http.Response) (*AddTorrentFileResponse, e
 		}
 		response.ApplicationproblemJSONDefault = &dest
 
+	}
+
+	switch {
+	case rsp.StatusCode == 201:
+		var headers AddTorrentFileResponse201Headers
+		if values := rsp.Header.Values("X-Debrid-Submission-Replayed"); len(values) > 0 {
+			var value bool
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Debrid-Submission-Replayed", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.XDebridSubmissionReplayed = &value
+		}
+		response.Headers201 = &headers
 	}
 
 	return response, nil

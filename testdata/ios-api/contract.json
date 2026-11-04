@@ -17,7 +17,11 @@
   "health": {
     "$schema": "https://example.com/schemas/HealthOutBody.json",
     "ok": true,
-    "version": "dev"
+    "version": "dev",
+    "capabilities": [
+      "torrent_submissions_v1",
+      "multipart_torrent_settings_v1"
+    ]
   },
   "identity": {
     "$schema": "https://example.com/schemas/MeOutBody.json",

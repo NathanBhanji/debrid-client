@@ -142,9 +142,12 @@ func (s *Service) GetAccount(ctx context.Context, idOrName string) (AccountView,
 
 // account loads the full account (with credentials) by id or name.
 func (s *Service) account(ctx context.Context, idOrName string) (domain.ProviderAccount, error) {
-	row, err := s.store.GetProviderAccount(ctx, idOrName)
+	return accountWithQueries(ctx, s.store.Queries, idOrName)
+}
+func accountWithQueries(ctx context.Context, q *sqlcgen.Queries, idOrName string) (domain.ProviderAccount, error) {
+	row, err := q.GetProviderAccount(ctx, idOrName)
 	if store.IsNotFound(err) {
-		row, err = s.store.GetProviderAccountByName(ctx, idOrName)
+		row, err = q.GetProviderAccountByName(ctx, idOrName)
 	}
 	if err != nil {
 		if store.IsNotFound(err) {
@@ -157,7 +160,10 @@ func (s *Service) account(ctx context.Context, idOrName string) (domain.Provider
 
 // DefaultAccount returns the default account, or ErrNotFound if none configured.
 func (s *Service) DefaultAccount(ctx context.Context) (domain.ProviderAccount, error) {
-	row, err := s.store.GetDefaultProviderAccount(ctx)
+	return defaultAccountWithQueries(ctx, s.store.Queries)
+}
+func defaultAccountWithQueries(ctx context.Context, q *sqlcgen.Queries) (domain.ProviderAccount, error) {
+	row, err := q.GetDefaultProviderAccount(ctx)
 	if err != nil {
 		if store.IsNotFound(err) {
 			return domain.ProviderAccount{}, fmt.Errorf("%w: no default provider account configured", ErrNotFound)
