@@ -38,3 +38,6 @@ DELETE FROM torrents WHERE id = ?;
 
 -- name: CountTorrents :one
 SELECT COUNT(*) FROM torrents;
+
+-- name: ListTorrentDuplicates :many
+SELECT id, status FROM torrents WHERE account_id = ? AND hash = ? ORDER BY added_at, id;

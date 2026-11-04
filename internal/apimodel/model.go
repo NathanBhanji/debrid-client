@@ -115,6 +115,13 @@ type Torrent struct {
 	Downloads        []Download      `json:"downloads"`
 }
 
+// TorrentSubmission proves a previously accepted local enqueue, even if removed later.
+type TorrentSubmission struct {
+	TorrentID     string    `json:"torrent_id"`
+	AcceptedAt    time.Time `json:"accepted_at"`
+	TorrentExists bool      `json:"torrent_exists" doc:"False means it was removed; the original key must not recreate it"`
+}
+
 // Settings are runtime settings.
 type Settings struct {
 	TorrentDefaults TorrentSettings  `json:"torrent_defaults"`

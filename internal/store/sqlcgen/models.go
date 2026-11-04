@@ -89,6 +89,13 @@ type Torrent struct {
 	TrackedPaths    string
 }
 
+type TorrentSubmission struct {
+	KeyHash     string
+	RequestHash string
+	TorrentID   string
+	CreatedAt   string
+}
+
 type User struct {
 	ID           string
 	Username     string

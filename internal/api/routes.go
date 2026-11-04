@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"reflect"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -22,8 +23,9 @@ import (
 
 type healthOut struct {
 	Body struct {
-		OK      bool   `json:"ok"`
-		Version string `json:"version"`
+		OK           bool     `json:"ok"`
+		Version      string   `json:"version"`
+		Capabilities []string `json:"capabilities" doc:"Additive feature identifiers; missing features must not be assumed"`
 	}
 }
 
@@ -67,8 +69,20 @@ type torrentOut struct{ Body apimodel.Torrent }
 type torrentIDIn struct {
 	ID string `path:"id" doc:"Torrent id or info hash"`
 }
+type addTorrentOut struct {
+	Body     apimodel.Torrent
+	Replayed bool `header:"X-Debrid-Submission-Replayed" doc:"True when this key replays a prior accepted local enqueue"`
+}
+type submissionIn struct {
+	Key string `path:"key" maxLength:"38" doc:"Original UUIDv4 submission key"`
+}
+type submissionOut struct {
+	CacheControl string `header:"Cache-Control"`
+	Body         apimodel.TorrentSubmission
+}
 type addTorrentIn struct {
-	Body struct {
+	SubmissionKey string `header:"Idempotency-Key" maxLength:"38" doc:"Optional fresh UUIDv4 (bare or quoted). Persist and reuse only with the identical submitted intent until reconciled."`
+	Body          struct {
 		Magnet   string                    `json:"magnet" doc:"Magnet URI"`
 		Account  string                    `json:"account,omitempty" doc:"Account id or name; default account when empty"`
 		Category string                    `json:"category,omitempty"`
@@ -76,10 +90,12 @@ type addTorrentIn struct {
 	}
 }
 type addTorrentFileIn struct {
-	RawBody huma.MultipartFormFiles[struct {
+	SubmissionKey string `header:"Idempotency-Key" maxLength:"38" doc:"Optional fresh UUIDv4 (bare or quoted); same reconciliation contract as magnet adds"`
+	RawBody       huma.MultipartFormFiles[struct {
 		File     huma.FormFile `form:"file" contentType:"application/x-bittorrent,application/octet-stream" required:"true"`
 		Account  string        `form:"account" required:"false"`
 		Category string        `form:"category" required:"false"`
+		Settings string        `form:"settings" required:"false" maxLength:"16384" doc:"Optional JSON TorrentSettings object, full replacement of defaults, not merged (16 KiB maximum)"`
 	}]
 }
 type deleteTorrentIn struct {
@@ -111,12 +127,14 @@ type settingsIn struct{ Body apimodel.Settings }
 
 func (h *Handler) registerRoutes(p string) {
 	api := h.Huma
+	settingsSchema := api.OpenAPI().Components.Schemas.Schema(reflect.TypeFor[apimodel.TorrentSettings](), true, "")
 
 	huma.Register(api, huma.Operation{OperationID: "health", Method: http.MethodGet, Path: p + "/health", Summary: "Health check", Tags: []string{"system"}, Security: []map[string][]string{}, Metadata: map[string]any{metaPublic: true}},
 		func(context.Context, *struct{}) (*healthOut, error) {
 			out := &healthOut{}
 			out.Body.OK = true
 			out.Body.Version = buildinfo.Version
+			out.Body.Capabilities = []string{"torrent_submissions_v1", "multipart_torrent_settings_v1"}
 			return out, nil
 		})
 	huma.Register(api, huma.Operation{OperationID: "get-status", Method: http.MethodGet, Path: p + "/system/status", Summary: "System status", Tags: []string{"system"}},
@@ -196,9 +214,9 @@ func (h *Handler) registerRoutes(p string) {
 			}
 			return out, nil
 		})
-	huma.Register(api, huma.Operation{OperationID: "add-torrent", Method: http.MethodPost, Path: p + "/torrents", Summary: "Add a torrent from a magnet link", Tags: []string{"torrents"}, DefaultStatus: http.StatusCreated},
-		func(ctx context.Context, in *addTorrentIn) (*torrentOut, error) {
-			req := service.AddTorrentInput{Magnet: in.Body.Magnet, Account: in.Body.Account, Category: in.Body.Category}
+	huma.Register(api, huma.Operation{OperationID: "add-torrent", Method: http.MethodPost, Path: p + "/torrents", Summary: "Add a torrent from a magnet link", Description: submissionContract, Tags: []string{"torrents"}, DefaultStatus: http.StatusCreated},
+		func(ctx context.Context, in *addTorrentIn) (*addTorrentOut, error) {
+			req := service.AddTorrentInput{SubmissionKey: in.SubmissionKey, Magnet: in.Body.Magnet, Account: in.Body.Account, Category: in.Body.Category}
 			if in.Body.Settings != nil {
 				s, err := in.Body.Settings.ToDomain()
 				if err != nil {
@@ -210,10 +228,10 @@ func (h *Handler) registerRoutes(p string) {
 			if err != nil {
 				return nil, h.mapErr(err)
 			}
-			return &torrentOut{Body: apimodel.FromTorrent(t)}, nil
+			return &addTorrentOut{Body: apimodel.FromTorrent(t), Replayed: t.SubmissionReplayed}, nil
 		})
-	huma.Register(api, huma.Operation{OperationID: "add-torrent-file", Method: http.MethodPost, Path: p + "/torrents/file", Summary: "Add a torrent from a .torrent file (multipart)", Tags: []string{"torrents"}, DefaultStatus: http.StatusCreated},
-		func(ctx context.Context, in *addTorrentFileIn) (*torrentOut, error) {
+	huma.Register(api, huma.Operation{OperationID: "add-torrent-file", Method: http.MethodPost, Path: p + "/torrents/file", Summary: "Add a torrent from a .torrent file (multipart)", Description: submissionContract, Tags: []string{"torrents"}, DefaultStatus: http.StatusCreated},
+		func(ctx context.Context, in *addTorrentFileIn) (*addTorrentOut, error) {
 			data := in.RawBody.Data()
 			b, err := io.ReadAll(io.LimitReader(data.File, h.opts.MaxUploadBytes+1))
 			if err != nil {
@@ -222,12 +240,30 @@ func (h *Handler) registerRoutes(p string) {
 			if int64(len(b)) > h.opts.MaxUploadBytes {
 				return nil, huma.Error413RequestEntityTooLarge("torrent file too large")
 			}
-			t, err := h.svc.AddTorrent(ctx, service.AddTorrentInput{TorrentFile: b, Account: data.Account, Category: data.Category})
+			req := service.AddTorrentInput{SubmissionKey: in.SubmissionKey, TorrentFile: b, Account: data.Account, Category: data.Category}
+			if len(in.RawBody.Form.File["settings"]) > 0 || len(in.RawBody.Form.Value["settings"]) > 1 {
+				return nil, huma.Error422UnprocessableEntity("settings must be one JSON text field")
+			}
+			if _, present := in.RawBody.Form.Value["settings"]; present {
+				settings, err := decodeUploadSettings(data.Settings, settingsSchema, api.OpenAPI().Components.Schemas)
+				if err != nil {
+					return nil, err
+				}
+				req.Settings = &settings
+			}
+			t, err := h.svc.AddTorrent(ctx, req)
 			if err != nil {
 				return nil, h.mapErr(err)
 			}
-			return &torrentOut{Body: apimodel.FromTorrent(t)}, nil
+			return &addTorrentOut{Body: apimodel.FromTorrent(t), Replayed: t.SubmissionReplayed}, nil
 		})
+	huma.Register(api, huma.Operation{OperationID: "get-torrent-submission", Method: http.MethodGet, Path: p + "/torrent-submissions/{key}", Summary: "Reconcile an accepted torrent submission", Description: "200 proves a prior local enqueue, even after deletion. 404 means no committed receipt is visible: an original request may still be running. Retry only the same immutable intent with the same key; never mint another key automatically.", Tags: []string{"torrents"}}, func(ctx context.Context, in *submissionIn) (*submissionOut, error) {
+		receipt, err := h.svc.GetTorrentSubmission(ctx, in.Key)
+		if err != nil {
+			return nil, huma.ErrorWithHeaders(h.mapErr(err), http.Header{"Cache-Control": []string{"no-store"}})
+		}
+		return &submissionOut{CacheControl: "no-store", Body: apimodel.TorrentSubmission{TorrentID: receipt.TorrentID, AcceptedAt: receipt.CreatedAt, TorrentExists: receipt.TorrentExists}}, nil
+	})
 	huma.Register(api, huma.Operation{OperationID: "get-torrent", Method: http.MethodGet, Path: p + "/torrents/{id}", Summary: "Get a torrent", Tags: []string{"torrents"}},
 		func(ctx context.Context, in *torrentIDIn) (*torrentOut, error) {
 			t, err := h.svc.GetTorrent(ctx, in.ID)

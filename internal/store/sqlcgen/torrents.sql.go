@@ -295,6 +295,43 @@ func (q *Queries) ListActiveTorrents(ctx context.Context) ([]Torrent, error) {
 	return items, nil
 }
 
+const listTorrentDuplicates = `-- name: ListTorrentDuplicates :many
+SELECT id, status FROM torrents WHERE account_id = ? AND hash = ? ORDER BY added_at, id
+`
+
+type ListTorrentDuplicatesParams struct {
+	AccountID string
+	Hash      string
+}
+
+type ListTorrentDuplicatesRow struct {
+	ID     string
+	Status string
+}
+
+func (q *Queries) ListTorrentDuplicates(ctx context.Context, arg ListTorrentDuplicatesParams) ([]ListTorrentDuplicatesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listTorrentDuplicates, arg.AccountID, arg.Hash)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListTorrentDuplicatesRow{}
+	for rows.Next() {
+		var i ListTorrentDuplicatesRow
+		if err := rows.Scan(&i.ID, &i.Status); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listTorrents = `-- name: ListTorrents :many
 SELECT id, account_id, hash, name, dir_name, category, status, status_reason, error, progress, size, speed, seeders, provider_id, provider_status, files, settings, payload_kind, payload, retry_count, added_at, provider_added_at, provider_ended_at, files_selected_at, completed_at, retry_at, updated_at, organized, tracked_paths FROM torrents ORDER BY added_at DESC
 `

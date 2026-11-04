@@ -405,6 +405,11 @@ components:
           format: uri
           readOnly: true
           type: string
+        capabilities:
+          description: Additive feature identifiers; missing features must not be assumed
+          items:
+            type: string
+          type: array
         ok:
           type: boolean
         version:
@@ -412,6 +417,7 @@ components:
       required:
         - ok
         - version
+        - capabilities
       type: object
     Heartbeat:
       additionalProperties: false
@@ -932,6 +938,28 @@ components:
         unpack:
           description: Extract archives after download
           type: boolean
+      type: object
+    TorrentSubmission:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/TorrentSubmission.json
+          format: uri
+          readOnly: true
+          type: string
+        accepted_at:
+          format: date-time
+          type: string
+        torrent_exists:
+          description: False means it was removed; the original key must not recreate it
+          type: boolean
+        torrent_id:
+          type: string
+      required:
+        - torrent_id
+        - accepted_at
+        - torrent_exists
       type: object
     UpdateAccountInBody:
       additionalProperties: false
@@ -1726,6 +1754,39 @@ paths:
       summary: System status
       tags:
         - system
+  /api/v1/torrent-submissions/{key}:
+    get:
+      description: "200 proves a prior local enqueue, even after deletion. 404 means no committed receipt is visible: an original request may still be running. Retry only the same immutable intent with the same key; never mint another key automatically."
+      operationId: get-torrent-submission
+      parameters:
+        - description: Original UUIDv4 submission key
+          in: path
+          name: key
+          required: true
+          schema:
+            description: Original UUIDv4 submission key
+            maxLength: 38
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TorrentSubmission"
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Reconcile an accepted torrent submission
+      tags:
+        - torrents
   /api/v1/torrents:
     get:
       operationId: list-torrents
@@ -1776,7 +1837,16 @@ paths:
       tags:
         - torrents
     post:
+      description: "Optional Idempotency-Key identifies one immutable add intent (UUIDv4, bare or quoted). A committed replay returns 201 with the current torrent and X-Debrid-Submission-Replayed: true, without requeueing. Receipt and torrent commit atomically. Reuse with different payload/account/category/settings returns 422 and X-Debrid-Error-Code: idempotency_mismatch. A removed accepted torrent returns 409/submission_removed and is never recreated. Other active duplicates return 409/active_torrent plus X-Debrid-Existing-Torrent-ID. Existing unkeyed clients keep ordinary add semantics. Receipts persist across restart/deletion. GET torrent-submissions/{key} reconciles timeouts; 404 does not mean an original request has finished. This is local enqueue deduplication, not a guarantee of exactly-once provider execution."
       operationId: add-torrent
+      parameters:
+        - description: Optional fresh UUIDv4 (bare or quoted). Persist and reuse only with the identical submitted intent until reconciled.
+          in: header
+          name: Idempotency-Key
+          schema:
+            description: Optional fresh UUIDv4 (bare or quoted). Persist and reuse only with the identical submitted intent until reconciled.
+            maxLength: 38
+            type: string
       requestBody:
         content:
           application/json:
@@ -1790,6 +1860,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/Torrent"
           description: Created
+          headers:
+            X-Debrid-Submission-Replayed:
+              schema:
+                description: True when this key replays a prior accepted local enqueue
+                type: boolean
         default:
           content:
             application/problem+json:
@@ -1801,7 +1876,16 @@ paths:
         - torrents
   /api/v1/torrents/file:
     post:
+      description: "Optional Idempotency-Key identifies one immutable add intent (UUIDv4, bare or quoted). A committed replay returns 201 with the current torrent and X-Debrid-Submission-Replayed: true, without requeueing. Receipt and torrent commit atomically. Reuse with different payload/account/category/settings returns 422 and X-Debrid-Error-Code: idempotency_mismatch. A removed accepted torrent returns 409/submission_removed and is never recreated. Other active duplicates return 409/active_torrent plus X-Debrid-Existing-Torrent-ID. Existing unkeyed clients keep ordinary add semantics. Receipts persist across restart/deletion. GET torrent-submissions/{key} reconciles timeouts; 404 does not mean an original request has finished. This is local enqueue deduplication, not a guarantee of exactly-once provider execution."
       operationId: add-torrent-file
+      parameters:
+        - description: Optional fresh UUIDv4 (bare or quoted); same reconciliation contract as magnet adds
+          in: header
+          name: Idempotency-Key
+          schema:
+            description: Optional fresh UUIDv4 (bare or quoted); same reconciliation contract as magnet adds
+            maxLength: 38
+            type: string
       requestBody:
         content:
           multipart/form-data:
@@ -1812,6 +1896,8 @@ paths:
                 contentType: text/plain
               file:
                 contentType: application/x-bittorrent,application/octet-stream
+              settings:
+                contentType: text/plain
             schema:
               properties:
                 account:
@@ -1823,6 +1909,10 @@ paths:
                   type: string
                   x-contentEncoding: binary
                   x-contentMediaType: application/octet-stream
+                settings:
+                  description: Optional JSON TorrentSettings object, full replacement of defaults, not merged (16 KiB maximum)
+                  maxLength: 16384
+                  type: string
               required:
                 - file
               type: object
@@ -1833,6 +1923,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/Torrent"
           description: Created
+          headers:
+            X-Debrid-Submission-Replayed:
+              schema:
+                description: True when this key replays a prior accepted local enqueue
+                type: boolean
         default:
           content:
             application/problem+json:

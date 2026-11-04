@@ -216,7 +216,7 @@ func (t *tools) register(s *mcp.Server) {
 			if in.Category != "" {
 				body.Category = &in.Category
 			}
-			r, err := t.cl.AddTorrentWithResponse(ctx, body)
+			r, err := t.cl.AddTorrentWithResponse(ctx, nil, body)
 			return res(r, err, 201, func() *apiclient.Torrent { return r.JSON201 })
 		})
 

@@ -33,6 +33,7 @@ type Querier interface {
 	GetTorrent(ctx context.Context, id string) (Torrent, error)
 	GetTorrentByHash(ctx context.Context, arg GetTorrentByHashParams) (Torrent, error)
 	GetTorrentByProviderID(ctx context.Context, arg GetTorrentByProviderIDParams) (Torrent, error)
+	GetTorrentSubmission(ctx context.Context, keyHash string) (GetTorrentSubmissionRow, error)
 	GetUser(ctx context.Context, id string) (User, error)
 	GetUserByOIDCSubject(ctx context.Context, oidcSubject string) (User, error)
 	GetUserByUsername(ctx context.Context, username string) (User, error)
@@ -40,6 +41,7 @@ type Querier interface {
 	InsertProviderAccount(ctx context.Context, arg InsertProviderAccountParams) error
 	InsertSession(ctx context.Context, arg InsertSessionParams) error
 	InsertTorrent(ctx context.Context, arg InsertTorrentParams) error
+	InsertTorrentSubmission(ctx context.Context, arg InsertTorrentSubmissionParams) error
 	InsertUser(ctx context.Context, arg InsertUserParams) error
 	ListActiveTorrents(ctx context.Context) ([]Torrent, error)
 	ListDownloads(ctx context.Context) ([]Download, error)
@@ -47,6 +49,7 @@ type Querier interface {
 	ListDownloadsForTorrent(ctx context.Context, torrentID string) ([]Download, error)
 	ListProviderAccounts(ctx context.Context) ([]ProviderAccount, error)
 	ListSettings(ctx context.Context) ([]ListSettingsRow, error)
+	ListTorrentDuplicates(ctx context.Context, arg ListTorrentDuplicatesParams) ([]ListTorrentDuplicatesRow, error)
 	ListTorrents(ctx context.Context) ([]Torrent, error)
 	ListTorrentsByAccount(ctx context.Context, accountID string) ([]Torrent, error)
 	ListTorrentsByStatus(ctx context.Context, status string) ([]Torrent, error)
