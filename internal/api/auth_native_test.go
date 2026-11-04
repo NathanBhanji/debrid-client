@@ -24,6 +24,11 @@ import (
 )
 
 func nativeAPIFixture(t *testing.T) (*httptest.Server, *auth.Manager) {
+	srv, mgr, _ := nativeAPIWithStore(t)
+	return srv, mgr
+}
+
+func nativeAPIWithStore(t *testing.T) (*httptest.Server, *auth.Manager, *store.Store) {
 	t.Helper()
 	signingKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -83,7 +88,7 @@ func nativeAPIFixture(t *testing.T) (*httptest.Server, *auth.Manager) {
 	svc := service.New(st, service.NewProviders(st, nil, provider.Options{}), nil, events.New(), service.Config{}, nil)
 	srv := httptest.NewServer(New(svc, Options{APIKey: key, Auth: mgr}))
 	t.Cleanup(srv.Close)
-	return srv, mgr
+	return srv, mgr, st
 }
 
 func TestNativeAPIRoundTripAndDenial(t *testing.T) {
@@ -179,5 +184,42 @@ func TestNativeAPIRequiresHTTPSAndConfiguredOIDC(t *testing.T) {
 	exchange, _ := json.Marshal(map[string]string{"code": oauth2.GenerateVerifier(), "verifier": oauth2.GenerateVerifier()})
 	if resp := req(t, srv, "POST", "/api/v1/auth/native/exchange", string(exchange), nil); resp.StatusCode != 400 {
 		t.Fatalf("HTTP exchange: %d", resp.StatusCode)
+	}
+}
+
+func TestLogoutReportsRevocationFailureAndCanRetry(t *testing.T) {
+	srv, mgr, st := nativeAPIWithStore(t)
+	start, err := mgr.StartOIDC(context.Background(), "https://server/callback", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, _ := url.Parse(start)
+	user, err := mgr.CompleteOIDC(context.Background(), parsed.Query().Get("state"), "fixture-code")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, err := mgr.CreateSession(context.Background(), user.ID, "fixture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().Exec("CREATE TRIGGER fail_fixture_logout BEFORE DELETE ON sessions BEGIN SELECT RAISE(FAIL, 'fixture failure'); END"); err != nil {
+		t.Fatal(err)
+	}
+	headers := map[string]string{"Cookie": SessionCookie + "=" + token}
+	response := req(t, srv, "POST", "/api/v1/auth/logout", "", headers)
+	if response.StatusCode != 500 || response.Header.Get("Set-Cookie") != "" {
+		t.Fatalf("failed revocation looked successful: %d", response.StatusCode)
+	}
+	if _, err := mgr.ValidateSession(context.Background(), token); err != nil {
+		t.Fatal("fixture session unexpectedly removed")
+	}
+	if _, err := st.DB().Exec("DROP TRIGGER fail_fixture_logout"); err != nil {
+		t.Fatal(err)
+	}
+	if response = req(t, srv, "POST", "/api/v1/auth/logout", "", headers); response.StatusCode != 204 {
+		t.Fatalf("retry: %d", response.StatusCode)
+	}
+	if _, err := mgr.ValidateSession(context.Background(), token); err == nil {
+		t.Fatal("logout did not revoke session")
 	}
 }

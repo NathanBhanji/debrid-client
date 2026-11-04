@@ -1,6 +1,6 @@
 # Debrid for iPhone
 
-Native SwiftUI app, Swift 6 complete concurrency checking. **Current milestone: server connection and secure storage.** Normal launch checks public health/auth endpoints and saves server profiles. Pocket ID browser sign-in and live management follow next; this is not ready for daily use. Debug `-Demo` or the native design gallery use fixture data without network or mutations.
+Native SwiftUI app, Swift 6 complete concurrency checking. **Current milestone: server connection, Pocket ID SSO and secure session lifecycle.** Normal launch restores a selected server session or opens Connect. Public discovery advertises native SSO on servers with the exchange addition (v0.2.2+). Transfer/provider management follows next; this is not ready for daily use. Debug `-Demo` or the native design gallery use fixture data without network or mutations.
 
 XcodeGen `project.yml` is the source of truth. Do not edit generated projects/Info.plists/entitlements. Xcode 27.1 (27A9275), iPhoneOS/Simulator SDK 27.1 and installed iOS 27.0 runtime verified on 2026-11-03. Minimum iOS **27.0**, provisionally matching Nathan's app fleet and the available runtime; confirm the phone's OS before device delivery. No third-party packages. Design and Swift implementation follow Emil’s `emil-design-eng`, `apple-design` and `write-swift` skills; see the [research/review](../docs/design/ios/research.md). Nathan requested the existing web identity within native iOS 27 navigation and controls, and chose Pocket ID SSO as the primary login; this requires a secure native exchange addition to the backend before live use.
 
@@ -42,7 +42,7 @@ Gallery retention is one catalog of **at most 32 screenshots**, one per route, p
 
 ## Typed API transport
 
-`DebridAPIClient` is a read-only, server-bound URLSession client. It is not constructed by the app shell yet. DTOs decode the Go wire contract; credentials are explicit per-client values with redacted descriptions, with Keychain persistence reserved for PR 03. See [transport boundaries](../docs/plan/ios-api-transport.md).
+`DebridAPIClient` is a server-bound URLSession client. The app now constructs anonymous discovery/auth clients and explicit credential-bound session clients. Native auth/logout are bounded POST requests; transfer/provider mutations arrive separately. DTOs decode the Go wire contract; credentials are explicit per-client values with redacted descriptions, with server-bound Keychain persistence. See [transport boundaries](../docs/plan/ios-api-transport.md).
 
 ```sh
 make generate-check # repository root; includes Go-produced native fixtures
@@ -63,4 +63,18 @@ Validation: 28 Swift Testing functions (including real hosted simulator Keychain
 
 Normal launch opens the native Connect form. It requires a full HTTPS URL, checks anonymous `/health` and `/auth/status`, then offers explicit non-secret server saving. Health must be healthy; authentication setup/mode and optional `native_sso` capability determine readiness. An older OIDC server reports that an update is needed, rather than falling back to copying an API key. Password-only setups are described honestly; changing a configured password server into OIDC is an administrator operation.
 
-Discovery constructs an anonymous, redirect-refusing transport per server. Editing/cancelling invalidates results, including tasks cancelled before they start. No auto-discovery on launch, provider probes, real transfers, credentials or TLS bypass. Saved metadata restores only the address until live session restoration arrives. DNS/network messages suggest checking Tailscale without claiming to detect VPN status.
+Discovery constructs an anonymous, redirect-refusing transport per server. Editing/cancelling invalidates results, including tasks cancelled before they start. No auto-discovery on launch, provider probes, real transfers, credentials or TLS bypass. Saved metadata restores the address only while input remains untouched; the session coordinator independently validates saved identity before connecting. DNS/network messages suggest checking Tailscale without claiming to detect VPN status.
+
+## Pocket ID and session recovery
+
+The app uses the current `ASWebAuthenticationSession` callback API, an active scene window, platform secure randomness and app-owned S256 verifier/state. The server keeps its existing OIDC callback registration. The app verifies the exact callback target, two unique query fields, state and canonical grant before exchanging with that same server. No ordinary URL-open path can authenticate an unsolicited callback. Attempt data is transient; app death restarts sign-in. See [protocol and threat model](../docs/plan/ios-native-auth.md).
+
+One coordinator serializes sign-in/restore. Cancellation generations reject late responses and overlapping attempts; old browser completion/cancellation cannot complete a newer session. Startup checks address intent across metadata/credential/identity awaits. Stored sessions are validated through `/auth/me`; 401 removes only that server’s secret, while offline failures retain it for reconnect.
+
+Sign-out attempts server revocation and removes the local session. Offline revocation is reported honestly; an interrupted exchange can create an unreachable server session that expires under existing server policy. If secure deletion fails, Connect retains the exact cleanup profile and offers a local-only **Remove saved session** retry; other servers remain untouched. Backend logout now returns an opaque failure if deletion fails rather than reporting success and clearing the cookie.
+
+Debug `-ConnectionPreview` composes the **actual Connect form** with anonymous sample discovery, a visible preview label and explicit preview action notices. It skips all credential setup/network; this is a visual/UI-test fixture, compiled out of Release routing. It supports real-form light/dark captures without production data.
+
+Validation for this milestone: 51 core Swift Testing functions and five native UI tests passed on the shared iOS 27.0 device, including RFC PKCE vector, exact/malformed callbacks, request bodies, empty logout, cancellation, delayed metadata restore, revoked/offline recovery, failed removal/retry and other-server preservation. System browser/passkey success and physical-device Keychain behavior still require the signed iPhone acceptance pass. Simulator identity and unsigned arm64 linking do not certify distribution provisioning.
+
+Apple setup: distinct Debrid app/share identifiers and dedicated AppStore profiles were prepared by Heimdall. Final signing/upload remains blocked on authenticated Apple website steps: register/assign `group.dev.bhanji.debrid` to both IDs and create the new Debrid App Store Connect record. Prepared profiles lack the required group and must be regenerated/validated after assignment. Never substitute another app’s profiles/record or weaken the group.

@@ -70,6 +70,18 @@ final class DemoFlowTests: XCTestCase {
 
 @MainActor
 final class ConnectionFlowTests: XCTestCase {
+    func testNativePocketIDActionWithFixtureHasHonestPreviewAndNoBrowser() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-ConnectionPreview"]
+        app.launch()
+        let signIn = app.buttons["pocket-id-sign-in"]
+        XCTAssertTrue(signIn.waitForExistence(timeout: 10))
+        if !signIn.isHittable { app.swipeUp() }
+        signIn.tap()
+        XCTAssertTrue(app.alerts["Preview only"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["This sample server cannot sign in or save credentials."].exists)
+    }
+
     func testInvalidAddressAndNativeConnectionForm() {
         let app = XCUIApplication()
         app.launch()

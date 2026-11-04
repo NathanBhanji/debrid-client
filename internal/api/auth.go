@@ -217,7 +217,9 @@ func (h *Handler) registerAuthRoutes(p string) {
 	}, func(ctx context.Context, _ *struct{}) (*logoutOut, error) {
 		hc := humaCtxFrom(ctx)
 		if c, err := huma.ReadCookie(hc, SessionCookie); err == nil {
-			_ = mgr.Logout(ctx, c.Value)
+			if err := mgr.Logout(ctx, c.Value); err != nil {
+				return nil, h.mapErr(err)
+			}
 		}
 		return &logoutOut{SetCookie: newSessionCookie("", cookieSecure(hc), -1)}, nil
 	})

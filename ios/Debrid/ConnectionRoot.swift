@@ -10,28 +10,58 @@ struct ConnectionRoot: View {
     @State private var saveRevision = 0
     @State private var storageError: String?
     @State private var store: SessionStore?
+    @State private var auth: SessionCoordinator?
+    @State private var authTask: Task<Void, Never>?
+    @State private var showingPreviewNotice = false
+    private let preview: Bool
+
+    init() { preview = false }
+    #if DEBUG
+    init(discoveryPreview: any ServerDiscoveryChecking) {
+        preview = true
+        _model = State(initialValue: ServerConnectionModel(discovery: discoveryPreview))
+    }
+    #endif
 
     var body: some View {
+        Group {
+            if let auth, case .connected(let connected) = auth.phase {
+                ConnectedLanding(server: connected, auth: auth)
+            } else { connectionForm }
+        }
+        .task { await prepare() }
+        .onChange(of: model.address) { checkTask?.cancel(); savedID = nil; savingID = nil; saveRevision &+= 1 }
+        .onDisappear { cancel(); cancelAuth() }
+        .alert("Preview only", isPresented: $showingPreviewNotice) {
+            Button("OK", role: .cancel) {}
+        } message: { Text("This sample server cannot sign in or save credentials.") }
+    }
+
+    private var connectionForm: some View {
         NavigationStack {
             Form {
                 Section {
-                    DebridWordmark().padding(.vertical, 12)
-                    Text("Your downloads, within reach.").font(.title2.weight(.semibold))
-                    Text("Connect to your self-hosted Debrid server. Downloads stay on your server.")
-                        .foregroundStyle(.secondary)
-                }.listRowBackground(Color.clear)
+                    VStack(alignment: .leading, spacing: 16) {
+                        if preview { Label("Preview · Sample server", systemImage: "viewfinder").font(.footnote).foregroundStyle(.secondary) }
+                        DebridWordmark()
+                        Text("Your downloads, within reach.").font(.title2.weight(.semibold))
+                        Text("Connect to your self-hosted Debrid server. Downloads stay on your server.")
+                            .foregroundStyle(.secondary)
+                    }.padding(.vertical, 12)
+                }.listRowBackground(Color.clear).listRowSeparator(.hidden)
                 Section {
                     TextField("https://debrid.example.com", text: $model.address)
                         .keyboardType(.URL).textContentType(.URL)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                         .accessibilityIdentifier("server-address")
                         .onSubmit { check() }
+                        .disabled(auth?.isBusy == true)
                     if model.phase == .checking {
                         HStack { ProgressView(); Text("Checking connection…"); Spacer(); Button("Cancel") { cancel() }.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint) }
                     } else {
                         Button("Check connection", systemImage: "network") { check() }
                             .buttonStyle(.borderless).foregroundStyle(DebridStyle.tint)
-                            .disabled(model.address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store == nil)
+                            .disabled(model.address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || store == nil || auth?.isBusy == true)
                             .accessibilityIdentifier("check-connection")
                     }
                 } header: { Text("Server address") } footer: {
@@ -45,12 +75,41 @@ struct ConnectionRoot: View {
                         Label("Debrid \(server.version)", systemImage: "checkmark.circle.fill")
                         Text(server.profile.serverURL.absoluteString).font(.footnote).textSelection(.enabled)
                         loginSummary(server)
+                        if server.login == .pocketID {
+                            Button("Continue with Pocket ID", systemImage: "person.badge.key") {
+                                if preview { showingPreviewNotice = true; return }
+                                guard let auth else { return }
+                                authTask = Task { await auth.signIn(to: server.profile) }
+                            }.buttonStyle(.glassProminent).tint(Color(red: 0.714, green: 0.216, blue: 0)).foregroundStyle(.white)
+                                .disabled(auth?.isBusy == true || auth?.pendingLocalRemoval != nil)
+                                .accessibilityIdentifier("pocket-id-sign-in")
+                        }
                         Button(savedID == server.profile.id ? "Server saved" : "Save server", systemImage: savedID == server.profile.id ? "checkmark" : "bookmark") {
-                            Task { await save(server.profile) }
+                            if preview { showingPreviewNotice = true } else { Task { await save(server.profile) } }
                         }.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint)
-                            .disabled(savedID == server.profile.id || savingID != nil)
+                            .disabled(savedID == server.profile.id || savingID != nil || auth?.isBusy == true)
                     }
                 default: EmptyView()
+                }
+                if let auth, auth.isBusy {
+                    Section {
+                        HStack { ProgressView(); Text("Connecting securely…"); Spacer(); Button("Cancel") { cancelAuth() }.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint) }
+                    }
+                }
+                if let message = auth?.message {
+                    Section {
+                        Label(message, systemImage: "person.crop.circle.badge.exclamationmark").foregroundStyle(.secondary)
+                        if let auth, let pending = auth.pendingLocalRemoval {
+                            Text(pending.serverURL.absoluteString).font(.footnote)
+                            Button("Remove saved session", role: .destructive) { Task { await auth.removeSavedSession() } }
+                                .buttonStyle(.borderless).foregroundStyle(.red).disabled(auth.isBusy)
+                        } else {
+                        Button("Reconnect saved server") {
+                            guard let auth else { return }
+                            authTask = Task { await auth.restore() }
+                        }.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint).disabled(auth?.isBusy == true)
+                        }
+                    }
                 }
                 if let storageError {
                     Section { Label(storageError, systemImage: "lock.trianglebadge.exclamationmark").foregroundStyle(.secondary) }
@@ -59,26 +118,29 @@ struct ConnectionRoot: View {
             .modifier(DebridListStyle())
             .navigationTitle("Connect")
             .tint(DebridStyle.tint)
-            .task {
-                guard !restored else { return }
-                restored = true
-                if let group = Bundle.main.object(forInfoDictionaryKey: "DebridKeychainAccessGroup") as? String,
-                   let secrets = try? KeychainSecretStorage(accessGroup: group) {
-                    store = SessionStore(secrets: secrets)
-                }
-                guard let store else { storageError = "Secure storage is unavailable. Reopen the app and try again."; return }
-                let inputRevision = model.addressRevision
-                do {
-                    if let profile = try await store.selectedProfile() {
-                        model.restoreAddress(profile.serverURL.absoluteString, expectedRevision: inputRevision)
-                    }
-                }
-                catch { storageError = "Saved server information could not be read. Your credentials have not been changed." }
-            }
-            .onChange(of: model.address) { checkTask?.cancel(); savedID = nil; savingID = nil; saveRevision &+= 1 }
-            .onDisappear { cancel() }
+
         }
     }
+
+    private func prepare() async {
+        guard !restored else { return }
+        restored = true
+        #if DEBUG
+        if preview {
+            model.address = "https://debrid.example.test"
+            await model.check()
+            return
+        }
+        #endif
+        if let group = Bundle.main.object(forInfoDictionaryKey: "DebridKeychainAccessGroup") as? String,
+           let secrets = try? KeychainSecretStorage(accessGroup: group) { store = SessionStore(secrets: secrets) }
+        guard let store else { storageError = "Secure storage is unavailable. Reopen the app and try again."; return }
+        let coordinator = SessionCoordinator(store: store, browser: SystemSignInBrowser())
+        auth = coordinator
+        guard !Task.isCancelled else { return }
+        authTask = Task { await coordinator.restore(connection: model) }
+    }
+    private func cancelAuth() { authTask?.cancel(); auth?.cancel(); authTask = nil }
 
     @ViewBuilder private func loginSummary(_ server: DiscoveredServer) -> some View {
         switch server.login {
@@ -122,3 +184,34 @@ struct ConnectionRoot: View {
         }
     }
 }
+
+private struct ConnectedLanding: View {
+    let server: AuthenticatedServer
+    let auth: SessionCoordinator
+    var body: some View {
+        NavigationStack {
+            List {
+                Section { DebridWordmark() }.listRowBackground(Color.clear).listRowSeparator(.hidden)
+                Section("Connected server") {
+                    Label("Signed in as \(server.username)", systemImage: "person.crop.circle.badge.checkmark")
+                    Text(server.profile.serverURL.absoluteString).font(.footnote).textSelection(.enabled)
+                }
+                Section {
+                    Button("Sign out on this iPhone", role: .destructive) { Task { await auth.signOut() } }
+                        .buttonStyle(.borderless).foregroundStyle(.red).disabled(auth.isBusy)
+                    if auth.isBusy { ProgressView("Signing out…") }
+                    if let message = auth.message { Text(message).foregroundStyle(.secondary) }
+                }
+            }.modifier(DebridListStyle())
+                .navigationTitle("Debrid")
+        }.tint(DebridStyle.tint)
+    }
+}
+
+#if DEBUG
+struct SignInDiscoveryPreview: ServerDiscoveryChecking {
+    func inspect(_ profile: ServerProfile) async throws -> DiscoveredServer {
+        DiscoveredServer(profile: profile, version: "Preview", issuer: "https://id.example.test", login: .pocketID)
+    }
+}
+#endif
