@@ -7,8 +7,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/NathanBhanji/debrid-client/internal/torrentmeta"
 	"github.com/anacrolix/torrent/bencode"
+
+	"github.com/NathanBhanji/debrid-client/internal/torrentmeta"
 )
 
 type fixture struct {
