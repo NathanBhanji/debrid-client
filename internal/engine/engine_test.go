@@ -150,7 +150,15 @@ func (h *harness) waitStatus(id string, want domain.TorrentStatus) domain.Torren
 		time.Sleep(10 * time.Millisecond)
 	}
 	d, _ := h.svc.GetTorrent(context.Background(), id)
-	h.t.Fatalf("torrent %s never reached %s (now %s: %s / %s)", id, want, d.Torrent.Status, d.Torrent.StatusReason, d.Torrent.Error)
+	states := make([]domain.DownloadState, 0, len(d.Downloads))
+	for _, download := range d.Downloads {
+		states = append(states, download.State)
+	}
+	h.eng.mu.Lock()
+	jobs := len(h.eng.jobs)
+	operations := len(h.eng.operations)
+	h.eng.mu.Unlock()
+	h.t.Fatalf("torrent %s never reached %s (now %s: %s / %s; download states=%v; jobs=%d; operation slots=%d)", id, want, d.Torrent.Status, d.Torrent.StatusReason, d.Torrent.Error, states, jobs, operations)
 	return domain.Torrent{}
 }
 

@@ -207,3 +207,48 @@ func TestDelayedListingCannotRepopulateDeletedProviderCache(t *testing.T) {
 		t.Fatal("new transfer adopted deleted provider ID", current, err, h.fake.Calls("Add"))
 	}
 }
+
+func TestPollingProvidesSchedulingProgressWithoutTickLoop(t *testing.T) {
+	h := newHarness(t, nil)
+	h.cancel()
+	<-h.done
+	ctx, cancel := context.WithCancel(context.Background())
+	defer func() { cancel(); h.eng.wg.Wait() }()
+	tor := h.add(nil)
+	remote, err := h.fake.AddMagnet(ctx, magnet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.eng.store.MutateTorrent(ctx, tor.ID, func(t *domain.Torrent) error {
+		t.ProviderID = remote.ID
+		t.Status = domain.TorrentProcessing
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	h.finishAtProvider(remote.ID, map[string][]byte{"one.mkv": []byte("fixture")})
+	// No background tick loop exists. Each successful poll must deliver one
+	// scheduling pass while it owns admission, even if ticks never win it.
+	for pass := range 3 {
+		if err := h.eng.pollAccount(ctx, tor.AccountID); err != nil {
+			t.Fatal(err)
+		}
+		h.eng.wg.Wait()
+		current, err := h.svc.GetTorrent(ctx, tor.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(current.Downloads) != 1 {
+			t.Fatal("poll reconciliation did not admit link creation", pass, current)
+		}
+		if pass == 0 && current.Downloads[0].State != domain.DownloadPending {
+			t.Fatal("link barrier", current.Downloads)
+		}
+		if pass == 1 && current.Downloads[0].State != domain.DownloadDownloaded {
+			t.Fatal("fetch barrier", current.Downloads)
+		}
+		if pass == 2 && current.Torrent.Status != domain.TorrentCompleted {
+			t.Fatal("finalization did not progress", current)
+		}
+	}
+}

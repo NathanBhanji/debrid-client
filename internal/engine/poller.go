@@ -141,7 +141,13 @@ func (e *Engine) pollAccount(ctx context.Context, accountID string) error {
 			if current.Status.IsTerminal() || current.Status == domain.TorrentQueued || current.Status == domain.TorrentAdding || current.AccountID != expected.AccountID || current.ProviderID != expected.ProviderID || current.RetryCount != expected.RetryCount {
 				return nil
 			}
-			return e.reconcileProviderSnapshot(ctx, &current, snap, prov.Caps())
+			if err := e.reconcileProviderSnapshot(ctx, &current, snap, prov.Caps()); err != nil {
+				return err
+			}
+			// Polling and the scheduler both use nonblocking admission. A successful
+			// poll must provide a scheduling opportunity itself, so repeated poller
+			// wins cannot leave a ready transfer perpetually skipped by tick.
+			return e.tickTorrent(ctx, &current, e.now())
 		}, false)
 		if err != nil {
 			return err
