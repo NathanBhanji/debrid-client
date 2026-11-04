@@ -1,6 +1,6 @@
 # Debrid for iPhone
 
-Native SwiftUI app, Swift 6 complete concurrency checking. **Current milestone: Pocket ID connection, live Transfers, search, filters and details.** Normal launch restores a selected server session or opens Connect. Public discovery advertises native SSO on servers with the exchange addition (v0.2.2+). The live Transfers list uses foreground SSE reconciliation, native search and combined status/category/account filters; intake and provider/settings management follow in subsequent milestones. This is not ready for daily use. Debug `-Demo` or the native design gallery use fixture data without network or mutations.
+Native SwiftUI app, Swift 6 complete concurrency checking. **Current milestone: Pocket ID connection, live Transfers, search, filters, details and file browsing.** Normal launch restores a selected server session or opens Connect. Public discovery advertises native SSO on servers with the exchange addition (v0.2.2+). The live Transfers list uses foreground SSE reconciliation, native search and combined status/category/account filters; intake and provider/settings management follow in subsequent milestones. This is not ready for daily use. Debug `-Demo` or the native design gallery use fixture data without network or mutations.
 
 XcodeGen `project.yml` is the source of truth. Do not edit generated projects/Info.plists/entitlements. Xcode 27.1 (27A9275), iPhoneOS/Simulator SDK 27.1 and installed iOS 27.0 runtime verified on 2026-11-03. Minimum iOS **27.0**, provisionally matching Nathan's app fleet and the available runtime; confirm the phone's OS before device delivery. No third-party packages. Design and Swift implementation follow Emil’s `emil-design-eng`, `apple-design` and `write-swift` skills; see the [research/review](../docs/design/ios/research.md). Nathan requested the existing web identity within native iOS 27 navigation and controls, and chose Pocket ID SSO as the primary login; this requires a secure native exchange addition to the backend before live use.
 
@@ -100,3 +100,7 @@ Native searchable navigation and a Filters form combine names, hashes, category 
 ## Live transfer detail
 
 Each live row opens native detail with independent provider availability and NAS progress, selected download byte counts, reported server folder and transfer metadata. List and detail share one foreground stream; search does not remove an open detail. Failed refreshes preserve stale information, and successful snapshots that omit the transfer show an explicit removed state. See [detail semantics and checks](../docs/plan/ios-transfer-detail.md).
+
+## Transfer files
+
+Native folder navigation and path search show provider metadata and individual NAS download records, including selection, progress and failures. File identity survives size/selection updates. Ambiguous metadata and unmatched downloads stay explicit, with no inferred phone filesystem paths or file-open action. Index work runs off the main actor, shares the existing live snapshots and has documented limits. See [file matching, limits and validation](../docs/plan/ios-files.md).

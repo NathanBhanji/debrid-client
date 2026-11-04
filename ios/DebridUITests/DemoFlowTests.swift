@@ -184,3 +184,28 @@ final class TransferDetailFlowTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Folder reported by server"].isHittable)
     }
 }
+
+@MainActor
+final class TransferFileFlowTests: XCTestCase {
+    func testNativeFolderAndFileDetailShowIndependentNASProgress() {
+        let app = XCUIApplication(); app.launchArguments = ["-TransfersPreview","-FilesPreview"]; app.launch()
+        XCTAssertTrue(app.buttons["Video"].waitForExistence(timeout:10)); app.buttons["Video"].tap()
+        XCTAssertTrue(app.buttons["file-row-video"].waitForExistence(timeout:5)); app.buttons["file-row-video"].tap()
+        XCTAssertTrue(app.navigationBars["File"].waitForExistence(timeout:5))
+        // Native LabeledContent can expose its value through the row’s accessibility element.
+        let selected = app.descendants(matching:.any).matching(NSPredicate(format:"label CONTAINS %@ OR value == %@", "Selected", "Selected")).firstMatch
+        XCTAssertTrue(selected.exists)
+        XCTAssertTrue(app.staticTexts["Video/Earth.mkv"].exists)
+        XCTAssertTrue(app.staticTexts["Downloading to NAS"].exists)
+        XCTAssertTrue(app.staticTexts["64%"].exists)
+    }
+    func testSearchFindsUnselectedFileAcrossFoldersAndNoMatch() {
+        let app = XCUIApplication(); app.launchArguments = ["-TransfersPreview","-FilesPreview"]; app.launch()
+        let search = app.searchFields["Search file paths"]
+        XCTAssertTrue(search.waitForExistence(timeout:10)); search.tap(); search.typeText("Readme")
+        XCTAssertTrue(app.buttons["file-row-notes"].waitForExistence(timeout:5))
+        XCTAssertTrue(app.staticTexts["Not selected"].exists)
+        search.typeText("no-match")
+        XCTAssertTrue(app.staticTexts["No matching files"].waitForExistence(timeout:5))
+    }
+}

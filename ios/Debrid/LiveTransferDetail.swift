@@ -43,6 +43,7 @@ struct LiveTransferDetail: View {
                     }
                     if !item.transfer.files.isEmpty { LabeledContent("Selected files",value:"\(detail.selectedFiles) of \(item.transfer.files.count)") }
                 } header: { Text("On your NAS") } footer: { Text("Downloading, unpacking and finalizing are separate stages. Completion is confirmed by the server.") }
+                Section { NavigationLink(value:TransferRoute.files(transferID)) { Label("Files",systemImage:"folder") }.accessibilityIdentifier("transfer-files") }
                 Section {
                     LabeledContent("Category",value:TransferSearchIndex.bounded(item.transfer.category.flatMap { $0.isEmpty ? nil : $0 } ?? "Uncategorized",limit:256))
                     if let folder = detail.serverFolder { VStack(alignment:.leading,spacing:6) { Text("Folder reported by server").font(.subheadline); Text(folder).font(.body.monospaced()).textSelection(.enabled) } }
