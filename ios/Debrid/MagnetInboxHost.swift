@@ -47,7 +47,8 @@ struct NativeAppRoot: View {
     var body: some View {
         MagnetInboxHost {
             #if DEBUG
-            if let configuration=intakeTestConfiguration(),["retry","retry-file","retry-uncertain","retry-light"].contains(configuration.mode ?? "") { RetryFixtureRoot(kind:configuration.mode=="retry-file" ? .download : .torrent,uncertain:configuration.mode=="retry-uncertain").preferredColorScheme(configuration.mode=="retry-light" ? .light : nil) }
+            if let configuration=intakeTestConfiguration(),["cancel","cancel-uncertain","remove","remove-uncertain","remove-light"].contains(configuration.mode ?? "") {ManagementFixtureRoot(kind:configuration.mode?.hasPrefix("remove")==true ? .remove:.cancel,uncertain:configuration.mode?.hasSuffix("uncertain")==true).preferredColorScheme(configuration.mode=="remove-light" ? .light:.dark)}
+            else if let configuration=intakeTestConfiguration(),["retry","retry-file","retry-uncertain","retry-light"].contains(configuration.mode ?? "") { RetryFixtureRoot(kind:configuration.mode=="retry-file" ? .download : .torrent,uncertain:configuration.mode=="retry-uncertain").preferredColorScheme(configuration.mode=="retry-light" ? .light : nil) }
             else if let configuration=intakeTestConfiguration(),configuration.mode=="share-host" { ShareHostFixture() }
             else if let configuration=intakeTestConfiguration(),configuration.mode=="selection" || configuration.mode=="selection-uncertain" { SelectionFixtureRoot(uncertain:configuration.mode=="selection-uncertain") }
             else if let configuration=intakeTestConfiguration(),["submit","uncertain"].contains(configuration.mode ?? "") { LiveTransfersPreview() }
@@ -134,6 +135,7 @@ struct PendingLinksSheet: View {
     @State private var path: [UUID]
     @State private var selectionModel:FileSelectionModel?
     @State private var retryModel:RetryModel?
+    @State private var managementModel:ManagementModel?
     @State private var selectionMessage:String?
     @State private var showingPaste = false
     @State private var showingImporter = false
@@ -157,6 +159,9 @@ struct PendingLinksSheet: View {
             .task { await intake.refresh() }
             .sheet(isPresented:Binding(get:{selectionModel != nil},set:{if !$0 {selectionModel=nil}}),onDismiss:{Task {await intake.refresh()}}) {
                 if let selectionModel {FileSelectionSheet(model:selectionModel,connectionID:intake.connection?.connectionID).onChange(of:selectionModel.requiresSignIn) {if selectionModel.requiresSignIn {Task {await intake.rejectConnection(selectionModel.connectionID)}}}}
+            }
+            .sheet(isPresented:Binding(get:{managementModel != nil},set:{if !$0 {managementModel=nil}}),onDismiss:{Task {await intake.refresh()}}) {
+                if let managementModel {ManagementSheet(model:managementModel,connectionID:intake.connection?.connectionID).onChange(of:managementModel.requiresSignIn) {if managementModel.requiresSignIn {Task {await intake.rejectConnection(managementModel.connectionID)}}}}
             }
             .sheet(isPresented:Binding(get:{retryModel != nil},set:{if !$0 {retryModel=nil}}),onDismiss:{Task {await intake.refresh()}}) {
                 if let retryModel {RetrySheet(model:retryModel,connectionID:intake.connection?.connectionID).onChange(of:retryModel.requiresSignIn) {if retryModel.requiresSignIn {Task {await intake.rejectConnection(retryModel.connectionID)}}}}
@@ -190,9 +195,10 @@ struct PendingLinksSheet: View {
                 if let message = intake.storageMessage { Section { Label(message,systemImage:"exclamationmark.triangle"); Button("Try again") { Task { await intake.refresh() } } } }
                 if intake.items.isEmpty && intake.storageMessage != nil { ContentUnavailableView("Saved items unavailable",systemImage:"lock",description:Text("Try again when protected storage is available.")) }
                 else if (!intake.hasSnapshot || intake.isLoading) && intake.items.isEmpty { ProgressView("Loading saved items…") }
-                else if intake.items.isEmpty && intake.savedSelections.isEmpty && intake.savedRetries.isEmpty { ContentUnavailableView("No pending links",systemImage:"tray",description:Text("Links and torrent files you save in Debrid appear here for review.")) }
+                else if intake.items.isEmpty && intake.savedSelections.isEmpty && intake.savedRetries.isEmpty && intake.savedManagement.isEmpty { ContentUnavailableView("No pending links",systemImage:"tray",description:Text("Links and torrent files you save in Debrid appear here for review.")) }
                 savedSelectionRows
                 savedRetryRows
+                savedManagementRows
                 ForEach(intake.items) { item in
                     Group {
                         if item.state == .expired { Button { action = .keep(item) } label: { row(item) } }
@@ -212,6 +218,14 @@ struct PendingLinksSheet: View {
                         } catch {selectionMessage="The saved selection could not be opened. Try again when protected storage is available."}
                     } label: {VStack(alignment:.leading,spacing:4) {Text(saved.name).font(.headline);Text("Check saved selection").font(.subheadline);Text(saved.serverURL.absoluteString).font(.footnote)}.foregroundStyle(DebridStyle.ink)}
                 }}}
+    }
+    @ViewBuilder private var savedManagementRows:some View {
+        if !intake.savedManagement.isEmpty {Section("Saved transfer actions") {ForEach(intake.savedManagement) {saved in
+            Button {
+                do {managementModel=try intake.managementModel(kind:saved.kind,resourceID:saved.resourceID,name:saved.name,serverURL:saved.serverURL);if managementModel==nil {selectionMessage="Connect to "+saved.serverURL.absoluteString+" to check this saved action."}}
+                catch{selectionMessage="This saved action could not be opened. Its request is kept."}
+            } label: {VStack(alignment:.leading,spacing:5) {Label(saved.name,systemImage:saved.kind == .cancel ? "stop.circle":"trash");Text(saved.kind == .cancel ? "Check saved cancellation":"Check saved removal").font(.footnote);Text(saved.serverURL.absoluteString).font(.caption).foregroundStyle(DebridStyle.secondary)}}
+        }}}
     }
     @ViewBuilder private var savedRetryRows:some View {
         if !intake.savedRetries.isEmpty {Section("Saved retry requests") {ForEach(intake.savedRetries) {saved in
