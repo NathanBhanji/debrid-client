@@ -113,12 +113,16 @@ components:
         mode:
           description: "Configured auth mode: password or oidc; empty until onboarding"
           type: string
+        native_sso:
+          description: Secure native SSO exchange is available for the configured OIDC identity
+          type: boolean
         oidc_issuer:
           description: Configured OIDC issuer, shown on the login/setup screens
           type: string
       required:
         - configured
         - mode
+        - native_sso
       type: object
     ChangePasswordInBody:
       additionalProperties: false
@@ -455,6 +459,86 @@ components:
       required:
         - mode
         - api_key
+      type: object
+    NativeExchangeInBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/NativeExchangeInBody.json
+          format: uri
+          readOnly: true
+          type: string
+        code:
+          maxLength: 43
+          minLength: 43
+          pattern: ^[A-Za-z0-9_-]{43}$
+          type: string
+        verifier:
+          maxLength: 128
+          minLength: 43
+          pattern: ^[A-Za-z0-9._~-]+$
+          type: string
+      required:
+        - code
+        - verifier
+      type: object
+    NativeExchangeOutBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/NativeExchangeOutBody.json
+          format: uri
+          readOnly: true
+          type: string
+        session_token:
+          description: Server-bound session secret; store only in protected credential storage
+          type: string
+        username:
+          type: string
+      required:
+        - session_token
+        - username
+      type: object
+    NativeStartInBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/NativeStartInBody.json
+          format: uri
+          readOnly: true
+          type: string
+        challenge:
+          description: S256 challenge for an app-owned PKCE verifier
+          maxLength: 43
+          minLength: 43
+          pattern: ^[A-Za-z0-9_-]{43}$
+          type: string
+        state:
+          description: App-generated random 32-byte base64url state
+          maxLength: 43
+          minLength: 43
+          pattern: ^[A-Za-z0-9_-]{43}$
+          type: string
+      required:
+        - challenge
+        - state
+      type: object
+    NativeStartOutBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/NativeStartOutBody.json
+          format: uri
+          readOnly: true
+          type: string
+        authorization_url:
+          type: string
+      required:
+        - authorization_url
       type: object
     OrganizeParsed:
       additionalProperties: false
@@ -1140,6 +1224,64 @@ paths:
       summary: Current authentication identity
       tags:
         - auth
+  /api/v1/auth/native/exchange:
+    post:
+      operationId: auth-native-exchange
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NativeExchangeInBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NativeExchangeOutBody"
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Exchange one-time native grant with its PKCE verifier
+      tags:
+        - auth
+  /api/v1/auth/native/start:
+    post:
+      operationId: auth-native-start
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NativeStartInBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NativeStartOutBody"
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Start secure native Pocket ID sign-in
+      tags:
+        - auth
   /api/v1/auth/oidc/callback:
     get:
       operationId: auth-oidc-callback
@@ -1168,7 +1310,13 @@ paths:
         "302":
           description: Found
           headers:
+            Cache-Control:
+              schema:
+                type: string
             Location:
+              schema:
+                type: string
+            Referrer-Policy:
               schema:
                 type: string
             Set-Cookie:

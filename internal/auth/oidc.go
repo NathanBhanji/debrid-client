@@ -52,6 +52,9 @@ type oidcFlow struct {
 	redirectURI string
 	setup       bool
 	expires     time.Time
+	issuer      string
+	clientID    string
+	native      *nativeFlow
 }
 
 type oidcRuntime struct {
@@ -59,6 +62,7 @@ type oidcRuntime struct {
 	provider *oidc.Provider
 	issuer   string
 	flows    map[string]oidcFlow
+	grants   map[string]nativeGrant
 }
 
 // oidcConfig loads the stored client configuration.
@@ -170,6 +174,10 @@ func (m *Manager) provider(ctx context.Context, issuer string) (*oidc.Provider, 
 // flow (caller must have proven ownership with the API key); it is refused
 // once auth is configured, and non-setup flows are refused until it is.
 func (m *Manager) StartOIDC(ctx context.Context, redirectURI string, setup bool) (string, error) {
+	return m.startOIDC(ctx, redirectURI, setup, nil)
+}
+
+func (m *Manager) startOIDC(ctx context.Context, redirectURI string, setup bool, native *nativeFlow) (string, error) {
 	mode, err := m.Mode(ctx)
 	if err != nil {
 		return "", err
@@ -215,6 +223,7 @@ func (m *Manager) StartOIDC(ctx context.Context, redirectURI string, setup bool)
 	}
 	m.oidcRT.flows[state] = oidcFlow{
 		verifier: verifier, redirectURI: redirectURI, setup: setup, expires: now.Add(flowTTL),
+		issuer: cfg.Issuer, clientID: cfg.ClientID, native: native,
 	}
 	m.oidcRT.mu.Unlock()
 
@@ -230,16 +239,35 @@ func (m *Manager) StartOIDC(ctx context.Context, redirectURI string, setup bool)
 // the ID token, and either finishes first-run setup (creating the user and
 // pinning the subject) or logs the pinned subject in. Returns the user.
 func (m *Manager) CompleteOIDC(ctx context.Context, state, code string) (User, error) {
-	m.oidcRT.mu.Lock()
-	flow, ok := m.oidcRT.flows[state]
-	delete(m.oidcRT.flows, state) // single use
-	m.oidcRT.mu.Unlock()
-	if !ok || m.now().After(flow.expires) {
+	flow, err := m.takeOIDCFlow(state)
+	if err != nil {
+		return User{}, err
+	}
+	// Browser callers cannot turn a native authorization into a cookie session.
+	if flow.native != nil {
 		return User{}, ErrOIDCStateInvalid
 	}
+	return m.completeOIDCFlow(ctx, flow, code)
+}
+
+func (m *Manager) takeOIDCFlow(state string) (oidcFlow, error) {
+	m.oidcRT.mu.Lock()
+	flow, ok := m.oidcRT.flows[state]
+	delete(m.oidcRT.flows, state)
+	m.oidcRT.mu.Unlock()
+	if !ok || !m.now().Before(flow.expires) {
+		return oidcFlow{}, ErrOIDCStateInvalid
+	}
+	return flow, nil
+}
+
+func (m *Manager) completeOIDCFlow(ctx context.Context, flow oidcFlow, code string) (User, error) {
 	cfg, err := m.oidcConfig(ctx)
 	if err != nil {
 		return User{}, err
+	}
+	if cfg.Issuer != flow.issuer || cfg.ClientID != flow.clientID {
+		return User{}, ErrOIDCStateInvalid
 	}
 	p, err := m.provider(ctx, cfg.Issuer)
 	if err != nil {
@@ -276,16 +304,26 @@ func (m *Manager) CompleteOIDC(ctx context.Context, state, code string) (User, e
 		if len(username) > 64 {
 			username = username[:64]
 		}
-		return m.createSoleUser(ctx, ModeOIDC, username, "", idt.Subject, claims.Email)
+		return m.createSoleUser(ctx, ModeOIDC, username, "", idt.Subject, claims.Email, &oidcBinding{issuer: flow.issuer, clientID: flow.clientID})
 	}
-	u, err := m.store.GetUserByOIDCSubject(ctx, idt.Subject)
-	if errors.Is(err, sql.ErrNoRows) {
-		return User{}, ErrOIDCWrongSubject
-	}
-	if err != nil {
-		return User{}, err
-	}
-	return User{ID: u.ID, Username: u.Username}, nil
+	// Recheck configuration and subject in the same transaction after the remote exchange.
+	// An issuer change while the browser is open must never authenticate its replacement user.
+	var result User
+	err = m.store.WithTx(ctx, func(q *sqlcgen.Queries) error {
+		if err := checkOIDCBinding(ctx, q, oidcBinding{issuer: flow.issuer, clientID: flow.clientID}, ModeOIDC); err != nil {
+			return err
+		}
+		u, err := q.GetUserByOIDCSubject(ctx, idt.Subject)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrOIDCWrongSubject
+		}
+		if err != nil {
+			return err
+		}
+		result = User{ID: u.ID, Username: u.Username}
+		return nil
+	})
+	return result, err
 }
 
 func firstNonEmpty(vs ...string) string {
@@ -303,4 +341,26 @@ func randomToken() (string, error) {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(raw), nil
+}
+
+// checkOIDCBinding must run using the same transaction as the user/session write.
+type oidcBinding struct{ issuer, clientID string }
+
+func checkOIDCBinding(ctx context.Context, q *sqlcgen.Queries, binding oidcBinding, expectedMode Mode) error {
+	mode, err := q.GetSetting(ctx, modeKey)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	issuer, err := q.GetSetting(ctx, oidcIssuerKey)
+	if err != nil {
+		return err
+	}
+	clientID, err := q.GetSetting(ctx, oidcClientIDKey)
+	if err != nil {
+		return err
+	}
+	if Mode(mode) != expectedMode || issuer != binding.issuer || clientID != binding.clientID {
+		return ErrOIDCStateInvalid
+	}
+	return nil
 }

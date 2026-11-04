@@ -11,7 +11,8 @@
   "auth_status": {
     "$schema": "https://example.com/schemas/AuthStatusOutBody.json",
     "configured": false,
-    "mode": ""
+    "mode": "",
+    "native_sso": false
   },
   "health": {
     "$schema": "https://example.com/schemas/HealthOutBody.json",

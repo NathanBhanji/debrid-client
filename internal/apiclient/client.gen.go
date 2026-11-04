@@ -274,6 +274,9 @@ type AuthStatusOutBody struct {
 	// Mode Configured auth mode: password or oidc; empty until onboarding
 	Mode string `json:"mode"`
 
+	// NativeSso Secure native SSO exchange is available for the configured OIDC identity
+	NativeSso bool `json:"native_sso"`
+
 	// OidcIssuer Configured OIDC issuer, shown on the login/setup screens
 	OidcIssuer *string `json:"oidc_issuer,omitempty"`
 }
@@ -472,6 +475,51 @@ type MeOutBody struct {
 
 	// Username Set for session requests; empty for API-key requests
 	Username *string `json:"username,omitempty"`
+}
+
+// NativeExchangeInBody defines model for NativeExchangeInBody.
+type NativeExchangeInBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	//
+	// Example: https://example.com/schemas/NativeExchangeInBody.json
+	Schema   *string `json:"$schema,omitempty"`
+	Code     string  `json:"code"`
+	Verifier string  `json:"verifier"`
+}
+
+// NativeExchangeOutBody defines model for NativeExchangeOutBody.
+type NativeExchangeOutBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	//
+	// Example: https://example.com/schemas/NativeExchangeOutBody.json
+	Schema *string `json:"$schema,omitempty"`
+
+	// SessionToken Server-bound session secret; store only in protected credential storage
+	SessionToken string `json:"session_token"`
+	Username     string `json:"username"`
+}
+
+// NativeStartInBody defines model for NativeStartInBody.
+type NativeStartInBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	//
+	// Example: https://example.com/schemas/NativeStartInBody.json
+	Schema *string `json:"$schema,omitempty"`
+
+	// Challenge S256 challenge for an app-owned PKCE verifier
+	Challenge string `json:"challenge"`
+
+	// State App-generated random 32-byte base64url state
+	State string `json:"state"`
+}
+
+// NativeStartOutBody defines model for NativeStartOutBody.
+type NativeStartOutBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	//
+	// Example: https://example.com/schemas/NativeStartOutBody.json
+	Schema           *string `json:"$schema,omitempty"`
+	AuthorizationUrl string  `json:"authorization_url"`
 }
 
 // OrganizeParsed defines model for OrganizeParsed.
@@ -792,6 +840,12 @@ type UpdateAccountJSONRequestBody = UpdateAccountInBody
 // AuthLoginJSONRequestBody defines body for AuthLogin for application/json ContentType.
 type AuthLoginJSONRequestBody = LoginInBody
 
+// AuthNativeExchangeJSONRequestBody defines body for AuthNativeExchange for application/json ContentType.
+type AuthNativeExchangeJSONRequestBody = NativeExchangeInBody
+
+// AuthNativeStartJSONRequestBody defines body for AuthNativeStart for application/json ContentType.
+type AuthNativeStartJSONRequestBody = NativeStartInBody
+
 // AuthChangePasswordJSONRequestBody defines body for AuthChangePassword for application/json ContentType.
 type AuthChangePasswordJSONRequestBody = ChangePasswordInBody
 
@@ -968,6 +1022,34 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /api/v1/auth/me (the `AuthMe` operationId).
 	AuthMe(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AuthNativeExchangeWithBody Exchange one-time native grant with its PKCE verifier
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/auth/native/exchange (the `AuthNativeExchange` operationId).
+	AuthNativeExchangeWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AuthNativeExchange Exchange one-time native grant with its PKCE verifier
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/auth/native/exchange (the `AuthNativeExchange` operationId).
+	AuthNativeExchange(ctx context.Context, body AuthNativeExchangeJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AuthNativeStartWithBody Start secure native Pocket ID sign-in
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/auth/native/start (the `AuthNativeStart` operationId).
+	AuthNativeStartWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AuthNativeStart Start secure native Pocket ID sign-in
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/auth/native/start (the `AuthNativeStart` operationId).
+	AuthNativeStart(ctx context.Context, body AuthNativeStartJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// AuthOidcCallback OIDC provider callback
 	//
@@ -1337,6 +1419,74 @@ func (c *Client) AuthLogout(ctx context.Context, reqEditors ...RequestEditorFn) 
 // Corresponds with GET /api/v1/auth/me (the `AuthMe` operationId).
 func (c *Client) AuthMe(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewAuthMeRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AuthNativeExchangeWithBody Exchange one-time native grant with its PKCE verifier
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/auth/native/exchange (the `AuthNativeExchange` operationId).
+func (c *Client) AuthNativeExchangeWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAuthNativeExchangeRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AuthNativeExchange Exchange one-time native grant with its PKCE verifier
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/auth/native/exchange (the `AuthNativeExchange` operationId).
+func (c *Client) AuthNativeExchange(ctx context.Context, body AuthNativeExchangeJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAuthNativeExchangeRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AuthNativeStartWithBody Start secure native Pocket ID sign-in
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/auth/native/start (the `AuthNativeStart` operationId).
+func (c *Client) AuthNativeStartWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAuthNativeStartRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AuthNativeStart Start secure native Pocket ID sign-in
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/auth/native/start (the `AuthNativeStart` operationId).
+func (c *Client) AuthNativeStart(ctx context.Context, body AuthNativeStartJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAuthNativeStartRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2151,6 +2301,86 @@ func NewAuthMeRequest(server string) (*http.Request, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewAuthNativeExchangeRequest calls the generic AuthNativeExchange builder with application/json body
+func NewAuthNativeExchangeRequest(server string, body AuthNativeExchangeJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewAuthNativeExchangeRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewAuthNativeExchangeRequestWithBody constructs an http.Request for the AuthNativeExchange method, with any body, and a specified content type
+func NewAuthNativeExchangeRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/auth/native/exchange")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewAuthNativeStartRequest calls the generic AuthNativeStart builder with application/json body
+func NewAuthNativeStartRequest(server string, body AuthNativeStartJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewAuthNativeStartRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewAuthNativeStartRequestWithBody constructs an http.Request for the AuthNativeStart method, with any body, and a specified content type
+func NewAuthNativeStartRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/auth/native/start")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -3155,6 +3385,34 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /api/v1/auth/me (the `AuthMe` operationId).
 	AuthMeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*AuthMeResponse, error)
 
+	// AuthNativeExchangeWithBodyWithResponse Exchange one-time native grant with its PKCE verifier
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/auth/native/exchange (the `AuthNativeExchange` operationId).
+	AuthNativeExchangeWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AuthNativeExchangeResponse, error)
+
+	// AuthNativeExchangeWithResponse Exchange one-time native grant with its PKCE verifier
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/auth/native/exchange (the `AuthNativeExchange` operationId).
+	AuthNativeExchangeWithResponse(ctx context.Context, body AuthNativeExchangeJSONRequestBody, reqEditors ...RequestEditorFn) (*AuthNativeExchangeResponse, error)
+
+	// AuthNativeStartWithBodyWithResponse Start secure native Pocket ID sign-in
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/auth/native/start (the `AuthNativeStart` operationId).
+	AuthNativeStartWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AuthNativeStartResponse, error)
+
+	// AuthNativeStartWithResponse Start secure native Pocket ID sign-in
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/auth/native/start (the `AuthNativeStart` operationId).
+	AuthNativeStartWithResponse(ctx context.Context, body AuthNativeStartJSONRequestBody, reqEditors ...RequestEditorFn) (*AuthNativeStartResponse, error)
+
 	// AuthOidcCallbackWithResponse OIDC provider callback
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -3793,10 +4051,122 @@ func (r AuthMeResponse) ContentType() string {
 	return ""
 }
 
+// AuthNativeExchangeResponse200Headers the declared response headers of an HTTP 200 response for AuthNativeExchange
+type AuthNativeExchangeResponse200Headers struct {
+	CacheControl *string
+}
+
+type AuthNativeExchangeResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *NativeExchangeOutBody
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *AuthNativeExchangeResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r AuthNativeExchangeResponse) GetJSON200() *NativeExchangeOutBody {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r AuthNativeExchangeResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r AuthNativeExchangeResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AuthNativeExchangeResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AuthNativeExchangeResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AuthNativeExchangeResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// AuthNativeStartResponse200Headers the declared response headers of an HTTP 200 response for AuthNativeStart
+type AuthNativeStartResponse200Headers struct {
+	CacheControl *string
+}
+
+type AuthNativeStartResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *NativeStartOutBody
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *AuthNativeStartResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r AuthNativeStartResponse) GetJSON200() *NativeStartOutBody {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r AuthNativeStartResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r AuthNativeStartResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AuthNativeStartResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AuthNativeStartResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AuthNativeStartResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // AuthOidcCallbackResponse302Headers the declared response headers of an HTTP 302 response for AuthOidcCallback
 type AuthOidcCallbackResponse302Headers struct {
-	Location  *string
-	SetCookie *string
+	CacheControl   *string
+	Location       *string
+	ReferrerPolicy *string
+	SetCookie      *string
 }
 
 type AuthOidcCallbackResponse struct {
@@ -4948,6 +5318,58 @@ func (c *ClientWithResponses) AuthMeWithResponse(ctx context.Context, reqEditors
 	return ParseAuthMeResponse(rsp)
 }
 
+// AuthNativeExchangeWithBodyWithResponse Exchange one-time native grant with its PKCE verifier
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/auth/native/exchange (the `AuthNativeExchange` operationId).
+func (c *ClientWithResponses) AuthNativeExchangeWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AuthNativeExchangeResponse, error) {
+	rsp, err := c.AuthNativeExchangeWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAuthNativeExchangeResponse(rsp)
+}
+
+// AuthNativeExchangeWithResponse Exchange one-time native grant with its PKCE verifier
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/auth/native/exchange (the `AuthNativeExchange` operationId).
+func (c *ClientWithResponses) AuthNativeExchangeWithResponse(ctx context.Context, body AuthNativeExchangeJSONRequestBody, reqEditors ...RequestEditorFn) (*AuthNativeExchangeResponse, error) {
+	rsp, err := c.AuthNativeExchange(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAuthNativeExchangeResponse(rsp)
+}
+
+// AuthNativeStartWithBodyWithResponse Start secure native Pocket ID sign-in
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/auth/native/start (the `AuthNativeStart` operationId).
+func (c *ClientWithResponses) AuthNativeStartWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AuthNativeStartResponse, error) {
+	rsp, err := c.AuthNativeStartWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAuthNativeStartResponse(rsp)
+}
+
+// AuthNativeStartWithResponse Start secure native Pocket ID sign-in
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/auth/native/start (the `AuthNativeStart` operationId).
+func (c *ClientWithResponses) AuthNativeStartWithResponse(ctx context.Context, body AuthNativeStartJSONRequestBody, reqEditors ...RequestEditorFn) (*AuthNativeStartResponse, error) {
+	rsp, err := c.AuthNativeStart(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAuthNativeStartResponse(rsp)
+}
+
 // AuthOidcCallbackWithResponse OIDC provider callback
 //
 // Returns a wrapper object for the known response body format(s).
@@ -5642,6 +6064,98 @@ func ParseAuthMeResponse(rsp *http.Response) (*AuthMeResponse, error) {
 	return response, nil
 }
 
+// ParseAuthNativeExchangeResponse parses an HTTP response from a AuthNativeExchangeWithResponse call
+func ParseAuthNativeExchangeResponse(rsp *http.Response) (*AuthNativeExchangeResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AuthNativeExchangeResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest NativeExchangeOutBody
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers AuthNativeExchangeResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseAuthNativeStartResponse parses an HTTP response from a AuthNativeStartWithResponse call
+func ParseAuthNativeStartResponse(rsp *http.Response) (*AuthNativeStartResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AuthNativeStartResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest NativeStartOutBody
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers AuthNativeStartResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
 // ParseAuthOidcCallbackResponse parses an HTTP response from a AuthOidcCallbackWithResponse call
 func ParseAuthOidcCallbackResponse(rsp *http.Response) (*AuthOidcCallbackResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -5671,12 +6185,26 @@ func ParseAuthOidcCallbackResponse(rsp *http.Response) (*AuthOidcCallbackRespons
 	switch {
 	case rsp.StatusCode == 302:
 		var headers AuthOidcCallbackResponse302Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
 		if values := rsp.Header.Values("Location"); len(values) > 0 {
 			var value string
 			if err := runtime.BindStyledParameterWithOptions("simple", "Location", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
 				return nil, err
 			}
 			headers.Location = &value
+		}
+		if values := rsp.Header.Values("Referrer-Policy"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Referrer-Policy", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.ReferrerPolicy = &value
 		}
 		if values := rsp.Header.Values("Set-Cookie"); len(values) > 0 {
 			var value string
