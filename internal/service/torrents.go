@@ -498,7 +498,7 @@ func (s *Service) dirSharedByOther(ctx context.Context, id, dir string) (bool, e
 	return false, nil
 }
 
-// RetryTorrent re-queues an errored or completed torrent from scratch: provider
+// RetryTorrent re-queues an errored, completed or cancelled torrent from scratch: provider
 // state is cleared (the engine re-adds, deduping by hash against the provider
 // listing), download rows are dropped, local files are left in place (fetch
 // resumes .part files and replaces completed ones).
@@ -514,7 +514,7 @@ func (s *Service) RetryTorrent(ctx context.Context, idOrHash string) (TorrentDet
 			return err
 		}
 		if !current.Status.IsTerminal() {
-			return fmt.Errorf("%w: torrent is %s; only errored or completed torrents can be retried", ErrConflict, current.Status)
+			return fmt.Errorf("%w: torrent is %s; only errored, completed or cancelled torrents can be retried", ErrConflict, current.Status)
 		}
 		if err := s.engine.CancelTorrent(ctx, cur.ID); err != nil {
 			return err
@@ -542,7 +542,7 @@ func (s *Service) retryTorrentStopped(ctx context.Context, id string, attempt *r
 			return err
 		}
 		if !t.Status.IsTerminal() {
-			return fmt.Errorf("%w: torrent is %s; only errored or completed torrents can be retried", ErrConflict, t.Status)
+			return fmt.Errorf("%w: torrent is %s; only errored, completed or cancelled torrents can be retried", ErrConflict, t.Status)
 		}
 		if err := checkActiveTorrent(ctx, q, t.AccountID, t.Hash, t.ID); err != nil {
 			return err
@@ -654,6 +654,9 @@ func (s *Service) retryDownload(ctx context.Context, downloadID string, attempt 
 		t, err := store.TorrentFromRow(parent)
 		if err != nil {
 			return err
+		}
+		if t.Status == domain.TorrentCancelled {
+			return fmt.Errorf("%w: cancelled transfer requires whole-transfer retry", ErrConflict)
 		}
 		if t.Status == domain.TorrentError {
 			if err := checkActiveTorrent(ctx, q, t.AccountID, t.Hash, t.ID); err != nil {

@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/pressly/goose/v3"
@@ -71,7 +72,17 @@ func dsn(path string) string {
 	q.Add("_pragma", "synchronous(NORMAL)")
 	q.Add("_pragma", "foreign_keys(1)")
 	q.Add("_txlock", "immediate")
-	return "file:" + path + "?" + q.Encode()
+	return sqliteURI(path, q)
+}
+
+// File names must be URL paths, not raw URI text: # and ? are legal file
+// characters and must not truncate the database path or inject parameters.
+func sqliteURI(path string, query url.Values) string {
+	path = filepath.ToSlash(path)
+	if filepath.VolumeName(path) != "" && !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return (&url.URL{Scheme: "file", Path: path, RawQuery: query.Encode()}).String()
 }
 
 func migrate(ctx context.Context, db *sql.DB) error {
@@ -123,7 +134,7 @@ func ReadSettingReadOnly(ctx context.Context, path, key string) (string, error) 
 	q.Set("mode", "ro")
 	q.Add("_pragma", "busy_timeout(2000)")
 	q.Add("_pragma", "query_only(1)")
-	db, err := sql.Open("sqlite", "file:"+path+"?"+q.Encode())
+	db, err := sql.Open("sqlite", sqliteURI(path, q))
 	if err != nil {
 		return "", err
 	}

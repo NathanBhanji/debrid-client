@@ -14,6 +14,17 @@
     "mode": "",
     "native_sso": false
   },
+  "cancellation_acceptance": {
+    "torrent_id": "fixture-transfer",
+    "accepted_at": "2026-01-02T03:04:05.123456789Z",
+    "torrent_exists": true
+  },
+  "cancellation_review": {
+    "torrent_id": "fixture-transfer",
+    "revision": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "allowed": true,
+    "provider_may_continue": true
+  },
   "health": {
     "$schema": "https://example.com/schemas/HealthOutBody.json",
     "ok": true,
@@ -22,7 +33,8 @@
       "torrent_submissions_v1",
       "multipart_torrent_settings_v1",
       "manual_file_selection_v1",
-      "native_retry_v1"
+      "native_retry_v1",
+      "native_cancellation_v1"
     ]
   },
   "identity": {

@@ -124,6 +124,50 @@ components:
         - mode
         - native_sso
       type: object
+    CancellationAcceptance:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/CancellationAcceptance.json
+          format: uri
+          readOnly: true
+          type: string
+        accepted_at:
+          format: date-time
+          type: string
+        torrent_exists:
+          type: boolean
+        torrent_id:
+          type: string
+      required:
+        - torrent_id
+        - accepted_at
+        - torrent_exists
+      type: object
+    CancellationReview:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/CancellationReview.json
+          format: uri
+          readOnly: true
+          type: string
+        allowed:
+          type: boolean
+        provider_may_continue:
+          type: boolean
+        revision:
+          type: string
+        torrent_id:
+          type: string
+      required:
+        - torrent_id
+        - revision
+        - allowed
+        - provider_may_continue
+      type: object
     ChangePasswordInBody:
       additionalProperties: false
       properties:
@@ -228,6 +272,7 @@ components:
             - unpacking
             - done
             - error
+            - cancelled
           type: string
         torrent_id:
           type: string
@@ -1018,6 +1063,7 @@ components:
             - finished
             - completed
             - error
+            - cancelled
           type: string
         status_reason:
           description: Human-readable detail about the current state
@@ -2075,6 +2121,7 @@ paths:
               - finished
               - completed
               - error
+              - cancelled
             type: string
         - description: Account id or name
           explode: false
@@ -2298,6 +2345,124 @@ paths:
       summary: Update a torrent's category or settings
       tags:
         - torrents
+  /api/v1/torrents/{id}/cancellation-requests:
+    post:
+      description: Persist key and original revision before POST. Replays return the original receipt even after retry/removal. Acceptance means local workers drained and stopped state committed; provider activity may continue. Completed/error races return conflict without replacing the terminal result.
+      operationId: request-torrent-cancellation
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            maxLength: 256
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetryRequestInBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CancellationAcceptance"
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Accept one durable local cancellation
+      tags:
+        - torrents
+  /api/v1/torrents/{id}/cancellation-requests/{key}:
+    get:
+      description: 404 means no committed receipt is visible, not proof an original request failed. Retry only the same immutable intent/key. A receipt remains accepted after later retry or removal and does not claim the transfer is currently stopped.
+      operationId: get-torrent-cancellation-request
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            maxLength: 256
+            type: string
+        - in: path
+          name: key
+          required: true
+          schema:
+            maxLength: 38
+            type: string
+        - description: Original review revision bound to this request key
+          explode: false
+          in: query
+          name: revision
+          required: true
+          schema:
+            description: Original review revision bound to this request key
+            maxLength: 64
+            minLength: 64
+            pattern: ^[a-f0-9]{64}$
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CancellationAcceptance"
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Reconcile a saved cancellation without repeating it
+      tags:
+        - torrents
+  /api/v1/torrents/{id}/cancellation-review:
+    get:
+      description: Stops local orchestration and NAS work without removing records or files. Remote provider activity may continue. Revision binds the retry incarnation, not changing progress.
+      operationId: review-torrent-cancellation
+      parameters:
+        - description: Exact resource id returned by the API (not a prefix/hash alias)
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Exact resource id returned by the API (not a prefix/hash alias)
+            maxLength: 256
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CancellationReview"
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Review local transfer cancellation
+      tags:
+        - torrents
   /api/v1/torrents/{id}/file-selection:
     get:
       operationId: get-file-selection
@@ -2418,7 +2583,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorModel"
           description: Error
-      summary: Retry an errored or completed torrent from scratch
+      summary: Retry an errored, completed or cancelled torrent from scratch
       tags:
         - torrents
   /api/v1/torrents/{id}/retry-requests:

@@ -226,7 +226,7 @@ func (t *tools) register(s *mcp.Server) {
 			return res(r, err, 204, func() *okOut { return &okOut{OK: true, Message: "deleted " + in.ID} })
 		})
 
-	mcp.AddTool(s, &mcp.Tool{Name: "retry_torrent", Description: "Retry an errored (or completed) torrent from scratch: it is re-submitted to the provider and re-downloaded.", Annotations: idem},
+	mcp.AddTool(s, &mcp.Tool{Name: "retry_torrent", Description: "Retry an errored, completed or cancelled torrent from scratch: it is re-submitted to the provider and re-downloaded.", Annotations: idem},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in torrentIDIn) (*mcp.CallToolResult, apiclient.Torrent, error) {
 			r, err := t.cl.RetryTorrentWithResponse(ctx, in.ID)
 			return res(r, err, 200, func() *apiclient.Torrent { return r.JSON200 })
