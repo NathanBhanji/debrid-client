@@ -461,3 +461,35 @@ func TestRequireAPIKeyAndInProcessTransport(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestNativeAccountRemovalRequiresExactIDAndPreservesConflictAccount(t *testing.T) {
+	c := setup(t)
+	var account apimodel.Account
+	c.mustJSON("POST", "/api/v1/accounts", map[string]any{"kind": "torbox", "name": "home", "credentials": map[string]string{"api_key": "fixture"}}, 201, &account)
+	resp, _ := c.do("DELETE", "/api/v1/accounts/home/removal?force=true", nil, true)
+	if resp.StatusCode != 422 {
+		t.Fatalf("alias must be rejected: %d", resp.StatusCode)
+	}
+	resp, _ = c.do("DELETE", "/api/v1/accounts/"+account.ID+"/removal?force=true", nil, false)
+	if resp.StatusCode != 401 {
+		t.Fatalf("unauthenticated: %d", resp.StatusCode)
+	}
+	var transfer apimodel.Torrent
+	c.mustJSON("POST", "/api/v1/torrents", map[string]any{"magnet": "magnet:?xt=urn:btih:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "account": account.ID}, 201, &transfer)
+	resp, _ = c.do("DELETE", "/api/v1/accounts/"+account.ID+"/removal", nil, true)
+	if resp.StatusCode != 409 {
+		t.Fatalf("safe default must retain account with transfer: %d", resp.StatusCode)
+	}
+	resp, _ = c.do("GET", "/api/v1/accounts/"+account.ID, nil, true)
+	if resp.StatusCode != 200 {
+		t.Fatal("conflict removed account")
+	}
+	resp, _ = c.do("DELETE", "/api/v1/accounts/"+account.ID+"/removal?force=true", nil, true)
+	if resp.StatusCode != 204 {
+		t.Fatalf("force removal: %d", resp.StatusCode)
+	}
+	resp, _ = c.do("GET", "/api/v1/torrents/"+transfer.ID, nil, true)
+	if resp.StatusCode != 404 {
+		t.Fatalf("transfer still present: %d", resp.StatusCode)
+	}
+}

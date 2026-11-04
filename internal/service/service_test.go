@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -508,5 +509,85 @@ func TestRetryDrainFailureDoesNotRequeueOrDropDownloadRows(t *testing.T) {
 	current, err := f.svc.GetTorrent(ctx, tor.ID)
 	if err != nil || current.Torrent.Status != domain.TorrentError || current.Torrent.RetryCount != tor.RetryCount || len(current.Downloads) != 1 {
 		t.Fatal("failed drain mutated retry", current, err)
+	}
+}
+
+func TestForcedAccountRemovalRequiresSuccessfulTransferDrain(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	account := f.addAccount(t, "home")
+	transfer, err := f.svc.AddTorrent(ctx, AddTorrentInput{Magnet: magnetA, Account: account.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stopErr := errors.New("fixture worker could not stop")
+	f.eng.cancelFn = func(string) error { return stopErr }
+	if err := f.svc.DeleteAccount(ctx, account.ID, true); !errors.Is(err, stopErr) {
+		t.Fatalf("expected stop error, got %v", err)
+	}
+	if _, err := f.svc.GetAccount(ctx, account.ID); err != nil {
+		t.Fatal("account removed after failed drain")
+	}
+	if _, err := f.svc.GetTorrent(ctx, transfer.Torrent.ID); err != nil {
+		t.Fatal("transfer removed after failed drain")
+	}
+	f.eng.cancelFn = nil
+	if err := f.svc.DeleteAccount(ctx, account.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.svc.GetAccount(ctx, account.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("account should be absent, got %v", err)
+	}
+	if _, err := f.svc.GetTorrent(ctx, transfer.Torrent.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("transfer should be absent, got %v", err)
+	}
+}
+
+func TestAccountRemovalUsesDefaultAtFinalTransaction(t *testing.T) {
+	for _, startsDefault := range []bool{false, true} {
+		t.Run(fmt.Sprintf("startsDefault=%t", startsDefault), func(t *testing.T) {
+			f := setup(t)
+			ctx := context.Background()
+			oldest := f.addAccount(t, "oldest")
+			target := f.addAccount(t, "target")
+			other := f.addAccount(t, "other")
+			if startsDefault {
+				if _, err := f.svc.UpdateAccount(ctx, target.ID, UpdateAccountInput{SetDefault: true}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := f.svc.AddTorrent(ctx, AddTorrentInput{Magnet: magnetA, Account: target.ID}); err != nil {
+				t.Fatal(err)
+			}
+			expected := oldest.ID
+			f.eng.cancelFn = func(string) error {
+				setID := target.ID
+				if startsDefault {
+					setID = other.ID
+					expected = other.ID
+				}
+				_, err := f.svc.UpdateAccount(ctx, setID, UpdateAccountInput{SetDefault: true})
+				return err
+			}
+			if err := f.svc.DeleteAccount(ctx, target.ID, true); err != nil {
+				t.Fatal(err)
+			}
+			accounts, err := f.svc.ListAccounts(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defaults := 0
+			for _, row := range accounts {
+				if row.IsDefault {
+					defaults++
+					if row.ID != expected {
+						t.Fatal("default chosen from stale pre-drain state")
+					}
+				}
+			}
+			if defaults != 1 {
+				t.Fatalf("expected one default, got %d", defaults)
+			}
+		})
 	}
 }

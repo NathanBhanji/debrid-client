@@ -44,6 +44,23 @@ export interface paths {
     patch: operations['update-account']
     trace?: never
   }
+  '/api/v1/accounts/{id}/removal': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    post?: never
+    /** Remove an exact account with guarded local transfer drain */
+    delete: operations['remove-account-with-drain']
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/accounts/{id}/test': {
     parameters: {
       query?: never
@@ -1559,6 +1576,38 @@ export interface operations {
         content: {
           'application/json': components['schemas']['Account']
         }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'remove-account-with-drain': {
+    parameters: {
+      query?: {
+        /** @description Also delete the account's torrents (locally) */
+        force?: boolean
+      }
+      header?: never
+      path: {
+        id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description No Content */
+      204: {
+        headers: {
+          [name: string]: unknown
+        }
+        content?: never
       }
       /** @description Error */
       default: {
