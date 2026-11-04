@@ -114,6 +114,8 @@ public struct TransferSummary: Identifiable, Sendable {
     private var needsAccounts = false
 
     public private(set) var updatedAt: Date?
+    public private(set) var retryAvailableAt: Date?
+    private var refreshNotBefore: ContinuousClock.Instant?
     public private(set) var requiresSignIn = false
     public let profile: ServerProfile
     private let api: any TransferListing
@@ -139,6 +141,8 @@ public struct TransferSummary: Identifiable, Sendable {
     deinit { activeRequest?.cancel(); eventTask?.cancel(); periodicTask?.cancel(); refreshTask?.cancel(); accountsTask?.cancel() }
     public func reload() async {
         guard !Task.isCancelled else { return }
+        if let until = refreshNotBefore, ContinuousClock.now < until { return }
+        refreshNotBefore = nil; retryAvailableAt = nil
         revision &+= 1
         let request = revision
         phase = .loading; requiresSignIn = false
@@ -165,6 +169,14 @@ public struct TransferSummary: Identifiable, Sendable {
         } catch is CancellationError {
             if request == revision { phase = items.isEmpty ? .idle : .ready }
         } catch {
+            // An observed same-client 429 still constrains subsequent requests even if its UI result is obsolete.
+            if case APIError.rateLimited(let requested) = error {
+                let delay = requested.flatMap { $0.isFinite && $0 >= 0 ? min(86400, max(1, $0)) : nil } ?? 30
+                let until = ContinuousClock.now.advanced(by: .seconds(delay))
+                if refreshNotBefore.map({ $0 < until }) ?? true {
+                    refreshNotBefore = until; retryAvailableAt = Date().addingTimeInterval(delay)
+                }
+            }
             guard request == revision else { return }
             guard !Task.isCancelled else { phase = items.isEmpty ? .idle : .ready; requiresSignIn = false; return }
             let unauthorized = error as? APIError == .unauthorized
@@ -175,7 +187,17 @@ public struct TransferSummary: Identifiable, Sendable {
             phase = .failed(message)
         }
     }
-    public func invalidate() { revision &+= 1; activeRequest?.cancel(); activeRequest = nil; requiresSignIn = false; phase = items.isEmpty ? .idle : .ready }
+    public var isRefreshThrottled: Bool { refreshNotBefore.map { ContinuousClock.now < $0 } ?? false }
+    public var failureMessage: String? {
+        if retryAvailableAt != nil { return ConnectionIssue.rateLimited.message }
+        if case .failed(let message) = phase { return message }
+        return nil
+    }
+    public func invalidate() {
+        revision &+= 1; activeRequest?.cancel(); activeRequest = nil; requiresSignIn = false
+        if let until = refreshNotBefore, ContinuousClock.now < until, case .failed = phase { return }
+        phase = items.isEmpty ? .idle : .ready
+    }
 
     public func refreshWhileActive() async {
         guard isLiveActive, !Task.isCancelled else { return }
@@ -189,7 +211,7 @@ public struct TransferSummary: Identifiable, Sendable {
         let epoch = liveEpoch
         isLiveActive = true
         liveStatus = events == nil ? .unavailable : .connecting
-        if items.isEmpty { phase = .loading }
+        if items.isEmpty, case .idle = phase { phase = .loading }
         requestReconciliation(after: .zero)
         reloadAccounts()
         let timing = self.timing
@@ -252,7 +274,9 @@ public struct TransferSummary: Identifiable, Sendable {
         guard activeRequest == nil, refreshTask == nil else { return }
         let epoch = liveEpoch, timing = self.timing
         refreshTask = Task { [weak self] in
-            do { try await timing.sleep(delay ?? timing.coalesce) }
+            let requestedDelay = delay ?? timing.coalesce
+            let cooldown = self?.refreshNotBefore.map { ContinuousClock.now.duration(to: $0) } ?? .zero
+            do { try await timing.sleep(max(requestedDelay, cooldown)) }
             catch { if self?.isCurrent(epoch) == true { self?.refreshTask = nil }; return }
             guard !Task.isCancelled, self?.isCurrent(epoch) == true else { return }
             self?.refreshTask = nil
