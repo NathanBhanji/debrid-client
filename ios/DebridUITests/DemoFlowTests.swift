@@ -144,3 +144,43 @@ final class TransferSearchFlowTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["The Open Ocean"].waitForExistence(timeout:5))
     }
 }
+
+@MainActor
+final class TransferDetailFlowTests: XCTestCase {
+    func testLiveDetailShowsTwoStagesAndBackPreservesSearch() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-TransfersPreview"]
+        app.launch()
+        let search = app.searchFields["Search transfers"]
+        XCTAssertTrue(search.waitForExistence(timeout:10))
+        search.tap(); search.typeText("Earth")
+        let transfer = app.buttons["live-transfer-sample-nas"]
+        XCTAssertTrue(transfer.waitForExistence(timeout:5))
+        transfer.tap()
+        XCTAssertTrue(app.navigationBars["Transfer"].waitForExistence(timeout:5))
+        XCTAssertTrue(app.staticTexts["Available at provider"].exists)
+        XCTAssertTrue(app.staticTexts["Downloading to NAS"].exists)
+        XCTAssertTrue(app.staticTexts["Preview · Sample transfer"].exists)
+        app.navigationBars.buttons.element(boundBy:0).tap()
+        XCTAssertTrue(app.buttons["live-transfer-sample-nas"].waitForExistence(timeout:5))
+        XCTAssertFalse(app.navigationBars["Transfer"].exists)
+        XCTAssertEqual(app.searchFields["Search transfers"].value as? String,"Earth")
+        XCTAssertFalse(app.buttons["live-transfer-sample-provider"].exists)
+    }
+    func testMissingTransferHasExplicitBackAction() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-TransfersPreview","-TransfersEmpty","-DetailPreview"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["Transfer no longer listed"].waitForExistence(timeout:10))
+        app.buttons["Back to transfers"].tap()
+        XCTAssertTrue(app.staticTexts["No transfers yet"].waitForExistence(timeout:5))
+    }
+    func testDetailAtAccessibilitySizeCanReachServerStorage() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-TransfersPreview","-DetailPreview","-UIPreferredContentSizeCategoryName","UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launch()
+        XCTAssertTrue(app.navigationBars["Transfer"].waitForExistence(timeout:10))
+        for _ in 0..<8 where !app.staticTexts["Folder reported by server"].isHittable { app.swipeUp() }
+        XCTAssertTrue(app.staticTexts["Folder reported by server"].isHittable)
+    }
+}
