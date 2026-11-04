@@ -2,6 +2,8 @@ package domain
 
 import (
 	"slices"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -38,6 +40,13 @@ func TestSelectionRevisionBindsIdentityAndMetadataNotPresentation(t *testing.T) 
 		if _, err := FileSelectionRevision(tor, bad); err == nil {
 			t.Fatal("accepted ambiguous metadata")
 		}
+	}
+	oversized := make([]File, 300)
+	for i := range oversized {
+		oversized[i] = File{ID: strconv.Itoa(i), Path: strings.Repeat("x", 8192)}
+	}
+	if _, err := FileSelectionRevision(tor, oversized); err == nil {
+		t.Fatal("oversized metadata accepted")
 	}
 	if _, err := StrictSelectedFiles(files, []string{"1", "missing"}); err == nil {
 		t.Fatal("partial manual match")

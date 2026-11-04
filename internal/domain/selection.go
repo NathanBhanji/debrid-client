@@ -90,7 +90,12 @@ func FileSelectionRevision(t Torrent, files []File) (string, error) {
 	}
 	entries := make([]entry, len(files))
 	ids := make([]string, len(files))
+	metadataBytes := 0
 	for i, f := range files {
+		metadataBytes += len(f.ID) + len(f.Path)
+		if metadataBytes > 2<<20 {
+			return "", errors.New("provider file metadata exceeds supported limits")
+		}
 		if len(f.Path) > 8192 || !utf8.ValidString(f.Path) || f.Size < 0 {
 			return "", errors.New("provider file metadata cannot be reviewed safely")
 		}
