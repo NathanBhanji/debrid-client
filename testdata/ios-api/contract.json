@@ -20,7 +20,8 @@
     "version": "dev",
     "capabilities": [
       "torrent_submissions_v1",
-      "multipart_torrent_settings_v1"
+      "multipart_torrent_settings_v1",
+      "manual_file_selection_v1"
     ]
   },
   "identity": {
@@ -68,6 +69,7 @@
     "size": 10000000000,
     "speed": 0,
     "seeders": 0,
+    "file_selection_state": "",
     "files": [
       {
         "id": "film",

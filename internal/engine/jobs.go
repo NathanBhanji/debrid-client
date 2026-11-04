@@ -32,6 +32,11 @@ func isArchive(name string) bool { return unpack.IsArchive(name) }
 // startDownload freezes the torrent's directory name (first local download),
 // claims the download (pending → unrestricting) and launches its job.
 func (e *Engine) startDownload(ctx context.Context, t *domain.Torrent, d *domain.Download) error {
+	fresh, ready := e.selectionSnapshot(ctx, *t)
+	if !ready {
+		return nil
+	}
+	*t = fresh
 	prov, _, err := e.svc.Providers().For(ctx, t.AccountID)
 	if err != nil {
 		return err
@@ -77,6 +82,9 @@ func (e *Engine) startDownload(ctx context.Context, t *domain.Torrent, d *domain
 // runDownload unrestricts the link (if needed), fetches the file and records the outcome.
 func (e *Engine) runDownload(ctx context.Context, t domain.Torrent, d domain.Download, prov provider.Provider) {
 	sctx := context.WithoutCancel(ctx)
+	if _, ready := e.selectionSnapshot(ctx, t); !ready {
+		return
+	}
 
 	// 1. Resolve a direct URL.
 	if d.DirectURL == "" {

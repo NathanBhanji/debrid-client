@@ -107,13 +107,24 @@ type updateTorrentIn struct {
 	ID   string `path:"id"`
 	Body struct {
 		Category *string                   `json:"category,omitempty"`
-		Settings *apimodel.TorrentSettings `json:"settings,omitempty" doc:"Full replacement of the torrent's settings (manual file selection is preserved; use the files endpoint for that)"`
+		Settings *apimodel.TorrentSettings `json:"settings,omitempty" doc:"Full settings replacement except the preserved manual selection/hold; choose the hold at add time and confirm through file-selection"`
 	}
 }
 type selectFilesIn struct {
 	ID   string `path:"id"`
 	Body struct {
 		FileIDs []string `json:"file_ids" minItems:"1" nullable:"false"`
+	}
+}
+type fileSelectionOut struct {
+	CacheControl string `header:"Cache-Control"`
+	Body         apimodel.FileSelection
+}
+type confirmFileSelectionIn struct {
+	ID   string `path:"id"`
+	Body struct {
+		Revision string   `json:"revision" minLength:"64" maxLength:"64" pattern:"^[a-f0-9]{64}$"`
+		FileIDs  []string `json:"file_ids" minItems:"1" maxItems:"20000" nullable:"false"`
 	}
 }
 type downloadIDIn struct {
@@ -134,7 +145,7 @@ func (h *Handler) registerRoutes(p string) {
 			out := &healthOut{}
 			out.Body.OK = true
 			out.Body.Version = buildinfo.Version
-			out.Body.Capabilities = []string{"torrent_submissions_v1", "multipart_torrent_settings_v1"}
+			out.Body.Capabilities = []string{"torrent_submissions_v1", "multipart_torrent_settings_v1", "manual_file_selection_v1"}
 			return out, nil
 		})
 	huma.Register(api, huma.Operation{OperationID: "get-status", Method: http.MethodGet, Path: p + "/system/status", Summary: "System status", Tags: []string{"system"}},
@@ -308,6 +319,20 @@ func (h *Handler) registerRoutes(p string) {
 			}
 			return &torrentOut{Body: apimodel.FromTorrent(t)}, nil
 		})
+	huma.Register(api, huma.Operation{OperationID: "get-file-selection", Method: http.MethodGet, Path: p + "/torrents/{id}/file-selection", Summary: "Review authoritative provider files before NAS download", Tags: []string{"torrents"}}, func(ctx context.Context, in *torrentIDIn) (*fileSelectionOut, error) {
+		view, err := h.svc.GetFileSelection(ctx, in.ID)
+		if err != nil {
+			return nil, h.mapErr(err)
+		}
+		return &fileSelectionOut{CacheControl: "no-store", Body: apimodel.FromFileSelection(view)}, nil
+	})
+	huma.Register(api, huma.Operation{OperationID: "confirm-file-selection", Method: http.MethodPut, Path: p + "/torrents/{id}/file-selection", Summary: "Confirm one immutable reviewed file selection", Tags: []string{"torrents"}}, func(ctx context.Context, in *confirmFileSelectionIn) (*fileSelectionOut, error) {
+		view, err := h.svc.ConfirmFileSelection(ctx, in.ID, in.Body.Revision, in.Body.FileIDs)
+		if err != nil {
+			return nil, h.mapErr(err)
+		}
+		return &fileSelectionOut{CacheControl: "no-store", Body: apimodel.FromFileSelection(view)}, nil
+	})
 	huma.Register(api, huma.Operation{OperationID: "retry-download", Method: http.MethodPost, Path: p + "/downloads/{id}/retry", Summary: "Retry a failed download", Tags: []string{"torrents"}},
 		func(ctx context.Context, in *downloadIDIn) (*downloadOut, error) {
 			d, err := h.svc.RetryDownload(ctx, in.ID)

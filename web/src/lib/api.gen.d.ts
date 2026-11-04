@@ -434,6 +434,24 @@ export interface paths {
     patch: operations['update-torrent']
     trace?: never
   }
+  '/api/v1/torrents/{id}/file-selection': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /** Review authoritative provider files before NAS download */
+    get: operations['get-file-selection']
+    /** Confirm one immutable reviewed file selection */
+    put: operations['confirm-file-selection']
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/torrents/{id}/files': {
     parameters: {
       query?: never
@@ -552,6 +570,16 @@ export interface components {
       readonly $schema?: string
       current_password: string
       new_password: string
+    }
+    ConfirmFileSelectionInBody: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://example.com/schemas/ConfirmFileSelectionInBody.json
+       */
+      readonly $schema?: string
+      file_ids: string[]
+      revision: string
     }
     Credentials: {
       /** @description API key / token for the provider */
@@ -701,6 +729,22 @@ export interface components {
       selected: boolean
       /** Format: int64 */
       size: number
+    }
+    FileSelection: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://example.com/schemas/FileSelection.json
+       */
+      readonly $schema?: string
+      files: components['schemas']['File'][]
+      message: string
+      provider_selects: boolean
+      revision?: string
+      selected_ids: string[]
+      /** @enum {string} */
+      state: 'automatic' | 'pending' | 'ready' | 'accepted' | 'unavailable'
+      torrent_id: string
     }
     HealthOutBody: {
       /**
@@ -938,6 +982,11 @@ export interface components {
       dir_name?: string
       downloads: components['schemas']['Download'][]
       error?: string
+      /**
+       * @description Explicit NAS-download selection state, independent of provider lifecycle
+       * @enum {string}
+       */
+      file_selection_state: 'automatic' | 'pending' | 'accepted'
       files: components['schemas']['File'][]
       hash: string
       id: string
@@ -1020,6 +1069,8 @@ export interface components {
       torrent_retries?: number
       /** @description Extract archives after download */
       unpack?: boolean
+      /** @description Hold NAS downloads for explicit provider-file review at add time; confirmed through the file-selection endpoint */
+      wait_for_selection?: boolean
     }
     TorrentSubmission: {
       /**
@@ -1054,7 +1105,7 @@ export interface components {
        */
       readonly $schema?: string
       category?: string
-      /** @description Full replacement of the torrent's settings (manual file selection is preserved; use the files endpoint for that) */
+      /** @description Full settings replacement except the preserved manual selection/hold; choose the hold at add time and confirm through file-selection */
       settings?: components['schemas']['TorrentSettings']
     }
     User: {
@@ -2166,6 +2217,75 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['Torrent']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'get-file-selection': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        /** @description Torrent id or info hash */
+        id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          'Cache-Control'?: string
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['FileSelection']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'confirm-file-selection': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: string
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ConfirmFileSelectionInBody']
+      }
+    }
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          'Cache-Control'?: string
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['FileSelection']
         }
       }
       /** @description Error */

@@ -40,18 +40,19 @@ type Credentials struct {
 
 // TorrentSettings are per-torrent knobs.
 type TorrentSettings struct {
-	MinFileSize     int64    `json:"min_file_size,omitempty" minimum:"0" doc:"Skip files smaller than this many bytes"`
-	IncludeRegex    string   `json:"include_regex,omitempty" doc:"Only download paths matching this (case-insensitive); overrides exclude"`
-	ExcludeRegex    string   `json:"exclude_regex,omitempty" doc:"Skip paths matching this (case-insensitive)"`
-	ManualFiles     []string `json:"manual_files,omitempty" nullable:"false" doc:"Download exactly these provider file ids"`
-	FinishedAction  string   `json:"finished_action,omitempty" enum:"keep,remove_from_provider" doc:"What to do at the provider after local completion"`
-	FinishedDelay   string   `json:"finished_delay,omitempty" doc:"Delay before finished_action, e.g. 10m (Go duration)"`
-	DownloadRetries int      `json:"download_retries" minimum:"0" required:"false" doc:"Automatic retries per file"`
-	TorrentRetries  int      `json:"torrent_retries" minimum:"0" required:"false" doc:"Automatic re-adds after a provider error"`
-	DeleteOnError   string   `json:"delete_on_error,omitempty" doc:"Remove the torrent (files, provider) this long after a terminal error, e.g. 24h; empty = never"`
-	Lifetime        string   `json:"lifetime,omitempty" doc:"Fail if not finished at the provider within this long, e.g. 72h; empty = never"`
-	Unpack          bool     `json:"unpack" required:"false" doc:"Extract archives after download"`
-	Organize        *bool    `json:"organize,omitempty" doc:"Override the global library-organization toggle for this torrent (absent = inherit)"`
+	MinFileSize      int64    `json:"min_file_size,omitempty" minimum:"0" doc:"Skip files smaller than this many bytes"`
+	IncludeRegex     string   `json:"include_regex,omitempty" doc:"Only download paths matching this (case-insensitive); overrides exclude"`
+	ExcludeRegex     string   `json:"exclude_regex,omitempty" doc:"Skip paths matching this (case-insensitive)"`
+	WaitForSelection bool     `json:"wait_for_selection,omitempty" required:"false" doc:"Hold NAS downloads for explicit provider-file review at add time; confirmed through the file-selection endpoint"`
+	ManualFiles      []string `json:"manual_files,omitempty" nullable:"false" doc:"Download exactly these provider file ids"`
+	FinishedAction   string   `json:"finished_action,omitempty" enum:"keep,remove_from_provider" doc:"What to do at the provider after local completion"`
+	FinishedDelay    string   `json:"finished_delay,omitempty" doc:"Delay before finished_action, e.g. 10m (Go duration)"`
+	DownloadRetries  int      `json:"download_retries" minimum:"0" required:"false" doc:"Automatic retries per file"`
+	TorrentRetries   int      `json:"torrent_retries" minimum:"0" required:"false" doc:"Automatic re-adds after a provider error"`
+	DeleteOnError    string   `json:"delete_on_error,omitempty" doc:"Remove the torrent (files, provider) this long after a terminal error, e.g. 24h; empty = never"`
+	Lifetime         string   `json:"lifetime,omitempty" doc:"Fail if not finished at the provider within this long, e.g. 72h; empty = never"`
+	Unpack           bool     `json:"unpack" required:"false" doc:"Extract archives after download"`
+	Organize         *bool    `json:"organize,omitempty" doc:"Override the global library-organization toggle for this torrent (absent = inherit)"`
 }
 
 // OrganizeSettings control library-style directory layout for new torrents.
@@ -67,6 +68,25 @@ type File struct {
 	Path     string `json:"path"`
 	Size     int64  `json:"size"`
 	Selected bool   `json:"selected"`
+}
+
+// FileSelection excludes restricted provider links and internal acceptance data.
+type FileSelection struct {
+	TorrentID       string   `json:"torrent_id"`
+	State           string   `json:"state" enum:"automatic,pending,ready,accepted,unavailable"`
+	Revision        string   `json:"revision,omitempty"`
+	Files           []File   `json:"files"`
+	SelectedIDs     []string `json:"selected_ids"`
+	ProviderSelects bool     `json:"provider_selects"`
+	Message         string   `json:"message"`
+}
+
+func FromFileSelection(v service.FileSelection) FileSelection {
+	files := make([]File, len(v.Files))
+	for i, f := range v.Files {
+		files[i] = File{ID: f.ID, Path: f.Path, Size: f.Size, Selected: f.Selected}
+	}
+	return FileSelection{TorrentID: v.TorrentID, State: v.State, Revision: v.Revision, Files: files, SelectedIDs: v.SelectedIDs, ProviderSelects: v.ProviderSelects, Message: v.Message}
 }
 
 // Download is one local file download.
@@ -90,29 +110,30 @@ type Download struct {
 
 // Torrent is the API view of a torrent.
 type Torrent struct {
-	ID               string          `json:"id"`
-	AccountID        string          `json:"account_id"`
-	Hash             string          `json:"hash"`
-	Name             string          `json:"name"`
-	Category         string          `json:"category,omitempty"`
-	DirName          string          `json:"dir_name,omitempty" doc:"Folder path under the download dir ('/'-separated); frozen when local downloads start"`
-	Organized        bool            `json:"organized,omitempty" doc:"True when dir_name was produced by library organization"`
-	Status           string          `json:"status" enum:"queued,adding,processing,waiting_selection,downloading,uploading,finished,completed,error"`
-	StatusReason     string          `json:"status_reason,omitempty" doc:"Human-readable detail about the current state"`
-	Error            string          `json:"error,omitempty"`
-	ProviderProgress float64         `json:"provider_progress" doc:"0..1 progress at the debrid provider"`
-	LocalProgress    float64         `json:"local_progress" doc:"0..1 progress of local downloads"`
-	Size             int64           `json:"size"`
-	Speed            int64           `json:"speed" doc:"Provider-side bytes/sec"`
-	Seeders          int             `json:"seeders"`
-	ProviderID       string          `json:"provider_id,omitempty"`
-	ProviderStatus   string          `json:"provider_status,omitempty" doc:"Raw provider status string"`
-	Files            []File          `json:"files"`
-	Settings         TorrentSettings `json:"settings"`
-	RetryCount       int             `json:"retry_count"`
-	AddedAt          time.Time       `json:"added_at"`
-	CompletedAt      *time.Time      `json:"completed_at,omitempty"`
-	Downloads        []Download      `json:"downloads"`
+	ID                 string          `json:"id"`
+	AccountID          string          `json:"account_id"`
+	Hash               string          `json:"hash"`
+	Name               string          `json:"name"`
+	Category           string          `json:"category,omitempty"`
+	DirName            string          `json:"dir_name,omitempty" doc:"Folder path under the download dir ('/'-separated); frozen when local downloads start"`
+	Organized          bool            `json:"organized,omitempty" doc:"True when dir_name was produced by library organization"`
+	Status             string          `json:"status" enum:"queued,adding,processing,waiting_selection,downloading,uploading,finished,completed,error"`
+	StatusReason       string          `json:"status_reason,omitempty" doc:"Human-readable detail about the current state"`
+	Error              string          `json:"error,omitempty"`
+	ProviderProgress   float64         `json:"provider_progress" doc:"0..1 progress at the debrid provider"`
+	LocalProgress      float64         `json:"local_progress" doc:"0..1 progress of local downloads"`
+	Size               int64           `json:"size"`
+	Speed              int64           `json:"speed" doc:"Provider-side bytes/sec"`
+	Seeders            int             `json:"seeders"`
+	ProviderID         string          `json:"provider_id,omitempty"`
+	ProviderStatus     string          `json:"provider_status,omitempty" doc:"Raw provider status string"`
+	FileSelectionState string          `json:"file_selection_state" enum:"automatic,pending,accepted" doc:"Explicit NAS-download selection state, independent of provider lifecycle"`
+	Files              []File          `json:"files"`
+	Settings           TorrentSettings `json:"settings"`
+	RetryCount         int             `json:"retry_count"`
+	AddedAt            time.Time       `json:"added_at"`
+	CompletedAt        *time.Time      `json:"completed_at,omitempty"`
+	Downloads          []Download      `json:"downloads"`
 }
 
 // TorrentSubmission proves a previously accepted local enqueue, even if removed later.
@@ -164,7 +185,7 @@ func FromTorrentSettings(s domain.TorrentSettings) TorrentSettings {
 		FinishedAction: string(s.FinishedAction), FinishedDelay: durStr(s.FinishedDelay),
 		DownloadRetries: s.DownloadRetries, TorrentRetries: s.TorrentRetries,
 		DeleteOnError: durStr(s.DeleteOnError), Lifetime: durStr(s.Lifetime), Unpack: s.Unpack,
-		Organize: s.Organize,
+		Organize: s.Organize, WaitForSelection: s.WaitForSelection,
 	}
 }
 
@@ -189,7 +210,7 @@ func (s TorrentSettings) ToDomain() (domain.TorrentSettings, error) {
 	return domain.TorrentSettings{
 		MinFileSize: s.MinFileSize, IncludeRegex: s.IncludeRegex, ExcludeRegex: s.ExcludeRegex, ManualFiles: s.ManualFiles,
 		FinishedAction: fa, FinishedDelay: fd, DownloadRetries: s.DownloadRetries, TorrentRetries: s.TorrentRetries,
-		DeleteOnError: de, Lifetime: lt, Unpack: s.Unpack, Organize: s.Organize,
+		DeleteOnError: de, Lifetime: lt, Unpack: s.Unpack, Organize: s.Organize, WaitForSelection: s.WaitForSelection,
 	}, nil
 }
 
@@ -202,9 +223,16 @@ func FromDownload(d domain.Download) Download {
 }
 
 func FromTorrent(d service.TorrentDetail) Torrent {
+	selectionState := "automatic"
+	if d.Torrent.Settings.WaitForSelection {
+		selectionState = "pending"
+		if d.Torrent.SelectionReady() {
+			selectionState = "accepted"
+		}
+	}
 	t := d.Torrent
 	out := Torrent{
-		ID: t.ID, AccountID: t.AccountID, Hash: t.Hash, Name: t.Name, Category: t.Category,
+		ID: t.ID, FileSelectionState: selectionState, AccountID: t.AccountID, Hash: t.Hash, Name: t.Name, Category: t.Category,
 		DirName: t.DirName, Organized: t.Organized,
 		Status: string(t.Status), StatusReason: t.StatusReason, Error: t.Error,
 		ProviderProgress: t.Progress, LocalProgress: d.LocalProgress(), Size: t.Size, Speed: t.Speed, Seeders: t.Seeders,

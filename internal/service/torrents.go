@@ -143,6 +143,10 @@ func (s *Service) AddTorrent(ctx context.Context, in AddTorrentInput) (TorrentDe
 		if err := ValidateTorrentSettings(ts); err != nil {
 			return err
 		}
+		if ts.WaitForSelection {
+			ts.ManualFiles = nil
+			ts.Selection = nil
+		}
 		if in.Category != "" {
 			if err := validateCategory(in.Category); err != nil {
 				return err
@@ -491,6 +495,10 @@ func (s *Service) RetryTorrent(ctx context.Context, idOrHash string) (TorrentDet
 		t.ProviderAddedAt = nil
 		t.ProviderEndedAt = nil
 		t.ProviderID = ""
+		if t.Settings.WaitForSelection {
+			t.Settings.ManualFiles = nil
+			t.Settings.Selection = nil
+		}
 		t.ProviderStatus = ""
 		t.Progress = 0
 		t.UpdatedAt = s.now()
@@ -642,8 +650,11 @@ func (s *Service) UpdateTorrent(ctx context.Context, idOrHash string, in UpdateT
 		}
 		if in.Settings != nil {
 			manual := t.Settings.ManualFiles
+			wait, selection := t.Settings.WaitForSelection, t.Settings.Selection
 			t.Settings = *in.Settings
 			t.Settings.ManualFiles = manual
+			t.Settings.WaitForSelection = wait
+			t.Settings.Selection = selection
 		}
 		t.UpdatedAt = s.now()
 		return nil
@@ -680,6 +691,9 @@ func (s *Service) SelectFiles(ctx context.Context, idOrHash string, fileIDs []st
 		t, err = store.TorrentFromRow(row)
 		if err != nil {
 			return err
+		}
+		if t.Settings.WaitForSelection {
+			return fmt.Errorf("%w: use revision-checked file review for this transfer", ErrConflict)
 		}
 		known := map[string]bool{}
 		for _, f := range t.Files {

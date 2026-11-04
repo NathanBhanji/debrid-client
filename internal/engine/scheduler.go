@@ -242,7 +242,7 @@ func (e *Engine) tickAtProvider(ctx context.Context, t *domain.Torrent, now time
 	if t.Settings.Lifetime > 0 && now.Sub(t.AddedAt) > t.Settings.Lifetime {
 		return e.fail(ctx, t, "lifetime exceeded before provider finished")
 	}
-	if t.Status != domain.TorrentWaitingSelection || t.FilesSelectedAt != nil {
+	if !t.SelectionReady() || t.Status != domain.TorrentWaitingSelection || t.FilesSelectedAt != nil {
 		return nil
 	}
 	prov, _, err := e.svc.Providers().For(ctx, t.AccountID)
@@ -269,12 +269,27 @@ func (e *Engine) tickAtProvider(ctx context.Context, t *domain.Torrent, now time
 // provider. Returns false when nothing could be decided yet (metadata not
 // ready, transient error) so the caller throttles the next attempt.
 func (e *Engine) runSelect(ctx context.Context, t domain.Torrent, prov provider.Provider) bool {
+	fresh, ready := e.selectionSnapshot(ctx, t)
+	if !ready {
+		return false
+	}
+	t = fresh
+	if t.Status != domain.TorrentWaitingSelection {
+		return false
+	}
 	sctx := context.WithoutCancel(ctx)
-	if len(t.Files) == 0 {
+	if len(t.Files) == 0 || t.Settings.WaitForSelection {
 		pt, err := prov.GetTorrent(ctx, t.ProviderID)
 		if err != nil {
 			e.log.Warn("select: get torrent", "id", t.ID, "err", err)
 			return false
+		}
+		if t.Settings.WaitForSelection {
+			revision, err := domain.FileSelectionRevision(t, pt.Files)
+			if err != nil || !t.SelectionSourceMatches(pt.ID, pt.Hash) || pt.Status != domain.TorrentWaitingSelection || revision != t.Settings.Selection.Revision {
+				_ = e.failSelection(sctx, &t, "provider file review changed before selection; retry for a new review")
+				return true
+			}
 		}
 		t.Files = pt.Files
 		if len(t.Files) == 0 {
@@ -282,8 +297,11 @@ func (e *Engine) runSelect(ctx context.Context, t domain.Torrent, prov provider.
 		}
 	}
 	selected, err := domain.SelectFiles(t.Files, t.Settings)
+	if t.Settings.WaitForSelection {
+		selected, err = domain.StrictSelectedFiles(t.Files, t.Settings.Selection.FileIDs)
+	}
 	if err != nil {
-		_ = e.fail(sctx, &t, err.Error())
+		_ = e.failSelection(sctx, &t, err.Error())
 		return true
 	}
 	ids := make([]string, len(selected))
@@ -292,16 +310,23 @@ func (e *Engine) runSelect(ctx context.Context, t domain.Torrent, prov provider.
 		ids[i] = f.ID
 		sel[f.ID] = true
 	}
+	if actual, ok := e.selectionSnapshot(ctx, t); !ok || !sameSelection(t, actual) {
+		return false
+	}
 	if err := prov.SelectFiles(ctx, t.ProviderID, ids); err != nil {
 		if !provider.IsRetryable(err) {
-			_ = e.fail(sctx, &t, "select files: "+err.Error())
+			_ = e.failSelection(sctx, &t, "select files: "+err.Error())
 			return true
 		}
 		e.log.Warn("select files", "id", t.ID, "err", err)
 		return false
 	}
 	files := t.Files
+	expected := t
 	_, _ = e.mutate(sctx, t.ID, func(t *domain.Torrent) error {
+		if !sameSelection(expected, *t) {
+			return store.ErrSkip
+		}
 		if len(t.Files) == 0 {
 			t.Files = files
 		}
@@ -319,6 +344,12 @@ func (e *Engine) runSelect(ctx context.Context, t domain.Torrent, prov provider.
 // tickFinished creates downloads once links are available, starts downloads
 // and unpacks within limits, and completes the torrent when everything is done.
 func (e *Engine) tickFinished(ctx context.Context, t *domain.Torrent, now time.Time) error {
+	if !t.SelectionReady() {
+		e.mu.Lock()
+		delete(e.waitSince, t.ID)
+		e.mu.Unlock()
+		return nil
+	}
 	downloads, err := e.loadDownloads(ctx, t.ID)
 	if err != nil {
 		return err
@@ -435,19 +466,40 @@ func (e *Engine) tickFinished(ctx context.Context, t *domain.Torrent, now time.T
 // rows (atomically, skipping links that already have a row). Returns false when
 // links weren't available yet or a transient error occurred.
 func (e *Engine) runCreateDownloads(ctx context.Context, t domain.Torrent, prov provider.Provider) bool {
+	fresh, ready := e.selectionSnapshot(ctx, t)
+	if !ready {
+		return false
+	}
+	t = fresh
+	if t.Status != domain.TorrentFinished {
+		return false
+	}
+	if t.Settings.WaitForSelection && prov.Caps().SelectFiles && t.FilesSelectedAt == nil {
+		return false
+	}
 	sctx := context.WithoutCancel(ctx)
-	if len(t.Files) == 0 {
+	if len(t.Files) == 0 || t.Settings.WaitForSelection {
 		pt, err := prov.GetTorrent(ctx, t.ProviderID)
 		if err != nil {
 			e.log.Warn("create downloads: get torrent", "id", t.ID, "err", err)
 			return false
 		}
+		if t.Settings.WaitForSelection {
+			revision, err := domain.FileSelectionRevision(t, pt.Files)
+			if err != nil || !t.SelectionSourceMatches(pt.ID, pt.Hash) || revision != t.Settings.Selection.Revision {
+				_ = e.failSelection(sctx, &t, "provider file review changed before NAS download; retry for a new review")
+				return true
+			}
+		}
 		t.Files = pt.Files
+	}
+	if actual, ok := e.selectionSnapshot(ctx, t); !ok || !sameSelection(t, actual) {
+		return false
 	}
 	links, err := prov.Links(ctx, t.ProviderID)
 	if err != nil {
 		if provider.KindOf(err) == provider.ErrNotFound {
-			_ = e.fail(sctx, &t, "torrent disappeared at provider before links were fetched")
+			_ = e.failSelection(sctx, &t, "torrent disappeared at provider before links were fetched")
 			return true
 		}
 		e.log.Warn("links", "id", t.ID, "err", err)
@@ -455,7 +507,13 @@ func (e *Engine) runCreateDownloads(ctx context.Context, t domain.Torrent, prov 
 	}
 	if len(links) == 0 {
 		if t.StatusReason != "waiting for download links" {
-			_, _ = e.mutate(sctx, t.ID, func(t *domain.Torrent) error { t.StatusReason = "waiting for download links"; return nil })
+			_, _ = e.mutate(sctx, t.ID, func(t *domain.Torrent) error {
+				if !sameSelection(fresh, *t) {
+					return store.ErrSkip
+				}
+				t.StatusReason = "waiting for download links"
+				return nil
+			})
 		}
 		return false
 	}
@@ -466,8 +524,24 @@ func (e *Engine) runCreateDownloads(ctx context.Context, t domain.Torrent, prov 
 	var wanted map[string]bool
 	if !prov.Caps().SelectFiles {
 		selected, err := domain.SelectFiles(linkFiles(links, t.Files), t.Settings)
+		if t.Settings.WaitForSelection {
+			selected, err = domain.StrictSelectedFiles(linkFiles(links, t.Files), t.Settings.Selection.FileIDs)
+			if err == nil {
+				byID := make(map[string]domain.File, len(t.Files))
+				for _, file := range t.Files {
+					byID[file.ID] = file
+				}
+				for _, file := range selected {
+					expected := byID[file.ID]
+					if file.Path != expected.Path || file.Size != expected.Size {
+						err = errors.New("selected link metadata changed after file review")
+						break
+					}
+				}
+			}
+		}
 		if err != nil {
-			_ = e.fail(sctx, &t, err.Error())
+			_ = e.failSelection(sctx, &t, err.Error())
 			return true
 		}
 		wanted = map[string]bool{}
@@ -488,10 +562,21 @@ func (e *Engine) runCreateDownloads(ctx context.Context, t domain.Torrent, prov 
 		})
 	}
 	if len(rows) == 0 {
-		_ = e.fail(sctx, &t, "no files matched the filters")
+		_ = e.failSelection(sctx, &t, "no files matched the filters")
 		return true
 	}
 	err = e.store.WithTx(sctx, func(q *sqlcgen.Queries) error {
+		current, err := q.GetTorrent(sctx, t.ID)
+		if err != nil {
+			return err
+		}
+		actual, err := store.TorrentFromRow(current)
+		if err != nil {
+			return err
+		}
+		if !sameSelection(t, actual) || actual.Status != domain.TorrentFinished {
+			return store.ErrSkip
+		}
 		for _, d := range rows {
 			if _, err := q.InsertDownload(sctx, downloadInsert(d)); err != nil { // ON CONFLICT DO NOTHING → idempotent
 				return err
@@ -499,11 +584,17 @@ func (e *Engine) runCreateDownloads(ctx context.Context, t domain.Torrent, prov 
 		}
 		return nil
 	})
+	if errors.Is(err, store.ErrSkip) {
+		return false
+	}
 	if err != nil {
 		e.log.Error("insert downloads", "id", t.ID, "err", err)
 		return false
 	}
 	_, _ = e.mutate(sctx, t.ID, func(t *domain.Torrent) error {
+		if !sameSelection(fresh, *t) {
+			return store.ErrSkip
+		}
 		if t.FilesSelectedAt == nil {
 			t.FilesSelectedAt = &now
 		}

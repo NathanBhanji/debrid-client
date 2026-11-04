@@ -23,7 +23,7 @@ Never create a simulator per PR or reviewer. Check `xcrun simctl list devices av
 
 Checks have a 15 minute process-group timeout, one derived-data directory, no parallel simulator clones, no explicit xcresult archive, and one log per operation. Logs retain the final 2 MB after completion. Xcode activity/results can still grow under `.build`: after each milestone inspect `du -sh .build .artifacts`, retain at most one relevant result and 8 screenshots, and remove only this checkout's generated artifacts once no owned test is running. Never erase unrelated caches/devices or delete a runtime. Shut down the Debrid simulator after use; retain it for reuse. Use this worktree for the train; only create another when independent work actually requires it. Remove completed worktrees only after checking clean state, pushed branch and PR safety. Never delete uncommitted changes.
 
-Design: [spec](../docs/design/ios/README.md), [board](../docs/design/ios/board.html). Delivery: [29-PR plan](../docs/plan/ios-native.md). Audit: [API/platform evidence](../docs/plan/ios-audit.md).
+Design: [spec](../docs/design/ios/README.md), [board](../docs/design/ios/board.html). Delivery: [30-PR plan](../docs/plan/ios-native.md). Audit: [API/platform evidence](../docs/plan/ios-audit.md).
 
 ## Native design gallery
 
@@ -142,4 +142,4 @@ The inbox schema is now version2; version1 magnets retain their IDs, raw URIs, s
 
 The actual native saved-item form loads enabled provider accounts, categories and the server’s full default settings. Review or override file rules, unpacking, organization and automatic copy cleanup before explicitly adding. Magnets retain their original URI; torrent uploads retain the original bytes. Servers must advertise durable submissions; file intake also requires multipart settings parity (both ship in v0.2.3). A saved attempt freezes its server/options/key before POST. An interrupted or lost response offers receipt lookup and an explicit retry of that same request; reopening never automatically submits. Confirmed results open the existing live detail screen. See [submission state and checks](../docs/plan/ios-review-add.md).
 
-This increment offers server file rules or all files. Waiting for a provider’s file list before any download requires the focused backend policy in milestone18; it is not claimed here. The Share Extension follows in19.
+This increment offers server file rules or all files. Waiting for a provider’s file list before any download requires the focused backend policy in milestone18; it is not claimed here. Native file-selection UI follows in19, then the Share Extension in20.

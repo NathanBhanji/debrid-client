@@ -143,6 +143,30 @@ components:
         - current_password
         - new_password
       type: object
+    ConfirmFileSelectionInBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/ConfirmFileSelectionInBody.json
+          format: uri
+          readOnly: true
+          type: string
+        file_ids:
+          items:
+            type: string
+          maxItems: 20000
+          minItems: 1
+          type: array
+        revision:
+          maxLength: 64
+          minLength: 64
+          pattern: ^[a-f0-9]{64}$
+          type: string
+      required:
+        - revision
+        - file_ids
+      type: object
     Credentials:
       additionalProperties: false
       properties:
@@ -395,6 +419,47 @@ components:
         - path
         - size
         - selected
+      type: object
+    FileSelection:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/FileSelection.json
+          format: uri
+          readOnly: true
+          type: string
+        files:
+          items:
+            $ref: "#/components/schemas/File"
+          type: array
+        message:
+          type: string
+        provider_selects:
+          type: boolean
+        revision:
+          type: string
+        selected_ids:
+          items:
+            type: string
+          type: array
+        state:
+          enum:
+            - automatic
+            - pending
+            - ready
+            - accepted
+            - unavailable
+          type: string
+        torrent_id:
+          type: string
+      required:
+        - torrent_id
+        - state
+        - files
+        - selected_ids
+        - provider_selects
+        - message
       type: object
     HealthOutBody:
       additionalProperties: false
@@ -815,6 +880,13 @@ components:
           type: array
         error:
           type: string
+        file_selection_state:
+          description: Explicit NAS-download selection state, independent of provider lifecycle
+          enum:
+            - automatic
+            - pending
+            - accepted
+          type: string
         files:
           items:
             $ref: "#/components/schemas/File"
@@ -882,6 +954,7 @@ components:
         - size
         - speed
         - seeders
+        - file_selection_state
         - files
         - settings
         - retry_count
@@ -938,6 +1011,9 @@ components:
         unpack:
           description: Extract archives after download
           type: boolean
+        wait_for_selection:
+          description: Hold NAS downloads for explicit provider-file review at add time; confirmed through the file-selection endpoint
+          type: boolean
       type: object
     TorrentSubmission:
       additionalProperties: false
@@ -992,7 +1068,7 @@ components:
           type: string
         settings:
           $ref: "#/components/schemas/TorrentSettings"
-          description: Full replacement of the torrent's settings (manual file selection is preserved; use the files endpoint for that)
+          description: Full settings replacement except the preserved manual selection/hold; choose the hold at add time and confirm through file-selection
       type: object
     User:
       additionalProperties: false
@@ -2026,6 +2102,71 @@ paths:
                 $ref: "#/components/schemas/ErrorModel"
           description: Error
       summary: Update a torrent's category or settings
+      tags:
+        - torrents
+  /api/v1/torrents/{id}/file-selection:
+    get:
+      operationId: get-file-selection
+      parameters:
+        - description: Torrent id or info hash
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Torrent id or info hash
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileSelection"
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Review authoritative provider files before NAS download
+      tags:
+        - torrents
+    put:
+      operationId: confirm-file-selection
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmFileSelectionInBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FileSelection"
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Confirm one immutable reviewed file selection
       tags:
         - torrents
   /api/v1/torrents/{id}/files:

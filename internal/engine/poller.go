@@ -270,6 +270,10 @@ func (e *Engine) requeueForRetry(ctx context.Context, t *domain.Torrent, why str
 	}
 	nt, err := e.mutate(ctx, t.ID, func(t *domain.Torrent) error {
 		t.RetryCount++
+		if t.Settings.WaitForSelection {
+			t.Settings.ManualFiles = nil
+			t.Settings.Selection = nil
+		}
 		t.ProviderID = ""
 		t.ProviderStatus = ""
 		t.Progress = 0

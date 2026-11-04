@@ -28,9 +28,11 @@ import (
 const key = "secret"
 
 type tc struct {
-	t   *testing.T
-	srv *httptest.Server
-	svc *service.Service
+	t     *testing.T
+	srv   *httptest.Server
+	svc   *service.Service
+	fake  *providertest.Fake
+	store *store.Store
 }
 
 func setup(t *testing.T) *tc {
@@ -52,7 +54,7 @@ func setup(t *testing.T) *tc {
 	h := New(svc, Options{APIKey: key})
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
-	return &tc{t: t, srv: srv, svc: svc}
+	return &tc{t: t, srv: srv, svc: svc, fake: fake, store: st}
 }
 
 func (c *tc) do(method, path string, body any, auth bool) (*http.Response, []byte) {
