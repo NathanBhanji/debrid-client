@@ -44,8 +44,28 @@ type Store struct {
 // migrations. Tests should use a file in t.TempDir() (":memory:" databases are
 // per-connection and not supported).
 func Open(ctx context.Context, path string) (*Store, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("create data dir: %w", err)
+	}
+	// The database stores API keys, provider credentials and authentication
+	// settings. Create it privately before SQLite opens it, and repair old
+	// databases/sidecars before any credential-bearing writes. SQLite derives
+	// new WAL/SHM permissions from the database file's mode.
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("create private database: %w", err)
+	}
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("secure database permissions: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return nil, fmt.Errorf("close database file: %w", err)
+	}
+	for _, suffix := range []string{"-wal", "-shm", "-journal"} {
+		if err := os.Chmod(path+suffix, 0o600); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("secure database sidecar permissions: %w", err)
+		}
 	}
 	db, err := sql.Open("sqlite", dsn(path))
 	if err != nil {
