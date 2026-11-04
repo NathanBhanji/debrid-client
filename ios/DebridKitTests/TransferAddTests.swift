@@ -23,7 +23,7 @@ private actor SubmissionTestAPI:TransferSubmissionAPI {
     func configure(_ behavior:Behavior,hold:Bool = false) { self.behavior=behavior;self.hold=hold }
     func setReadiness(healthy:Bool = true,supports:Bool = true) { self.healthy=healthy;self.supports=supports }
     func release() { hold=false }
-    func health() async throws -> HealthDTO { HealthDTO(ok:healthy,version:"0.2.3",capabilities:supports ? ["torrent_submissions_v1","multipart_torrent_settings_v1"] : []) }
+    func health() async throws -> HealthDTO { HealthDTO(ok:healthy,version:"0.2.3",capabilities:supports ? ["torrent_submissions_v1","multipart_torrent_settings_v1","manual_file_selection_v1"] : []) }
     func accounts() async throws -> [AccountDTO] { [try submissionWire("account",as:AccountDTO.self)] }
     func settings() async throws -> SettingsDTO { try submissionWire("settings",as:SettingsDTO.self) }
     func submit(_ payload:SubmissionPayload,options:SubmissionOptions,key:UUID) async throws -> TorrentDTO {
@@ -115,6 +115,15 @@ private actor SubmissionTestAPI:TransferSubmissionAPI {
         #expect(f.model.phase == .uncertain && !f.model.isBusy)
         #expect(try await f.store.snapshot().first?.submission?.phase == .prepared)
         await #expect(throws:PendingInboxError.submissionPending) { try await f.store.discard(f.claim.item.id,token:f.claim.token) }
+    }
+    @Test func chooseAfterAddingPersistsHoldBeforeSubmission() async throws {
+        let f=try await fixture();defer {try? FileManager.default.removeItem(at:f.directory)}
+        await f.model.load();f.model.filePolicy = .choose
+        #expect(f.model.reviewedSettings?.waitForSelection == true && f.model.reviewedSettings?.manualFiles == nil)
+        await f.api.configure(.offline);await f.model.submit()
+        #expect(f.model.phase == .uncertain)
+        #expect(try await f.store.snapshot().first?.submission?.options.settings.waitForSelection == true)
+        #expect(await f.api.options.first?.settings.waitForSelection == true)
     }
     @Test func freshRejectionCanBeReviewedButRetryOfUncertainAttemptCannotRetireIt() async throws {
         let f=try await fixture();defer { try? FileManager.default.removeItem(at:f.directory) }

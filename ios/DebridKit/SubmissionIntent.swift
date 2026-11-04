@@ -50,10 +50,10 @@ public struct PendingSubmission: Codable, Equatable, Sendable, CustomStringConve
     public let torrentExists:Bool?
     public let rejection:SubmissionRejection?
     init(key:UUID = UUID(),serverURL:URL,options:SubmissionOptions,createdAt:Date,phase:Phase = .prepared,acceptedID:String? = nil,torrentExists:Bool? = nil,rejection:SubmissionRejection? = nil) {
-        version = 1; self.key = key; self.serverURL = serverURL; self.options = options; self.createdAt = createdAt; self.phase = phase; self.acceptedID = acceptedID; self.torrentExists = torrentExists; self.rejection = rejection
+        version = 2; self.key = key; self.serverURL = serverURL; self.options = options; self.createdAt = createdAt; self.phase = phase; self.acceptedID = acceptedID; self.torrentExists = torrentExists; self.rejection = rejection
     }
     func validate() throws {
-        guard version == 1, SubmissionIdentity.validKey(key), serverURL.absoluteString.utf8.count <= 2048,
+        guard (version == 1 || version == 2), (version != 1 || options.settings.waitForSelection != true), SubmissionIdentity.validKey(key), serverURL.absoluteString.utf8.count <= 2048,
               (try? ServerAddress(serverURL.absoluteString))?.url == serverURL, createdAt.timeIntervalSince1970.isFinite else { throw SubmissionIntentError.invalid }
         try options.validate()
         switch phase {

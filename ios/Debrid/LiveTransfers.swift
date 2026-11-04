@@ -10,6 +10,8 @@ struct LiveTransfers: View {
     @Environment(\.scenePhase) private var scenePhase
     private struct IntakeNavigationContext:Hashable { let request:UUID?;let ready:Bool;let active:Bool }
     @State private var model: TransferListModel?
+    @State private var selectionModel:FileSelectionModel?
+    @State private var selectionMessage:String?
     @State private var setupFailed = false
     @State private var showingServer = false
     @State private var showingFilters = false
@@ -28,7 +30,67 @@ struct LiveTransfers: View {
     #endif
     var body: some View {
         NavigationStack(path:$path) {
-            List {
+            transferList.modifier(DebridListStyle()).scrollDismissesKeyboard(.interactively)
+                .navigationTitle("Transfers")
+                .searchable(text:Binding(get:{ model?.search.query ?? initialQuery },set:{ initialQuery = TransferSearchIndex.bounded($0,limit:256); model?.setQuery(initialQuery) }),prompt:"Search transfers")
+                .autocorrectionDisabled().textInputAutocapitalization(.never)
+                .toolbar {
+                    if let intake { ToolbarItem(placement:.topBarTrailing) { PendingLinksButton(intake:intake) } }
+                    ToolbarItem(placement:.topBarLeading) {
+                        Button("Filters", systemImage:model?.search.activeFilterCount ?? 0 > 0 ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle") { showingFilters = true }
+                            .disabled(model == nil).accessibilityValue("\(model?.search.activeFilterCount ?? 0) active")
+                    }
+                    ToolbarItem(placement: .primaryAction) { Button("Server", systemImage: "server.rack") { showingServer = true } }
+                }
+                .refreshable { if let model { await reload(model) } }
+                .sheet(isPresented: $showingServer) { serverSheet }
+                .sheet(isPresented: $showingFilters) { if let model { TransferFiltersView(model:model,preview:auth == nil) } }
+                .navigationDestination(for:TransferRoute.self) { route in
+                    if let model {
+                        switch route {
+                        case .detail(let id): LiveTransferDetail(transferID:id,model:model,preview:auth == nil,chooseFiles:openSelection)
+                        case .files(let id): TransferFilesRoot(model:model,transferID:id,preview:auth == nil)
+                        }
+                    }
+                }
+        }.tint(DebridStyle.tint)
+                .sheet(isPresented:Binding(get:{selectionModel != nil},set:{if !$0 {selectionModel=nil}}),onDismiss:{Task {await intake?.refresh()}}) {
+                    if let selectionModel {FileSelectionSheet(model:selectionModel).onChange(of:selectionModel.requiresSignIn) {if selectionModel.requiresSignIn {Task {await intake?.rejectConnection(selectionModel.connectionID)}}}}
+                }
+                .alert("File review unavailable",isPresented:Binding(get:{selectionMessage != nil},set:{if !$0 {selectionMessage=nil}})) {Button("OK",role:.cancel) {selectionMessage=nil}} message: {Text(selectionMessage ?? "")}
+                .task(id:IntakeNavigationContext(request:intake?.navigationRequest?.id,ready:model != nil,active:scenePhase == .active)) {
+                    guard scenePhase == .active,let request=intake?.navigationRequest,request.serverURL==server.profile.serverURL,let model else { return }
+                    await model.refreshWhileActive()
+                    guard !Task.isCancelled,intake?.navigationRequest?.id==request.id else { return }
+                    path.append(.detail(request.transferID));intake?.finishNavigation(request.id)
+                }
+                .task(id: scenePhase) {
+                    guard scenePhase == .active else { model?.stopLiveUpdates(); return }
+                    do {
+                        if model == nil {
+                            let created = try TransferListModel(server: server)
+                            created.setQuery(initialQuery); model = created
+                        }
+                        model?.startLiveUpdates()
+                        await model?.restoreSearchIfNeeded()
+                        #if DEBUG
+                        if auth == nil, ProcessInfo.processInfo.arguments.contains("-FiltersPreview") { showingFilters = true }
+                        if auth == nil, path.isEmpty, ProcessInfo.processInfo.arguments.contains("-DetailPreview") { path = [.detail("sample-nas")] }
+                        if auth == nil, path.isEmpty, ProcessInfo.processInfo.arguments.contains("-FilesPreview") { path = [.detail("sample-nas"),.files("sample-nas")] }
+                        #endif
+                    } catch { setupFailed = true }
+                }
+                .onChange(of: model?.requiresSignIn) {
+                    guard scenePhase == .active, let model, model.requiresSignIn else { return }
+                    Task {
+                        guard scenePhase == .active, model.requiresSignIn else { return }
+                        await auth?.sessionRejected(for:model.profile.id,connectionID:server.connectionID)
+                    }
+                }
+                .onDisappear { model?.stopLiveUpdates() }
+    }
+    private var transferList:some View {
+        List {
                 if auth == nil {
                     Section { Label("Preview · Sample transfers", systemImage:"viewfinder").font(.footnote).foregroundStyle(DebridStyle.secondary) }
                         .listRowBackground(Color.clear).listRowSeparator(.hidden)
@@ -75,60 +137,10 @@ struct LiveTransfers: View {
                 } else if setupFailed {
                     Section { Text("The server connection could not be prepared. Reconnect to try again.").foregroundStyle(DebridStyle.secondary) }
                 } else { ProgressView("Preparing connection…") }
-            }.modifier(DebridListStyle()).scrollDismissesKeyboard(.interactively)
-                .navigationTitle("Transfers")
-                .searchable(text:Binding(get:{ model?.search.query ?? initialQuery },set:{ initialQuery = TransferSearchIndex.bounded($0,limit:256); model?.setQuery(initialQuery) }),prompt:"Search transfers")
-                .autocorrectionDisabled().textInputAutocapitalization(.never)
-                .toolbar {
-                    if let intake { ToolbarItem(placement:.topBarTrailing) { PendingLinksButton(intake:intake) } }
-                    ToolbarItem(placement:.topBarLeading) {
-                        Button("Filters", systemImage:model?.search.activeFilterCount ?? 0 > 0 ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle") { showingFilters = true }
-                            .disabled(model == nil).accessibilityValue("\(model?.search.activeFilterCount ?? 0) active")
-                    }
-                    ToolbarItem(placement: .primaryAction) { Button("Server", systemImage: "server.rack") { showingServer = true } }
-                }
-                .refreshable { if let model { await reload(model) } }
-                .sheet(isPresented: $showingServer) { serverSheet }
-                .sheet(isPresented: $showingFilters) { if let model { TransferFiltersView(model:model,preview:auth == nil) } }
-                .navigationDestination(for:TransferRoute.self) { route in
-                    if let model {
-                        switch route {
-                        case .detail(let id): LiveTransferDetail(transferID:id,model:model,preview:auth == nil)
-                        case .files(let id): TransferFilesRoot(model:model,transferID:id,preview:auth == nil)
-                        }
-                    }
-                }
-        }.tint(DebridStyle.tint)
-                .task(id:IntakeNavigationContext(request:intake?.navigationRequest?.id,ready:model != nil,active:scenePhase == .active)) {
-                    guard scenePhase == .active,let request=intake?.navigationRequest,request.serverURL==server.profile.serverURL,let model else { return }
-                    await model.refreshWhileActive()
-                    guard !Task.isCancelled,intake?.navigationRequest?.id==request.id else { return }
-                    path.append(.detail(request.transferID));intake?.finishNavigation(request.id)
-                }
-                .task(id: scenePhase) {
-                    guard scenePhase == .active else { model?.stopLiveUpdates(); return }
-                    do {
-                        if model == nil {
-                            let created = try TransferListModel(server: server)
-                            created.setQuery(initialQuery); model = created
-                        }
-                        model?.startLiveUpdates()
-                        await model?.restoreSearchIfNeeded()
-                        #if DEBUG
-                        if auth == nil, ProcessInfo.processInfo.arguments.contains("-FiltersPreview") { showingFilters = true }
-                        if auth == nil, path.isEmpty, ProcessInfo.processInfo.arguments.contains("-DetailPreview") { path = [.detail("sample-nas")] }
-                        if auth == nil, path.isEmpty, ProcessInfo.processInfo.arguments.contains("-FilesPreview") { path = [.detail("sample-nas"),.files("sample-nas")] }
-                        #endif
-                    } catch { setupFailed = true }
-                }
-                .onChange(of: model?.requiresSignIn) {
-                    guard scenePhase == .active, let model, model.requiresSignIn else { return }
-                    Task {
-                        guard scenePhase == .active, model.requiresSignIn else { return }
-                        await auth?.sessionRejected(for:model.profile.id,connectionID:server.connectionID)
-                    }
-                }
-                .onDisappear { model?.stopLiveUpdates() }
+            }
+    }
+    private func openSelection(_ id:String,_ name:String) {
+        do {selectionModel=try intake?.fileSelectionModel(transferID:id,name:name)} catch {selectionMessage="File review could not be opened. Check protected storage and try again."}
     }
     private func reload(_ model: TransferListModel) async {
         await model.refreshWhileActive()

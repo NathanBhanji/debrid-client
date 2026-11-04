@@ -28,6 +28,12 @@ nonisolated private func openPendingInboxForApp() throws -> any PendingInboxAcce
     #endif
     return try PendingInbox.shared()
 }
+#if DEBUG
+nonisolated func openPendingInboxForSelectionFixture() throws -> (any FileSelectionIntentStoring)? {
+    guard intakeTestConfiguration() != nil else {return nil}
+    return try openPendingInboxForApp() as? any FileSelectionIntentStoring
+}
+#endif
 @MainActor private func makeSubmissionAPIForApp(_ server:AuthenticatedServer) throws -> any TransferSubmissionAPI {
     #if DEBUG
     if let configuration=intakeTestConfiguration(),["submit","uncertain"].contains(configuration.mode ?? "") {
@@ -41,7 +47,8 @@ struct NativeAppRoot: View {
     var body: some View {
         MagnetInboxHost {
             #if DEBUG
-            if let configuration=intakeTestConfiguration(),["submit","uncertain"].contains(configuration.mode ?? "") { LiveTransfersPreview() }
+            if let configuration=intakeTestConfiguration(),configuration.mode=="selection" || configuration.mode=="selection-uncertain" { SelectionFixtureRoot(uncertain:configuration.mode=="selection-uncertain") }
+            else if let configuration=intakeTestConfiguration(),["submit","uncertain"].contains(configuration.mode ?? "") { LiveTransfersPreview() }
             else if intakeTestConfiguration() != nil { ConnectionRoot(discoveryPreview:SignInDiscoveryPreview()) }
             else { ConnectionRoot() }
             #else
@@ -123,6 +130,8 @@ extension UTType { static let debridTorrent = UTType(importedAs:"org.bittorrent.
 struct PendingLinksSheet: View {
     let intake: MagnetIntakeCoordinator
     @State private var path: [UUID]
+    @State private var selectionModel:FileSelectionModel?
+    @State private var selectionMessage:String?
     @State private var showingPaste = false
     @State private var showingImporter = false
     @State private var importURL: URL?
@@ -137,31 +146,16 @@ struct PendingLinksSheet: View {
     init(intake:MagnetIntakeCoordinator) { self.intake = intake; _path = State(initialValue:intake.focusID.map { [$0] } ?? []) }
     var body: some View {
         NavigationStack(path:$path) {
-            List {
-                Section {
-                    Button("Paste magnet links",systemImage:"document.on.clipboard") { intake.dismissNotice(); showingPaste = true }.accessibilityIdentifier("paste-magnet-links")
-                    Button("Import torrent file",systemImage:"doc.badge.plus") { showingImporter = true }.disabled(intake.isImporting).accessibilityIdentifier("import-torrent-file")
-                    if intake.isImporting { HStack { ProgressView("Copying torrent file…"); Spacer(); Button("Cancel") { importURL = nil } } }
-                    if let message = intake.intakeMessage { Label(message,systemImage:"exclamationmark.triangle").font(.footnote) }
-                } footer: { Text("Save links or a torrent file on this iPhone, then review before adding a transfer.") }
-                if let message = intake.storageMessage { Section { Label(message,systemImage:"exclamationmark.triangle"); Button("Try again") { Task { await intake.refresh() } } } }
-                if intake.items.isEmpty && intake.storageMessage != nil { ContentUnavailableView("Saved items unavailable",systemImage:"lock",description:Text("Try again when protected storage is available.")) }
-                else if (!intake.hasSnapshot || intake.isLoading) && intake.items.isEmpty { ProgressView("Loading saved items…") }
-                else if intake.items.isEmpty { ContentUnavailableView("No pending links",systemImage:"tray",description:Text("Links and torrent files you save in Debrid appear here for review.")) }
-                ForEach(intake.items) { item in
-                    Group {
-                        if item.state == .expired { Button { action = .keep(item) } label: { row(item) } }
-                        else { NavigationLink(value:item.id) { row(item) } }
-                    }.swipeActions(edge:.trailing,allowsFullSwipe:false) {
-                        Button("Discard saved item",systemImage:"trash",role:.destructive) { action = .discard(item) }
-                    }.accessibilityAction(named:"Discard saved item") { action = .discard(item) }
-                }
-            }.modifier(DebridListStyle()).navigationTitle("Pending items")
+            pendingList.modifier(DebridListStyle()).navigationTitle("Pending items")
                 .toolbar { ToolbarItem(placement:.confirmationAction) { Button("Done") { dismiss() } } }
                 .refreshable { await intake.refresh() }
                 .navigationDestination(for:UUID.self) { id in PendingItemReview(intake:intake,id:id) }
         }.tint(DebridStyle.tint)
             .task { await intake.refresh() }
+            .sheet(isPresented:Binding(get:{selectionModel != nil},set:{if !$0 {selectionModel=nil}}),onDismiss:{Task {await intake.refresh()}}) {
+                if let selectionModel {FileSelectionSheet(model:selectionModel).onChange(of:selectionModel.requiresSignIn) {if selectionModel.requiresSignIn {Task {await intake.rejectConnection(selectionModel.connectionID)}}}}
+            }
+            .alert("Saved selection",isPresented:Binding(get:{selectionMessage != nil},set:{if !$0 {selectionMessage=nil}})) {Button("OK",role:.cancel) {selectionMessage=nil}} message: {Text(selectionMessage ?? "")}
             .sheet(isPresented:$showingPaste) { MagnetPasteSheet(intake:intake) }
             .fileImporter(isPresented:$showingImporter,allowedContentTypes:[.debridTorrent],allowsMultipleSelection:false) { result in
                 switch result {
@@ -178,6 +172,39 @@ struct PendingLinksSheet: View {
                 }
                 Button("Cancel",role:.cancel) { action = nil }
             } message: { Text(action?.isKeep == true ? "This extends storage on this iPhone without adding a transfer." : "This removes only the saved item. Server transfers are unchanged.") }
+    }
+    private var pendingList:some View {
+        List {
+                Section {
+                    Button("Paste magnet links",systemImage:"document.on.clipboard") { intake.dismissNotice(); showingPaste = true }.accessibilityIdentifier("paste-magnet-links")
+                    Button("Import torrent file",systemImage:"doc.badge.plus") { showingImporter = true }.disabled(intake.isImporting).accessibilityIdentifier("import-torrent-file")
+                    if intake.isImporting { HStack { ProgressView("Copying torrent file…"); Spacer(); Button("Cancel") { importURL = nil } } }
+                    if let message = intake.intakeMessage { Label(message,systemImage:"exclamationmark.triangle").font(.footnote) }
+                } footer: { Text("Save links or a torrent file on this iPhone, then review before adding a transfer.") }
+                if let message = intake.storageMessage { Section { Label(message,systemImage:"exclamationmark.triangle"); Button("Try again") { Task { await intake.refresh() } } } }
+                if intake.items.isEmpty && intake.storageMessage != nil { ContentUnavailableView("Saved items unavailable",systemImage:"lock",description:Text("Try again when protected storage is available.")) }
+                else if (!intake.hasSnapshot || intake.isLoading) && intake.items.isEmpty { ProgressView("Loading saved items…") }
+                else if intake.items.isEmpty && intake.savedSelections.isEmpty { ContentUnavailableView("No pending links",systemImage:"tray",description:Text("Links and torrent files you save in Debrid appear here for review.")) }
+                savedSelectionRows
+                ForEach(intake.items) { item in
+                    Group {
+                        if item.state == .expired { Button { action = .keep(item) } label: { row(item) } }
+                        else { NavigationLink(value:item.id) { row(item) } }
+                    }.swipeActions(edge:.trailing,allowsFullSwipe:false) {
+                        Button("Discard saved item",systemImage:"trash",role:.destructive) { action = .discard(item) }
+                    }.accessibilityAction(named:"Discard saved item") { action = .discard(item) }
+                }
+            }
+    }
+    @ViewBuilder private var savedSelectionRows:some View {
+        if !intake.savedSelections.isEmpty {Section("Saved file selections") {ForEach(intake.savedSelections) {saved in
+                    Button {
+                        do {
+                            selectionModel=try intake.fileSelectionModel(transferID:saved.transferID,name:saved.name,serverURL:saved.serverURL)
+                            if selectionModel==nil {selectionMessage="Connect to "+saved.serverURL.absoluteString+" to check this saved selection."}
+                        } catch {selectionMessage="The saved selection could not be opened. Try again when protected storage is available."}
+                    } label: {VStack(alignment:.leading,spacing:4) {Text(saved.name).font(.headline);Text("Check saved selection").font(.subheadline);Text(saved.serverURL.absoluteString).font(.footnote)}.foregroundStyle(DebridStyle.ink)}
+                }}}
     }
     private func row(_ item:PendingItem) -> some View {
         VStack(alignment:.leading,spacing:6) {

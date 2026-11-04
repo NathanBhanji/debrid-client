@@ -220,7 +220,112 @@ public struct PendingInbox: Sendable {
             state.items.remove(at:offset); return ((),true)
         }
     }
-    private struct Envelope: Codable, Sendable { var version = 3; var items: [Row] = [] }
+    public func savedFileSelections() async throws -> [SavedFileSelection] {
+        try await transaction { state,_ in
+            let result=state.fileSelections.compactMap { row -> SavedFileSelection? in
+                guard let intent=row.intent,intent.phase == .prepared || intent.phase == .blocked else {return nil}
+                return SavedFileSelection(id:row.id,serverURL:row.serverURL,transferID:row.transferID,name:row.name,phase:intent.phase)
+            }
+            return (result,false)
+        }
+    }
+    public func claimFileSelection(server:URL,transferID:String,name:String) async throws -> FileSelectionClaim {
+        guard SubmissionIdentity.validID(transferID),server.absoluteString.utf8.count<=2048,(try? ServerAddress(server.absoluteString))?.url==server else {throw FileSelectionError.invalidMetadata}
+        let title=String(name.unicodeScalars.prefix(256).map { $0.properties.generalCategory == .control ? " " : String($0) }.joined())
+        return try await transaction { state,now in
+            var rows=state.fileSelections
+            // Empty or definitively finished abandoned reviews contain no uncertain request.
+            rows.removeAll { row in row.lease?.live(at:now) != true && (row.intent == nil || row.intent?.phase == .resolved || row.intent?.phase == .rejected) }
+            let offset:Int
+            if let existing=rows.firstIndex(where:{$0.serverURL==server && $0.transferID==transferID}) {
+                guard rows[existing].lease?.live(at:now) != true else {throw PendingInboxError.busy};offset=existing
+            } else {
+                guard rows.count<Self.itemLimit else {throw PendingInboxError.full}
+                rows.append(SelectionRow(id:UUID(),serverURL:server,transferID:transferID,name:title,lease:nil,intent:nil,freshToken:nil));offset=rows.count-1
+            }
+            rows[offset].name=title
+            rows[offset].lease=Lease(token:UUID(),issuedAt:now,expiresAt:now.addingTimeInterval(Self.reviewLifetime))
+            state.fileSelections=rows;return (try rows[offset].claim(),true)
+        }
+    }
+    private static func selectionOffset(_ id:UUID,token:UUID,state:Envelope,now:Date) throws -> Int {
+        let rows=state.fileSelections
+        guard let index=rows.firstIndex(where:{$0.id==id}),let lease=rows[index].lease,lease.token==token,lease.live(at:now) else {throw PendingInboxError.lostClaim}
+        return index
+    }
+    public func fileSelectionClaim(_ id:UUID,token:UUID) async throws -> FileSelectionClaim {
+        try await transaction { state,now in let index=try Self.selectionOffset(id,token:token,state:state,now:now);return (try state.fileSelections[index].claim(),false) }
+    }
+    public func renewFileSelection(_ id:UUID,token:UUID) async throws {
+        try await transaction { state,now in
+            let index=try Self.selectionOffset(id,token:token,state:state,now:now)
+            state.fileSelections[index].lease=Lease(token:token,issuedAt:now,expiresAt:now.addingTimeInterval(Self.reviewLifetime));return ((),true)
+        }
+    }
+    public func releaseFileSelection(_ id:UUID,token:UUID) async throws {
+        try await transaction { state,_ in
+            guard let index=state.fileSelections.firstIndex(where:{$0.id==id}),state.fileSelections[index].lease?.token==token else {throw PendingInboxError.lostClaim}
+            let phase=state.fileSelections[index].intent?.phase
+            if phase == nil || phase == .resolved || phase == .rejected {state.fileSelections.remove(at:index)}
+            else {state.fileSelections[index].lease=nil}
+            return ((),true)
+        }
+    }
+    @concurrent public func prepareFileSelection(_ id:UUID,token:UUID,revision:String,fileIDs:[String]) async throws -> PreparedFileSelection {
+        guard FileSelectionIdentity.revisionIsValid(revision) else {throw FileSelectionError.invalidMetadata}
+        let ids=try FileSelectionIdentity.canonicalIDs(fileIDs)
+        return try await transaction { state,now in
+            let index=try Self.selectionOffset(id,token:token,state:state,now:now),row=state.fileSelections[index]
+            if let existing=row.intent,existing.phase != .rejected {
+                guard existing.phase == .prepared,existing.revision==revision,FileSelectionIdentity.sameIDs(existing.fileIDs,ids) else {throw FileSelectionError.unresolved}
+                return (PreparedFileSelection(intent:existing,rejectionToken:nil),false)
+            }
+            let intent=FileSelectionIntent(serverURL:row.serverURL,transferID:row.transferID,revision:revision,fileIDs:ids,createdAt:now)
+            try intent.validate()
+            var bytes=try FileSelectionIdentity.encodedIDs(ids).count
+            for (otherIndex,other) in state.fileSelections.enumerated() where otherIndex != index {
+                if let previous=other.intent {bytes += try FileSelectionIdentity.encodedIDs(previous.fileIDs).count}
+            }
+            guard bytes<=FileSelectionIdentity.totalIntentByteLimit else {throw PendingInboxError.full}
+            let fresh=UUID();state.fileSelections[index].intent=intent;state.fileSelections[index].freshToken=fresh
+            return (PreparedFileSelection(intent:intent,rejectionToken:fresh),true)
+        }
+    }
+    public func resolveFileSelection(_ id:UUID,token:UUID,intentID:UUID) async throws {
+        try await transaction { state,now in
+            let index=try Self.selectionOffset(id,token:token,state:state,now:now)
+            guard let intent=state.fileSelections[index].intent,intent.id==intentID else {throw FileSelectionError.unresolved}
+            state.fileSelections[index].intent=intent.replacingPhase(.resolved);state.fileSelections[index].freshToken=nil;return ((),true)
+        }
+    }
+    public func rejectFileSelection(_ id:UUID,token:UUID,intentID:UUID,freshToken:UUID) async throws {
+        try await transaction { state,now in
+            let index=try Self.selectionOffset(id,token:token,state:state,now:now)
+            guard let intent=state.fileSelections[index].intent,intent.id==intentID,intent.phase == .prepared,state.fileSelections[index].freshToken==freshToken else {throw FileSelectionError.unresolved}
+            state.fileSelections[index].intent=intent.replacingPhase(.rejected);state.fileSelections[index].freshToken=nil;return ((),true)
+        }
+    }
+    public func blockFileSelection(_ id:UUID,token:UUID,intentID:UUID) async throws {
+        try await transaction { state,now in
+            let index=try Self.selectionOffset(id,token:token,state:state,now:now)
+            guard let intent=state.fileSelections[index].intent,intent.id==intentID,intent.phase == .prepared else {throw FileSelectionError.unresolved}
+            state.fileSelections[index].intent=intent.replacingPhase(.blocked);state.fileSelections[index].freshToken=nil;return ((),true)
+        }
+    }
+    private struct Envelope: Codable, Sendable {
+        var version=4;var items:[Row]=[];var fileSelections:[SelectionRow]=[]
+        enum CodingKeys:String,CodingKey {case version,items,fileSelections}
+        init() {}
+        init(from decoder:any Decoder) throws {
+            let values=try decoder.container(keyedBy:CodingKeys.self)
+            version=try values.decode(Int.self,forKey:.version);items=try values.decode([Row].self,forKey:.items)
+            if version>=4 {fileSelections=try values.decode([SelectionRow].self,forKey:.fileSelections)}
+            else {fileSelections=try values.decodeIfPresent([SelectionRow].self,forKey:.fileSelections) ?? []}
+        }
+    }
+    private struct SelectionRow:Codable,Sendable { let id:UUID;let serverURL:URL;let transferID:String;var name:String;var lease:Lease?;var intent:FileSelectionIntent?;var freshToken:UUID?
+        func claim() throws -> FileSelectionClaim { guard let lease else {throw PendingInboxError.lostClaim};return FileSelectionClaim(id:id,token:lease.token,serverURL:serverURL,transferID:transferID,name:name,intent:intent) }
+    }
     private struct Header: Decodable { let version:Int }
     private struct Lease: Codable, Sendable {
         let token:UUID; let issuedAt:Date; let expiresAt:Date
@@ -266,16 +371,19 @@ public struct PendingInbox: Sendable {
             try Task.checkCancellation()
             // No suspension point while holding the cross-process lock.
             var state = try load()
+            let migrating=state.version<4
+            if migrating { state.fileSelections=[] }
             try cleanup(state)
             let now = clock()
             guard now.timeIntervalSince1970.isFinite else { throw PendingInboxError.unavailable }
             let (value,changed) = try operation(&state,now)
-            if changed || state.version < 3 { state.version = 3; try save(state) }
+            if changed || migrating { state.version = 4; try save(state) }
             // After a committed removal, orphan cleanup is best effort: never turn success into an ambiguous failure.
             try? cleanup(state)
             return value
         } catch is CancellationError { throw CancellationError() }
         catch let error as PendingInboxError { throw error }
+        catch let error as FileSelectionError { throw error }
         catch { throw PendingInboxError.unavailable }
     }
     private func prepare() throws {
@@ -316,15 +424,28 @@ public struct PendingInbox: Sendable {
         catch ReadFailure.missing { return Envelope() }
         let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .millisecondsSince1970
         guard let header = try? decoder.decode(Header.self,from:data) else { throw PendingInboxError.corrupt }
-        guard (1...3).contains(header.version) else { throw PendingInboxError.unsupportedVersion }
+        guard (1...4).contains(header.version) else { throw PendingInboxError.unsupportedVersion }
         guard let state = try? decoder.decode(Envelope.self,from:data), state.items.count <= Self.itemLimit, Set(state.items.map(\.id)).count == state.items.count,
               state.items.reduce(0,{ $0+($1.rawURI?.utf8.count ?? 0) }) <= Self.uriByteLimit,
               state.items.allSatisfy({ ($0.torrent?.byteCount ?? 0) >= 0 && ($0.torrent?.byteCount ?? 0) <= TorrentFile.byteLimit }),
               state.items.reduce(0,{ $0+($1.torrent?.byteCount ?? 0) }) <= Self.payloadByteLimit else { throw PendingInboxError.corrupt }
+        if header.version<4, !state.fileSelections.isEmpty {throw PendingInboxError.corrupt}
+        let selections=state.fileSelections
+        guard selections.count<=Self.itemLimit,Set(selections.map(\.id)).count==selections.count else {throw PendingInboxError.corrupt}
+        var identities=Set<String>(),selectionBytes=0
+        for row in selections {
+            guard SubmissionIdentity.validID(row.transferID),row.name.utf8.count<=1024,row.serverURL.absoluteString.utf8.count<=2048,(try? ServerAddress(row.serverURL.absoluteString))?.url==row.serverURL,identities.insert(row.serverURL.absoluteString+"\n"+row.transferID).inserted else {throw PendingInboxError.corrupt}
+            if let lease=row.lease {guard lease.issuedAt.timeIntervalSince1970.isFinite,lease.expiresAt.timeIntervalSince1970.isFinite,abs(lease.expiresAt.timeIntervalSince(lease.issuedAt)-Self.reviewLifetime)<1 else {throw PendingInboxError.corrupt}}
+            if let intent=row.intent {
+                guard (try? intent.validate()) != nil,intent.serverURL==row.serverURL,intent.transferID==row.transferID,intent.phase == .prepared || row.freshToken == nil else {throw PendingInboxError.corrupt}
+                selectionBytes += (try? FileSelectionIdentity.encodedIDs(intent.fileIDs).count) ?? Self.stateByteLimit
+            } else if row.freshToken != nil {throw PendingInboxError.corrupt}
+        }
+        guard selectionBytes<=FileSelectionIdentity.totalIntentByteLimit else {throw PendingInboxError.corrupt}
         for row in state.items {
             guard (try? row.content()) != nil, row.createdAt.timeIntervalSince1970.isFinite, row.retainedAt.timeIntervalSince1970.isFinite else { throw PendingInboxError.corrupt }
             if let attempt=row.submission {
-                guard header.version==3, (try? attempt.validate()) != nil, attempt.phase == .prepared || row.freshRejectionToken == nil else { throw PendingInboxError.corrupt }
+                guard header.version>=3, (header.version>=4 || attempt.version==1), (try? attempt.validate()) != nil, attempt.phase == .prepared || row.freshRejectionToken == nil else { throw PendingInboxError.corrupt }
             } else if row.freshRejectionToken != nil { throw PendingInboxError.corrupt }
             if let raw = row.rawURI { guard (try? MagnetLink(raw))?.rawURI == raw else { throw PendingInboxError.corrupt } }
             if let payload = row.torrent {

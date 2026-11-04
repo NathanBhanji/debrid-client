@@ -381,3 +381,23 @@ final class NativeSubmissionFlowTests:XCTestCase {
         XCTAssertTrue(app.navigationBars["Transfers"].waitForExistence(timeout:8))
     }
 }
+
+@MainActor final class NativeFileSelectionFlowTests:XCTestCase {
+    func testFoldersRequireExplicitSelectionAndFinalConfirmation() throws {
+        let app=XCUIApplication()
+        app.launchArguments=["-DebridInboxTestNamespace",UUID().uuidString,"-DebridInboxCaptureMode","selection"]
+        app.launch()
+        XCTAssertTrue(app.navigationBars["Choose files"].waitForExistence(timeout:12))
+        XCTAssertFalse(app.buttons["review-file-selection"].isEnabled)
+        app.buttons["Season 1"].tap()
+        XCTAssertTrue(app.navigationBars["Season 1"].waitForExistence(timeout:5))
+        let file=app.buttons.containing(.staticText,identifier:"01 — The Open Ocean.mkv").firstMatch
+        XCTAssertTrue(file.waitForExistence(timeout:5));file.tap()
+        let review=app.buttons["review-file-selection"]
+        XCTAssertTrue(review.isEnabled);review.tap()
+        XCTAssertTrue(app.navigationBars["Review selection"].waitForExistence(timeout:5))
+        XCTAssertTrue(app.buttons["confirm-file-selection"].isEnabled)
+        app.buttons["confirm-file-selection"].tap()
+        XCTAssertTrue(app.staticTexts["Selection confirmed"].waitForExistence(timeout:8))
+    }
+}

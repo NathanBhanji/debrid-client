@@ -22,6 +22,7 @@ extension PendingInbox: PendingInboxAccess {}
 /// Routes intake to durable review; the explicit review model owns server submission.
 @Observable @MainActor public final class MagnetIntakeCoordinator {
     public private(set) var items: [PendingItem] = []
+    public private(set) var savedSelections:[SavedFileSelection]=[]
     public private(set) var storageMessage: String?
     public private(set) var intakeMessage: String?
     public private(set) var notice: String?
@@ -77,6 +78,12 @@ extension PendingInbox: PendingInboxAccess {}
         guard let connection else { return nil }
         return try TransferAddModel(claim:claim,server:connection,store:inbox(),api:makeSubmissionAPI(connection))
     }
+    public func fileSelectionModel(transferID:String,name:String,serverURL:URL? = nil) throws -> FileSelectionModel? {
+        guard let connection,serverURL == nil || serverURL==connection.profile.serverURL else {return nil}
+        guard let store=try inbox() as? any FileSelectionIntentStoring else {throw FileSelectionError.unsupported}
+        let api=try DebridAPIClient(server:ServerAddress(connection.profile.serverURL.absoluteString),credential:connection.credential)
+        return try FileSelectionModel(server:connection,transferID:transferID,name:name,api:api,store:store)
+    }
     public func finishNavigation(_ id:UUID) { if navigationRequest?.id==id { navigationRequest=nil } }
     public func viewTransfer(_ id:String,serverURL:URL) {
         guard connection?.profile.serverURL==serverURL,SubmissionIdentity.validID(id) else { return }
@@ -91,9 +98,11 @@ extension PendingInbox: PendingInboxAccess {}
         snapshotRevision &+= 1; let revision = snapshotRevision; isLoading = true
         defer { if revision == snapshotRevision { isLoading = false } }
         do {
-            let result = try await inbox().snapshot()
+            let store=try inbox()
+            let result = try await store.snapshot()
+            let selections=try await (store as? any FileSelectionIntentStoring)?.savedFileSelections() ?? []
             guard !Task.isCancelled, revision == snapshotRevision else { return }
-            items = result; hasSnapshot = true; storageMessage = nil
+            items = result;savedSelections=selections; hasSnapshot = true; storageMessage = nil
         } catch {
             guard !Task.isCancelled, revision == snapshotRevision else { return }
             storageMessage = Self.message(error)

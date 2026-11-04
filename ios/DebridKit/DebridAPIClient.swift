@@ -36,6 +36,7 @@ final class RefuseAPIRedirects: NSObject, URLSessionTaskDelegate, Sendable {
 }
 
 public final class DebridAPIClient: Sendable {
+    public var isPreview:Bool {false}
     public var serverURL:URL { server.url }
     private let server: ServerAddress
     private let credential: APICredential?
