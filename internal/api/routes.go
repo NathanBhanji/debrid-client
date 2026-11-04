@@ -146,7 +146,7 @@ func (h *Handler) registerRoutes(p string) {
 			out := &healthOut{}
 			out.Body.OK = true
 			out.Body.Version = buildinfo.Version
-			out.Body.Capabilities = []string{"torrent_submissions_v1", "multipart_torrent_settings_v1", "manual_file_selection_v1", "native_retry_v1", "native_cancellation_v1", "native_removal_precondition_v1"}
+			out.Body.Capabilities = []string{"torrent_submissions_v1", "multipart_torrent_settings_v1", "manual_file_selection_v1", "native_retry_v1", "native_cancellation_v1", "native_removal_precondition_v1", "native_account_removal_drain_v1"}
 			return out, nil
 		})
 	huma.Register(api, huma.Operation{OperationID: "get-status", Method: http.MethodGet, Path: p + "/system/status", Summary: "System status", Tags: []string{"system"}},
@@ -202,6 +202,17 @@ func (h *Handler) registerRoutes(p string) {
 		})
 	huma.Register(api, huma.Operation{OperationID: "delete-account", Method: http.MethodDelete, Path: p + "/accounts/{id}", Summary: "Delete an account", Tags: []string{"accounts"}, DefaultStatus: http.StatusNoContent},
 		func(ctx context.Context, in *deleteAccountIn) (*struct{}, error) {
+			return nil, h.mapErr(h.svc.DeleteAccount(ctx, in.ID, in.Force))
+		})
+	huma.Register(api, huma.Operation{OperationID: "remove-account-with-drain", Method: http.MethodDelete, Path: p + "/accounts/{id}/removal", Summary: "Remove an exact account with guarded local transfer drain", Tags: []string{"accounts"}, DefaultStatus: http.StatusNoContent},
+		func(ctx context.Context, in *deleteAccountIn) (*struct{}, error) {
+			account, err := h.svc.GetAccount(ctx, in.ID)
+			if err != nil {
+				return nil, h.mapErr(err)
+			}
+			if account.ID != in.ID {
+				return nil, h.mapErr(service.ErrValidation)
+			}
 			return nil, h.mapErr(h.svc.DeleteAccount(ctx, in.ID, in.Force))
 		})
 	huma.Register(api, huma.Operation{OperationID: "test-account", Method: http.MethodPost, Path: p + "/accounts/{id}/test", Summary: "Verify an account against its provider", Tags: []string{"accounts"}},

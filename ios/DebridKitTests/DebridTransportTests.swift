@@ -67,6 +67,25 @@ struct DebridTransportTests {
     }
     private func remove(_ host: String) { APIStub.states.withLock { _ = $0.removeValue(forKey: host) } }
 
+    @Test func providerWritesUseWriteOnlyBodyAndSafeRemovalRoute() async throws {
+        let body=Data(#"{"id":"account-one","kind":"torbox","name":"Home","enabled":true,"is_default":false,"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}"#.utf8)
+        let (client,host)=try setup(StubReply(status:201,data:body),credential:.session("fixture_cookie"));defer {remove(host)}
+        _=try await client.addAccount(ProviderAccountWrite(kind:"torbox",name:"Home",apiKey:"fixture-provider-key"))
+        APIStub.states.withLock {$0[host]?.reply.status=200}
+        _=try await client.updateAccount(id:"account-one",input:ProviderAccountWrite(name:"Home",enabled:false))
+        APIStub.states.withLock {$0[host]?.reply=StubReply(status:204,headers:[:],data:Data())}
+        try await client.removeAccount(id:"account-one",includingTransfers:false)
+        try await client.removeAccount(id:"account-one",includingTransfers:true)
+        let requests=APIStub.states.withLock {$0[host]?.requests ?? []}
+        #expect(requests.map(\.httpMethod)==["POST","PATCH","DELETE","DELETE"])
+        let create=try #require(JSONSerialization.jsonObject(with:requestBody(requests[0])) as? [String:Any])
+        #expect((create["credentials"] as? [String:String]) == ["api_key":"fixture-provider-key"])
+        let edit=try #require(JSONSerialization.jsonObject(with:requestBody(requests[1])) as? [String:Any]);#expect(edit["credentials"] == nil)
+        #expect(requests[2].url?.path=="/debrid/api/v1/accounts/account-one")
+        #expect(requests[2].url?.query=="force=false")
+        #expect(requests[3].url?.path=="/debrid/api/v1/accounts/account-one/removal" && requests[3].url?.query=="force=true")
+        #expect(requests.allSatisfy {$0.value(forHTTPHeaderField:"Cookie")=="debrid_session=fixture_cookie" && $0.url?.query?.contains("fixture-provider-key") != true})
+    }
     @Test func providerChecksUseExplicitPostAndScopedSessionWithExactAccountBinding() async throws {
         let body=Data(#"{"id":"account-one","kind":"torbox","name":"Home","enabled":true,"is_default":true,"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}"#.utf8)
         let (client,host)=try setup(StubReply(data:body),credential:.session("fixture_cookie"));defer {remove(host)}

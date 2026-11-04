@@ -979,6 +979,12 @@ type DeleteAccountParams struct {
 	Force *bool `form:"force,omitempty" json:"force,omitempty"`
 }
 
+// RemoveAccountWithDrainParams defines parameters for RemoveAccountWithDrain.
+type RemoveAccountWithDrainParams struct {
+	// Force Also delete the account's torrents (locally)
+	Force *bool `form:"force,omitempty" json:"force,omitempty"`
+}
+
 // AuthOidcCallbackParams defines parameters for AuthOidcCallback.
 type AuthOidcCallbackParams struct {
 	State            *string `form:"state,omitempty" json:"state,omitempty"`
@@ -1232,6 +1238,11 @@ type ClientInterface interface {
 	//
 	// Corresponds with PATCH /api/v1/accounts/{id} (the `UpdateAccount` operationId).
 	UpdateAccount(ctx context.Context, id string, body UpdateAccountJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RemoveAccountWithDrain Remove an exact account with guarded local transfer drain
+	//
+	// Corresponds with DELETE /api/v1/accounts/{id}/removal (the `RemoveAccountWithDrain` operationId).
+	RemoveAccountWithDrain(ctx context.Context, id string, params *RemoveAccountWithDrainParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// TestAccount Verify an account against its provider
 	//
@@ -1705,6 +1716,21 @@ func (c *Client) UpdateAccountWithBody(ctx context.Context, id string, contentTy
 // Corresponds with PATCH /api/v1/accounts/{id} (the `UpdateAccount` operationId).
 func (c *Client) UpdateAccount(ctx context.Context, id string, body UpdateAccountJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUpdateAccountRequest(c.Server, id, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RemoveAccountWithDrain Remove an exact account with guarded local transfer drain
+//
+// Corresponds with DELETE /api/v1/accounts/{id}/removal (the `RemoveAccountWithDrain` operationId).
+func (c *Client) RemoveAccountWithDrain(ctx context.Context, id string, params *RemoveAccountWithDrainParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRemoveAccountWithDrainRequest(c.Server, id, params)
 	if err != nil {
 		return nil, err
 	}
@@ -2844,6 +2870,67 @@ func NewUpdateAccountRequestWithBody(server string, id string, contentType strin
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewRemoveAccountWithDrainRequest constructs an http.Request for the RemoveAccountWithDrain method
+func NewRemoveAccountWithDrainRequest(server string, id string, params *RemoveAccountWithDrainParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/accounts/%s/removal", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Force != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", false, "force", *params.Force, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -4736,6 +4823,13 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with PATCH /api/v1/accounts/{id} (the `UpdateAccount` operationId).
 	UpdateAccountWithResponse(ctx context.Context, id string, body UpdateAccountJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateAccountResponse, error)
 
+	// RemoveAccountWithDrainWithResponse Remove an exact account with guarded local transfer drain
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /api/v1/accounts/{id}/removal (the `RemoveAccountWithDrain` operationId).
+	RemoveAccountWithDrainWithResponse(ctx context.Context, id string, params *RemoveAccountWithDrainParams, reqEditors ...RequestEditorFn) (*RemoveAccountWithDrainResponse, error)
+
 	// TestAccountWithResponse Verify an account against its provider
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -5378,6 +5472,47 @@ func (r UpdateAccountResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r UpdateAccountResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RemoveAccountWithDrainResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r RemoveAccountWithDrainResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r RemoveAccountWithDrainResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RemoveAccountWithDrainResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RemoveAccountWithDrainResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RemoveAccountWithDrainResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -7555,6 +7690,19 @@ func (c *ClientWithResponses) UpdateAccountWithResponse(ctx context.Context, id 
 	return ParseUpdateAccountResponse(rsp)
 }
 
+// RemoveAccountWithDrainWithResponse Remove an exact account with guarded local transfer drain
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /api/v1/accounts/{id}/removal (the `RemoveAccountWithDrain` operationId).
+func (c *ClientWithResponses) RemoveAccountWithDrainWithResponse(ctx context.Context, id string, params *RemoveAccountWithDrainParams, reqEditors ...RequestEditorFn) (*RemoveAccountWithDrainResponse, error) {
+	rsp, err := c.RemoveAccountWithDrain(ctx, id, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRemoveAccountWithDrainResponse(rsp)
+}
+
 // TestAccountWithResponse Verify an account against its provider
 //
 // Returns a wrapper object for the known response body format(s).
@@ -8453,6 +8601,35 @@ func ParseUpdateAccountResponse(rsp *http.Response) (*UpdateAccountResponse, err
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRemoveAccountWithDrainResponse parses an HTTP response from a RemoveAccountWithDrainWithResponse call
+func ParseRemoveAccountWithDrainResponse(rsp *http.Response) (*RemoveAccountWithDrainResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RemoveAccountWithDrainResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest ErrorModel

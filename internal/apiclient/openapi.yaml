@@ -1381,6 +1381,34 @@ paths:
       summary: Update an account
       tags:
         - accounts
+  /api/v1/accounts/{id}/removal:
+    delete:
+      operationId: remove-account-with-drain
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - description: Also delete the account's torrents (locally)
+          explode: false
+          in: query
+          name: force
+          schema:
+            description: Also delete the account's torrents (locally)
+            type: boolean
+      responses:
+        "204":
+          description: No Content
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Remove an exact account with guarded local transfer drain
+      tags:
+        - accounts
   /api/v1/accounts/{id}/test:
     post:
       operationId: test-account

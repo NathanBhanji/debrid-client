@@ -35,7 +35,8 @@
       "manual_file_selection_v1",
       "native_retry_v1",
       "native_cancellation_v1",
-      "native_removal_precondition_v1"
+      "native_removal_precondition_v1",
+      "native_account_removal_drain_v1"
     ]
   },
   "identity": {

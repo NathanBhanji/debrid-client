@@ -9,6 +9,13 @@ struct LiveProviders: View {
     @State private var checkTask: Task<Void, Never>?
     @State private var query = ""
     @State private var setupFailed = false
+    @State private var editor: ProviderEditorModel?
+    @State private var editorError: String?
+    @State private var isVisible = false
+    private var editingAPI: (any ProviderManagingAPI)?
+    init(server: AuthenticatedServer, model: ProviderAccountsModel, editingAPI: any ProviderManagingAPI) {
+        self.server = server; auth = nil; _model = State(initialValue: model); self.editingAPI = editingAPI
+    }
 
     init(server: AuthenticatedServer, auth: SessionCoordinator) { self.server = server; self.auth = auth }
     #if DEBUG
@@ -54,7 +61,7 @@ struct LiveProviders: View {
                         Section("Accounts") {
                             ForEach(filtered) { account in
                                 NavigationLink {
-                                    ProviderAccountDetail(id: account.id, model: model, preview: auth == nil, check: { check(account.id) })
+                                    ProviderAccountDetail(id: account.id, model: model, preview: auth == nil, edit: { openEditor(account) }, check: { check(account.id) })
                                 } label: { ProviderAccountRow(account: account, check: model.checks[account.id], failed: model.checkErrors[account.id] != nil) }
                                 .listRowBackground(DebridStyle.surface)
                                 .accessibilityIdentifier("provider-" + account.id)
@@ -73,9 +80,15 @@ struct LiveProviders: View {
                 .autocorrectionDisabled().textInputAutocapitalization(.never)
                 .onChange(of: query) { query = TransferSearchIndex.bounded(query, limit: 256) }
                 .refreshable { await model?.refresh() }
+                .toolbar { ToolbarItem(placement: .primaryAction) { Button("Add provider", systemImage: "plus") { openEditor(nil) }.accessibilityIdentifier("provider-add") } }
         }.tint(DebridStyle.tint)
+        .sheet(isPresented: Binding(get: { editor != nil }, set: { if !$0 { editor = nil } }), onDismiss: { Task { guard isVisible, scenePhase == .active else { return }; model?.start(); await model?.refresh() } }) {
+            if let editor { ProviderEditorSheet(model: editor, preview: auth == nil).onChange(of: editor.requiresSignIn) { if editor.requiresSignIn { Task { await auth?.sessionRejected(for: server.profile.id, connectionID: server.connectionID) } } } }
+        }
+        .alert("Account unavailable", isPresented: Binding(get: { editorError != nil }, set: { if !$0 { editorError = nil } })) { Button("OK", role: .cancel) {} } message: { Text(editorError ?? "") }
         .task(id: scenePhase) {
             guard scenePhase == .active, !Task.isCancelled else { stop(); return }
+            isVisible = true
             do {
                 if model == nil {
                     let api = try DebridAPIClient(server: ServerAddress(server.profile.serverURL.absoluteString), credential: server.credential)
@@ -96,7 +109,19 @@ struct LiveProviders: View {
                 await auth?.sessionRejected(for: server.profile.id, connectionID: server.connectionID)
             }
         }
-        .onDisappear { stop() }
+        .onDisappear { isVisible = false; stop() }
+    }
+    private func openEditor(_ account: AccountDTO?) {
+        do {
+            let api: any ProviderManagingAPI
+            if let editingAPI { api = editingAPI } else { api = try DebridAPIClient(server: ServerAddress(server.profile.serverURL.absoluteString), credential: server.credential) }
+            let connectionID = server.connectionID
+            let isFixture = editingAPI != nil
+            editor = try ProviderEditorModel(server: server, original: account, api: api, isCurrent: { [weak auth] in
+                if let auth { if case .connected(let current) = auth.phase { return current.connectionID == connectionID }; return false }
+                return isFixture
+            })
+        } catch { editorError = "The account editor could not open. Reconnect and try again." }
     }
     private func check(_ id: String) {
         guard let model, !model.isChecking else { return }
@@ -139,6 +164,7 @@ private struct ProviderAccountDetail: View {
     let id: String
     let model: ProviderAccountsModel
     let preview: Bool
+    let edit: () -> Void
     let check: () -> Void
     private var account: AccountDTO? { model.accounts.first { $0.id == id } }
     var body: some View {
@@ -192,6 +218,7 @@ private struct ProviderAccountDetail: View {
         }.modifier(DebridListStyle())
         .navigationTitle(account.map { TransferSearchIndex.bounded($0.name, limit: 256) } ?? "Provider")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar { ToolbarItem(placement: .primaryAction) { Button("Edit") { edit() }.foregroundStyle(DebridStyle.tint).accessibilityIdentifier("provider-edit") } }
         .refreshable { await model.refresh() }
     }
 }
