@@ -5,8 +5,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -123,7 +125,14 @@ func newHarness(t *testing.T, mut func(*Config)) *harness {
 	ctx, cancel := context.WithCancel(context.Background())
 	h.cancel = cancel
 	go func() { defer close(h.done); _ = eng.Run(ctx) }()
-	t.Cleanup(func() { cancel(); <-h.done })
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-h.done:
+		case <-time.After(3 * time.Second):
+			t.Error("engine harness did not return after cancellation during cleanup")
+		}
+	})
 	if _, err := svc.AddAccount(context.Background(), service.AddAccountInput{Kind: domain.ProviderTorBox, Name: "acc", Credentials: domain.Credentials{APIKey: "k"}, SkipVerify: true}); err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +166,17 @@ func (h *harness) waitStatus(id string, want domain.TorrentStatus) domain.Torren
 	h.eng.mu.Lock()
 	jobs := len(h.eng.jobs)
 	operations := len(h.eng.operations)
+	details := make([]string, 0, 16)
+	for key, job := range h.eng.jobs {
+		if len(details) == 16 {
+			break
+		}
+		details = append(details, fmt.Sprintf("key=%s kind=%d torrent=%s", key, job.kind, job.torrentID))
+	}
 	h.eng.mu.Unlock()
+	stack := make([]byte, 64*1024)
+	n := runtime.Stack(stack, true)
+	h.t.Logf("engine timeout: jobs (first16)=%v; database pool=%+v; goroutines (capped64KiB):\n%s", details, h.eng.store.DB().Stats(), stack[:n])
 	h.t.Fatalf("torrent %s never reached %s (now %s: %s / %s; download states=%v; jobs=%d; operation slots=%d)", id, want, d.Torrent.Status, d.Torrent.StatusReason, d.Torrent.Error, states, jobs, operations)
 	return domain.Torrent{}
 }
@@ -676,31 +695,110 @@ func TestMultiPartArchiveUnpacksAfterAllVolumes(t *testing.T) {
 
 func TestShutdownLeavesDownloadResumable(t *testing.T) {
 	h := newHarness(t, nil)
-	h.fetch.delay = 5 * time.Second
-	tor := h.add(nil)
-	pid := h.waitProviderID(tor.ID)
-	h.finishAtProvider(pid, map[string][]byte{"a.mkv": []byte("a")})
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		d, _ := h.svc.GetTorrent(context.Background(), tor.ID)
-		if len(d.Downloads) > 0 && d.Downloads[0].State == domain.DownloadDownloading {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	start := time.Now()
+	// Prepare the pending-download boundary without racing the background
+	// provider/add/link orchestration. This test targets Run shutdown, not the
+	// time it takes unrelated setup to reach a downloadable state.
 	h.cancel()
 	select {
 	case <-h.done:
 	case <-time.After(3 * time.Second):
+		t.Fatal("initial fixture engine did not stop")
+	}
+	ctx := context.Background()
+	tor := h.add(nil)
+	remote, err := h.fake.AddMagnet(ctx, magnet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.eng.store.MutateTorrent(ctx, tor.ID, func(current *domain.Torrent) error {
+		current.ProviderID = remote.ID
+		current.Status = domain.TorrentProcessing
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	h.finishAtProvider(remote.ID, map[string][]byte{"a.mkv": []byte("a")})
+	setupCtx, setupCancel := context.WithTimeout(ctx, 3*time.Second)
+	defer setupCancel()
+	pollErr := h.eng.pollAccount(setupCtx, tor.AccountID)
+	setupDone := make(chan struct{})
+	go func() { h.eng.wg.Wait(); close(setupDone) }()
+	defer func() {
+		setupCancel()
+		select {
+		case <-setupDone:
+		case <-time.After(3 * time.Second):
+			t.Error("fixture jobs did not stop during cleanup")
+		}
+	}()
+	if pollErr != nil {
+		t.Fatal(pollErr)
+	}
+	select {
+	case <-setupDone:
+	case <-setupCtx.Done():
+		t.Fatal("fixture link jobs did not finish", setupCtx.Err())
+	}
+	pending, err := h.svc.GetTorrent(ctx, tor.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending.Downloads) != 1 || pending.Downloads[0].State != domain.DownloadPending {
+		t.Fatalf("shutdown fixture must have one pending download: %+v", pending.Downloads)
+	}
+	downloadID := pending.Downloads[0].ID
+	started := make(chan struct{})
+	fetchCancelled := make(chan struct{})
+	h.eng.SetFetcher(func(ctx context.Context, _, _ string, _ fetch.Options) (fetch.Result, error) {
+		close(started)
+		<-ctx.Done()
+		close(fetchCancelled)
+		return fetch.Result{}, ctx.Err()
+	})
+	runCtx, stop := context.WithCancel(ctx)
+	done := make(chan struct{})
+	var runErr error
+	go func() { defer close(done); runErr = h.eng.Run(runCtx) }()
+	defer func() {
+		stop()
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			t.Error("Run did not return during cleanup")
+		}
+	}()
+	select {
+	case <-started:
+	case <-done:
+		t.Fatalf("Run returned before fetch entered: %v", runErr)
+	case <-time.After(3 * time.Second):
+		current, getErr := h.svc.GetTorrent(ctx, tor.ID)
+		t.Fatalf("fetch never entered before shutdown: status=%s downloads=%+v err=%v", current.Torrent.Status, current.Downloads, getErr)
+	}
+	start := time.Now()
+	stop()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
 		t.Fatal("Run did not return after cancel")
 	}
-	if time.Since(start) > 2*time.Second {
-		t.Fatal("shutdown should not wait for the slow fetch to finish")
+	if runErr != nil {
+		t.Fatal(runErr)
 	}
-	d, _ := h.svc.GetTorrent(context.Background(), tor.ID)
-	if d.Downloads[0].State != domain.DownloadPending {
-		t.Fatalf("interrupted download should be pending for resume, got %s", d.Downloads[0].State)
+	if time.Since(start) > 2*time.Second {
+		t.Fatal("shutdown should not wait for the blocked fetch to finish")
+	}
+	select {
+	case <-fetchCancelled:
+	default:
+		t.Fatal("Run returned without cancelling the blocked fetch")
+	}
+	resumed, err := h.svc.GetTorrent(ctx, tor.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resumed.Downloads) != 1 || resumed.Downloads[0].ID != downloadID || resumed.Downloads[0].State != domain.DownloadPending {
+		t.Fatalf("interrupted download must remain pending for resume: %+v", resumed.Downloads)
 	}
 }
 
