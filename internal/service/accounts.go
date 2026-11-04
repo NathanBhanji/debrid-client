@@ -281,19 +281,25 @@ func (s *Service) DeleteAccount(ctx context.Context, idOrName string, force bool
 			return err
 		}
 		for _, r := range rows {
-			_ = s.engine.CancelTorrent(ctx, r.ID)
-			if err := s.store.DeleteTorrent(ctx, r.ID); err != nil {
+			// Use the same admission and successful worker-drain boundary as
+			// ordinary transfer removal. Files and remote copies are preserved.
+			if err := s.DeleteTorrent(ctx, r.ID, DeleteOptions{}); err != nil && !errors.Is(err, ErrNotFound) {
 				return err
 			}
-			s.events.Publish(events.Event{Type: events.TorrentDeleted, TorrentID: r.ID})
 		}
 	}
 	// Delete and, if it was the default, promote the oldest remaining account — atomically.
 	err = s.store.WithTx(ctx, func(q *sqlcgen.Queries) error {
+		// A concurrent default change can commit while transfer work drains.
+		// Promotion must follow the current row within this same transaction.
+		current, err := q.GetProviderAccount(ctx, acc.ID)
+		if err != nil {
+			return err
+		}
 		if err := q.DeleteProviderAccount(ctx, acc.ID); err != nil {
 			return err
 		}
-		if !acc.IsDefault {
+		if current.IsDefault == 0 {
 			return nil
 		}
 		rest, err := q.ListProviderAccounts(ctx)

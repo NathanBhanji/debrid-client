@@ -12,6 +12,7 @@ type Querier interface {
 	ClearDefaultProviderAccount(ctx context.Context, updatedAt string) error
 	CountDownloadsByState(ctx context.Context, state string) (int64, error)
 	CountStartedDownloadsForTorrent(ctx context.Context, torrentID string) (int64, error)
+	CountTorrentSubmissions(ctx context.Context, torrentID string) (int64, error)
 	CountTorrents(ctx context.Context) (int64, error)
 	CountTorrentsForAccount(ctx context.Context, accountID string) (int64, error)
 	CountUsers(ctx context.Context) (int64, error)

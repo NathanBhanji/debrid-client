@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/NathanBhanji/debrid-client/internal/domain"
-	"github.com/NathanBhanji/debrid-client/internal/events"
 	"github.com/NathanBhanji/debrid-client/internal/organize"
 	"github.com/NathanBhanji/debrid-client/internal/store"
 	"github.com/NathanBhanji/debrid-client/internal/store/sqlcgen"
@@ -75,8 +74,7 @@ func ValidateTorrentSettings(ts domain.TorrentSettings) error {
 	return nil
 }
 
-// UpdateSettings validates and stores settings (full replacement).
-func (s *Service) UpdateSettings(ctx context.Context, st Settings) (Settings, error) {
+func normalizeSettings(st Settings) (Settings, error) {
 	if err := ValidateTorrentSettings(st.TorrentDefaults); err != nil {
 		return Settings{}, err
 	}
@@ -111,14 +109,6 @@ func (s *Service) UpdateSettings(ctx context.Context, st Settings) (Settings, er
 	}
 	sort.Strings(cats)
 	st.Categories = cats
-	b, err := json.Marshal(st)
-	if err != nil {
-		return Settings{}, err
-	}
-	if err := s.store.UpsertSetting(ctx, sqlcgen.UpsertSettingParams{Key: settingsKey, Value: string(b), UpdatedAt: store.FormatTime(s.now())}); err != nil {
-		return Settings{}, err
-	}
-	s.events.Publish(events.Event{Type: events.SettingsChanged})
 	return st, nil
 }
 
@@ -136,7 +126,7 @@ func (s *Service) GetRaw(ctx context.Context, key string) (string, bool, error) 
 
 // SetRaw stores a raw setting. The key used for structured settings is reserved.
 func (s *Service) SetRaw(ctx context.Context, key, value string) error {
-	if key == settingsKey {
+	if key == settingsKey || key == settingsRevisionKey {
 		return validationErr("%q is a reserved setting key", key)
 	}
 	return s.store.UpsertSetting(ctx, sqlcgen.UpsertSettingParams{Key: key, Value: value, UpdatedAt: store.FormatTime(s.now())})

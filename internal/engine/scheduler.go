@@ -21,30 +21,43 @@ func (e *Engine) tick(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	now := e.now()
-	for i := range torrents {
-		t := &torrents[i]
-		var err error
-		switch t.Status {
-		case domain.TorrentQueued:
-			err = e.tickQueued(ctx, t, now)
-		case domain.TorrentAdding:
-			// in flight; nothing to do
-		case domain.TorrentProcessing, domain.TorrentWaitingSelection, domain.TorrentDownloading, domain.TorrentUploading:
-			err = e.tickAtProvider(ctx, t, now)
-		case domain.TorrentFinished:
-			err = e.tickFinished(ctx, t, now)
-		case domain.TorrentCompleted:
-			err = e.tickCompleted(ctx, t, now)
-		case domain.TorrentError:
-			e.tickError(ctx, t, now)
-		}
+	for _, listed := range torrents {
+		err := e.torrentOperation(ctx, listed.ID, func() error {
+			row, err := e.store.GetTorrent(ctx, listed.ID)
+			if store.IsNotFound(err) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			t, err := store.TorrentFromRow(row)
+			if err != nil {
+				return err
+			}
+			return e.tickTorrent(ctx, &t, e.now())
+		}, false)
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
 				return err
 			}
-			e.log.Error("tick torrent", "id", t.ID, "status", t.Status, "err", err)
+			e.log.Error("tick torrent", "id", listed.ID, "err", err)
 		}
+	}
+	return nil
+}
+
+func (e *Engine) tickTorrent(ctx context.Context, t *domain.Torrent, now time.Time) error {
+	switch t.Status {
+	case domain.TorrentQueued:
+		return e.tickQueued(ctx, t, now)
+	case domain.TorrentProcessing, domain.TorrentWaitingSelection, domain.TorrentDownloading, domain.TorrentUploading:
+		return e.tickAtProvider(ctx, t, now)
+	case domain.TorrentFinished:
+		return e.tickFinished(ctx, t, now)
+	case domain.TorrentCompleted:
+		return e.tickCompleted(ctx, t, now)
+	case domain.TorrentError:
+		e.tickError(ctx, t, now)
 	}
 	return nil
 }
@@ -86,7 +99,7 @@ func (e *Engine) tickQueued(ctx context.Context, t *domain.Torrent, now time.Tim
 				e.deferKey(key, e.now().Add(e.backoff(0)))
 				return
 			}
-			e.forgetProviderTorrent(accountID, pt.ID)
+			e.ForgetProviderTorrent(accountID, pt.ID)
 		})
 		return nil
 	}
@@ -274,6 +287,10 @@ func (e *Engine) runSelect(ctx context.Context, t domain.Torrent, prov provider.
 		return false
 	}
 	t = fresh
+	// A queued snapshot may predate a completed selection job.
+	if t.FilesSelectedAt != nil {
+		return true
+	}
 	if t.Status != domain.TorrentWaitingSelection {
 		return false
 	}
@@ -693,11 +710,14 @@ func (e *Engine) tickError(ctx context.Context, t *domain.Torrent, now time.Time
 	// throttle key instead.
 	e.deferKey(key, now.Add(time.Hour))
 	id, name := t.ID, t.Name
+	expected := *t
 	e.wg.Add(1)
 	go func() {
 		defer e.wg.Done()
 		e.log.Info("delete-on-error", "id", id, "name", name)
-		if err := e.svc.DeleteTorrent(context.WithoutCancel(ctx), id, service.DeleteOptions{DeleteFiles: true, DeleteFromProvider: true}); err != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Minute)
+		defer cancel()
+		if err := e.deleteErrorTorrent(cleanupCtx, expected); err != nil {
 			e.log.Warn("delete-on-error failed", "id", id, "err", err)
 			e.deferKey(key, e.now().Add(e.backoff(2)))
 			return
@@ -706,4 +726,9 @@ func (e *Engine) tickError(ctx context.Context, t *domain.Torrent, now time.Time
 		delete(e.nextAttempt, key)
 		e.mu.Unlock()
 	}()
+}
+
+// Scheduled cleanup must not delete a new retry incarnation.
+func (e *Engine) deleteErrorTorrent(ctx context.Context, expected domain.Torrent) error {
+	return e.svc.DeleteErroredTorrent(ctx, expected, e.now())
 }

@@ -4,9 +4,26 @@ import SwiftUI
 struct SubmissionReviewSections:View {
     @Bindable var model:TransferAddModel
     let action:(Action)->Void
+    @State private var showingOptions = false
+    @Environment(\.scenePhase) private var scenePhase
     enum Action { case add, check, retry, reload, finish, view(String) }
     var body:some View {
         if model.isPreview { Section { Label("Preview · Fictional submission",systemImage:"viewfinder").font(.footnote);Text("This preview does not contact your server.").font(.footnote).foregroundStyle(DebridStyle.secondary) } }
+        if let settings = model.editableOverrides {
+            Section {
+                Button("Transfer options", systemImage: "slider.horizontal.3") { showingOptions = true }
+                    .buttonStyle(.borderless).foregroundStyle(DebridStyle.tint).accessibilityIdentifier("transfer-options")
+                    .sheet(isPresented: $showingOptions) {
+                        NavigationStack {
+                            TransferPolicyEditor(initial: settings, allowRules: model.filePolicy == .rules, preview: model.isPreview) { model.applyOverrides($0) }
+                                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { showingOptions = false } } }
+                        }.tint(DebridStyle.tint)
+                    }
+                    .onChange(of: model.connectionID) { showingOptions = false }
+                    .onChange(of: model.canEdit) { if !model.canEdit { showingOptions = false } }
+                    .onChange(of: scenePhase) { if scenePhase != .active { showingOptions = false } }
+            }
+        }
         Section("Destination") {
             Text(model.serverURL.absoluteString).font(.footnote).textSelection(.enabled)
             if model.canEdit {
@@ -14,10 +31,10 @@ struct SubmissionReviewSections:View {
                     Text("Choose provider").tag("")
                     ForEach(model.accounts) { account in Text(account.name+" · "+provider(account.kind)).tag(account.id) }
                 }.accessibilityIdentifier("add-provider")
-                Picker("Category",selection:$model.category) {
-                    Text("Uncategorized").tag("")
-                    ForEach(model.categories,id:\.self) { value in Text(value).tag(value) }
-                    if !model.category.isEmpty,!model.categories.contains(model.category) { Text("Saved: "+model.category).tag(model.category) }
+                Picker("Category",selection:Binding(get:{Data(model.category.utf8)},set:{if let value=String(data:$0,encoding:.utf8){model.category=value}})) {
+                    Text("Uncategorized").tag(Data())
+                    ForEach(model.categories,id:\.submissionCategoryBytes) { value in Text(value).tag(Data(value.utf8)) }
+                    if !model.category.isEmpty,!model.categories.contains(where:{Data($0.utf8)==Data(model.category.utf8)}) { Text("Saved: "+model.category).tag(Data(model.category.utf8)) }
                 }.accessibilityIdentifier("add-category")
                 if model.needsTargetConfirmation { Toggle("Use this server instead of the saved destination",isOn:$model.confirmedTargetChange) }
             } else if let options=model.visibleOptions {
@@ -27,7 +44,7 @@ struct SubmissionReviewSections:View {
         }
         if model.canEdit {
             Section {
-                Picker("File selection",selection:$model.allFiles) { Text("Reviewed rules").tag(false);Text("All files").tag(true) }.accessibilityIdentifier("review-file-policy")
+                Picker("File selection",selection:$model.filePolicy) { Text("Reviewed rules").tag(TransferAddModel.FilePolicy.rules);Text("All files").tag(TransferAddModel.FilePolicy.all);Text("Choose after adding").tag(TransferAddModel.FilePolicy.choose) }.accessibilityIdentifier("review-file-policy")
                 Toggle("Extract archives on the server",isOn:$model.unpack).accessibilityIdentifier("review-unpack")
                 Picker("Library organization",selection:$model.organization) {
                     Text("Inherit server").tag(TransferAddModel.Organization.inherit)
@@ -35,10 +52,11 @@ struct SubmissionReviewSections:View {
                     Text("Off").tag(TransferAddModel.Organization.off)
                 }
                 if model.hasAutomaticDeletion { Toggle("Keep copies instead of automatic cleanup",isOn:$model.keepCopies).accessibilityIdentifier("review-keep-copies") }
-            } header: { Text("Files and processing") } footer: { Text("Files are selected automatically using the reviewed rules when metadata becomes available.") }
+            } header: { Text("Files and processing") } footer: { Text(model.filePolicy == .choose ? "The provider prepares this transfer. Downloads to your NAS wait until you choose files and confirm." : "Files are selected automatically using the reviewed rules when metadata becomes available.") }
         }
         if !model.canEdit,let settings=model.visibleSettings {
             Section("Saved processing options") {
+                LabeledContent("File selection",value:settings.waitForSelection == true ? "Choose after adding" : "Automatic")
                 LabeledContent("Archive extraction",value:settings.unpack ? "On" : "Off")
                 LabeledContent("Library organization",value:settings.organize.map { $0 ? "On" : "Off" } ?? "Inherit server")
             }
@@ -84,6 +102,7 @@ struct SubmissionReviewSections:View {
     private func provider(_ kind:String) -> String { ["torbox":"TorBox","realdebrid":"Real-Debrid","alldebrid":"AllDebrid","premiumize":"Premiumize","debridlink":"Debrid-Link"][kind] ?? "Provider" }
     @ViewBuilder private func rules(_ settings:TorrentSettingsDTO) -> some View {
         Section("Reviewed file rules") {
+            if settings.waitForSelection == true { Label("NAS downloads wait for your confirmation",systemImage:"hand.raised").foregroundStyle(Color("StageAmber")) }
             if (settings.minFileSize ?? 0)>0 { LabeledContent("Minimum size",value:ByteCountFormatter.string(fromByteCount:settings.minFileSize ?? 0,countStyle:.file)) }
             if let include=settings.includeRegex,!include.isEmpty { Text("Include: "+String(include.prefix(1024))).font(.footnote.monospaced()) }
             if let exclude=settings.excludeRegex,!exclude.isEmpty { Text("Exclude: "+String(exclude.prefix(1024))).font(.footnote.monospaced()) }
@@ -104,3 +123,5 @@ struct SubmissionReviewSections:View {
         }
     }
 }
+
+private extension String { var submissionCategoryBytes: Data { Data(utf8) } }

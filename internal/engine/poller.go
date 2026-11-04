@@ -88,6 +88,15 @@ func (e *Engine) pollAccount(ctx context.Context, accountID string) error {
 	if err != nil {
 		return err
 	}
+	// Capture local incarnations before network I/O. An old listing must not
+	// reconcile a transfer retried or removed while the request was in flight.
+	rows, err := e.store.ListTorrentsByAccount(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	e.mu.Lock()
+	epoch := e.listEpoch[accountID]
+	e.mu.Unlock()
 	list, err := prov.ListTorrents(ctx)
 	if err != nil {
 		return err
@@ -100,60 +109,97 @@ func (e *Engine) pollAccount(ctx context.Context, accountID string) error {
 		}
 	}
 	e.mu.Lock()
+	if e.listEpoch[accountID] != epoch {
+		e.mu.Unlock()
+		return nil // invalidation won; never republish or reconcile this old response
+	}
 	e.lastList[accountID] = snap
 	e.mu.Unlock()
 
-	rows, err := e.store.ListTorrentsByAccount(ctx, accountID)
-	if err != nil {
-		return err
-	}
-	for _, r := range rows {
-		t, err := store.TorrentFromRow(r)
+	for _, row := range rows {
+		expected, err := store.TorrentFromRow(row)
 		if err != nil {
 			return err
 		}
-		if t.ProviderID == "" || t.Status == domain.TorrentAdding || t.Status.IsTerminal() {
+		if expected.ProviderID == "" || expected.Status == domain.TorrentAdding || expected.Status.IsTerminal() {
 			continue
 		}
-		pt, ok := snap.byID[t.ProviderID]
-		if !ok {
-			// The provider id changed but the hash is still there (e.g. TorBox
-			// moving a queued entry into mylist under a new id): relink.
-			if other, found := snap.byHash[t.Hash]; found && t.Hash != "" {
-				e.log.Info("relinking torrent to new provider id", "id", t.ID, "old", t.ProviderID, "new", other.ID)
-				if _, err := e.mutate(ctx, t.ID, func(tt *domain.Torrent) error { tt.ProviderID = other.ID; return nil }); err != nil {
-					return err
-				}
-				t.ProviderID = other.ID
-				pt, ok = other, true
+		// Nonblocking admission skips a busy retry/delete/cancel; the next poll
+		// obtains fresh provider data. Registered jobs never acquire this slot.
+		err = e.torrentOperation(ctx, expected.ID, func() error {
+			row, err := e.store.GetTorrent(ctx, expected.ID)
+			if store.IsNotFound(err) {
+				return nil
 			}
-		}
-		if !ok {
-			// Gone at the provider. Give a freshly added torrent a grace period
-			// (list caches lag), then fail it.
-			if t.ProviderAddedAt != nil && e.now().Sub(*t.ProviderAddedAt) < 2*e.cfg.PollInterval+30*time.Second {
-				continue
-			}
-			if t.Status == domain.TorrentFinished {
-				continue // local downloads may still be running from already-unrestricted links
-			}
-			if err := e.fail(ctx, &t, "torrent no longer exists at provider"); err != nil {
+			if err != nil {
 				return err
 			}
-			continue
-		}
-		if err := e.applyProviderState(ctx, &t, pt, prov.Caps()); err != nil {
+			current, err := store.TorrentFromRow(row)
+			if err != nil {
+				return err
+			}
+			if current.Status.IsTerminal() || current.Status == domain.TorrentQueued || current.Status == domain.TorrentAdding || current.AccountID != expected.AccountID || current.ProviderID != expected.ProviderID || current.RetryCount != expected.RetryCount {
+				return nil
+			}
+			if err := e.reconcileProviderSnapshot(ctx, &current, snap, prov.Caps()); err != nil {
+				return err
+			}
+			// Polling and the scheduler both use nonblocking admission. A successful
+			// poll must provide a scheduling opportunity itself, so repeated poller
+			// wins cannot leave a ready transfer perpetually skipped by tick.
+			return e.tickTorrent(ctx, &current, e.now())
+		}, false)
+		if err != nil {
 			return err
 		}
 	}
+
 	e.Wake()
 	return nil
+}
+
+// Caller owns this torrent's operation slot and has reread its incarnation.
+func (e *Engine) reconcileProviderSnapshot(ctx context.Context, t *domain.Torrent, snap listSnapshot, caps provider.Caps) error {
+	pt, ok := snap.byID[t.ProviderID]
+	if !ok {
+		if other, found := snap.byHash[t.Hash]; found && t.Hash != "" {
+			nt, err := e.mutate(ctx, t.ID, func(tt *domain.Torrent) error { tt.ProviderID = other.ID; return nil })
+			if err != nil {
+				return err
+			}
+			*t = nt
+			pt, ok = other, true
+		}
+	}
+	if !ok {
+		if t.ProviderAddedAt != nil && e.now().Sub(*t.ProviderAddedAt) < 2*e.cfg.PollInterval+30*time.Second {
+			return nil
+		}
+		if t.Status == domain.TorrentFinished {
+			return nil
+		}
+		return e.fail(ctx, t, "torrent no longer exists at provider")
+	}
+	return e.applyProviderState(ctx, t, pt, caps)
 }
 
 // applyProviderState merges a provider torrent into the local record and
 // handles provider-side errors (with torrent-level retries). t is refreshed
 // with the committed row.
 func (e *Engine) applyProviderState(ctx context.Context, t *domain.Torrent, pt provider.Torrent, caps provider.Caps) error {
+	row, err := e.store.GetTorrent(ctx, t.ID)
+	if err != nil {
+		return err
+	}
+	current, err := store.TorrentFromRow(row)
+	if err != nil {
+		return err
+	}
+	if current.Status.IsTerminal() || current.Status == domain.TorrentQueued || current.AccountID != t.AccountID || current.ProviderID != t.ProviderID || current.RetryCount != t.RetryCount {
+		*t = current
+		return nil
+	}
+	*t = current
 	if pt.Status == domain.TorrentError {
 		// Provider gave up. Retry the whole torrent if allowed, else fail.
 		msg := "provider error: " + firstNonEmpty(pt.Message, pt.RawStatus)
@@ -216,13 +262,18 @@ func (e *Engine) applyProviderState(ctx context.Context, t *domain.Torrent, pt p
 	return nil
 }
 
-// forgetProviderTorrent drops a provider torrent from the cached listing so
+// ForgetProviderTorrent drops a provider torrent from the cached listing so
 // the dedupe path doesn't adopt something we just deleted. Snapshots are
 // immutable once stored (copy-on-write here), so readers holding an older
 // snapshot never race with this.
-func (e *Engine) forgetProviderTorrent(accountID, providerID string) {
+func (e *Engine) ForgetProviderTorrent(accountID, providerID string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if e.listEpoch == nil {
+		e.listEpoch = make(map[string]uint64)
+	}
+	e.listEpoch[accountID]++ // even if no cached snapshot existed when invalidated
+
 	snap, ok := e.lastList[accountID]
 	if !ok {
 		return
@@ -263,7 +314,7 @@ func (e *Engine) requeueForRetry(ctx context.Context, t *domain.Torrent, why str
 		if err := prov.Delete(ctx, t.ProviderID); err != nil && provider.KindOf(err) != provider.ErrNotFound {
 			e.log.Warn("delete before retry", "id", t.ID, "err", err)
 		}
-		e.forgetProviderTorrent(t.AccountID, t.ProviderID)
+		e.ForgetProviderTorrent(t.AccountID, t.ProviderID)
 	}
 	if err := e.store.DeleteDownloadsForTorrent(ctx, t.ID); err != nil {
 		return err

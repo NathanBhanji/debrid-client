@@ -4,3 +4,6 @@ FROM torrent_submissions WHERE key_hash = ?;
 
 -- name: InsertTorrentSubmission :exec
 INSERT INTO torrent_submissions (key_hash, request_hash, torrent_id, created_at) VALUES (?, ?, ?, ?);
+
+-- name: CountTorrentSubmissions :one
+SELECT COUNT(*) FROM torrent_submissions WHERE torrent_id = ?;

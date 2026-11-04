@@ -1,0 +1,92 @@
+[
+  {
+    "file": "connection-report.png",
+    "test": "ConnectionRecoveryFlowTests/testExplicitPublicCheckAndReviewedRedactedReport()",
+    "result": "Test-Debrid-2026.11.04_20-49-16-+0000.xcresult",
+    "casePassed": true,
+    "runPassed": true,
+    "fixture": true,
+    "runtime": "iOS27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178"
+  },
+  {
+    "file": "connection-reachable.png",
+    "test": "ConnectionRecoveryFlowTests/testExplicitPublicCheckAndReviewedRedactedReport()",
+    "result": "Test-Debrid-2026.11.04_20-49-16-+0000.xcresult",
+    "casePassed": true,
+    "runPassed": true,
+    "fixture": true,
+    "runtime": "iOS27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178"
+  },
+  {
+    "file": "connection-help-light.png",
+    "test": "ConnectionRecoveryFlowTests/testExplicitPublicCheckAndReviewedRedactedReport()",
+    "result": "Test-Debrid-2026.11.04_20-49-16-+0000.xcresult",
+    "casePassed": true,
+    "runPassed": true,
+    "fixture": true,
+    "runtime": "iOS27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178"
+  },
+  {
+    "file": "connection-report-largest.png",
+    "test": "ConnectionRecoveryFlowTests/testLargestTextKeepsCheckAndReportReachable()",
+    "result": "Test-Debrid-2026.11.04_20-49-16-+0000.xcresult",
+    "casePassed": true,
+    "runPassed": true,
+    "fixture": true,
+    "runtime": "iOS27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178"
+  },
+  {
+    "file": "connection-server-largest.png",
+    "test": "ConnectionRecoveryFlowTests/testLargestTextKeepsCheckAndReportReachable()",
+    "result": "Test-Debrid-2026.11.04_20-49-16-+0000.xcresult",
+    "casePassed": true,
+    "runPassed": true,
+    "fixture": true,
+    "runtime": "iOS27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178"
+  },
+  {
+    "file": "connection-tls.png",
+    "test": "ConnectionRecoveryFlowTests/testOfflineDNSAndTLSHaveSeparateGuidance()",
+    "result": "Test-Debrid-2026.11.04_20-49-16-+0000.xcresult",
+    "casePassed": true,
+    "runPassed": true,
+    "fixture": true,
+    "runtime": "iOS27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178"
+  },
+  {
+    "file": "connection-dns.png",
+    "test": "ConnectionRecoveryFlowTests/testOfflineDNSAndTLSHaveSeparateGuidance()",
+    "result": "Test-Debrid-2026.11.04_20-49-16-+0000.xcresult",
+    "casePassed": true,
+    "runPassed": true,
+    "fixture": true,
+    "runtime": "iOS27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178"
+  },
+  {
+    "file": "connection-offline.png",
+    "test": "ConnectionRecoveryFlowTests/testOfflineDNSAndTLSHaveSeparateGuidance()",
+    "result": "Test-Debrid-2026.11.04_20-49-16-+0000.xcresult",
+    "casePassed": true,
+    "runPassed": true,
+    "fixture": true,
+    "runtime": "iOS27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178"
+  },
+  {
+    "file": "transfers-stale-offline.png",
+    "test": "ConnectionRecoveryFlowTests/testOfflineTransfersRetainLastConfirmedSnapshotAndTimestamp()",
+    "result": "Test-Debrid-2026.11.04_20-49-16-+0000.xcresult",
+    "casePassed": true,
+    "runPassed": true,
+    "fixture": true,
+    "runtime": "iOS27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178"
+  }
+]

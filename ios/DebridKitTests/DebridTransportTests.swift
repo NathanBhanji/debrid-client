@@ -67,6 +67,146 @@ struct DebridTransportTests {
     }
     private func remove(_ host: String) { APIStub.states.withLock { _ = $0.removeValue(forKey: host) } }
 
+    @Test func organizationPreviewSendsExplicitEmptyTemplatesWithoutSaving() async throws {
+        let (client,host)=try setup(StubReply(data:Data(#"{"path":"Some Movie (2024)","organized":true}"#.utf8)),credential:.session("fixture_cookie"));defer {remove(host)}
+        let result=try await client.previewOrganization(name:"Some.Movie.2024",movieTemplate:"",tvTemplate:"")
+        #expect(result.organized && result.path=="Some Movie (2024)")
+        let request=try #require(APIStub.states.withLock {$0[host]?.requests.first})
+        #expect(request.httpMethod=="POST" && request.url?.path=="/debrid/api/v1/organize/preview" && request.value(forHTTPHeaderField:"Cookie")=="debrid_session=fixture_cookie")
+        let body=try #require(JSONSerialization.jsonObject(with:requestBody(request)) as? [String:String])
+        #expect(body==["name":"Some.Movie.2024","movie_template":"","tv_template":""])
+        await #expect(throws:APIError.invalidConfiguration) {_=try await client.previewOrganization(name:"",movieTemplate:"",tvTemplate:"")}
+        #expect(APIStub.states.withLock {$0[host]?.requests.count} == 1)
+    }
+    @Test func settingsReviewUsesRequiredRevisionSnakeCaseAndScopedSession() async throws {
+        let url=try #require(Bundle(for:APIStub.self).url(forResource:"contract",withExtension:"json",subdirectory:"ios-api"))
+        let root=try #require(JSONSerialization.jsonObject(with:Data(contentsOf:url)) as? [String:Any])
+        var envelope=try #require(root["settings_review"] as? [String:Any])
+        let (client,host)=try setup(StubReply(data:JSONSerialization.data(withJSONObject:envelope)),credential:.session("fixture_cookie"),limit:8192);defer {remove(host)}
+        let view=try await client.settingsReview()
+        envelope["revision"]=String(repeating:"f",count:64)
+        let changedBody=try JSONSerialization.data(withJSONObject:envelope)
+        APIStub.states.withLock {$0[host]?.reply.data=changedBody}
+        _=try await client.updateSettings(view.settings,revision:view.revision)
+        let requests=APIStub.states.withLock {$0[host]?.requests ?? []}
+        #expect(requests.map(\.httpMethod)==["GET","PUT"])
+        #expect(requests.allSatisfy {$0.url?.path=="/debrid/api/v1/settings/review" && $0.value(forHTTPHeaderField:"Cookie")=="debrid_session=fixture_cookie"})
+        #expect(requests[1].value(forHTTPHeaderField:"If-Match")=="\""+view.revision+"\"")
+        let body=try #require(JSONSerialization.jsonObject(with:requestBody(requests[1])) as? [String:Any])
+        let defaults=try #require(body["torrent_defaults"] as? [String:Any])
+        #expect(defaults["download_retries"] as? Int==view.settings.torrentDefaults.downloadRetries)
+        #expect(body["unpack_max_depth"] as? Int==view.settings.unpackMaxDepth && body["torrentDefaults"] == nil)
+        APIStub.states.withLock {$0[host]?.reply.status=412}
+        await #expect(throws:APIError.http(status:412)) {_=try await client.updateSettings(view.settings,revision:view.revision)}
+        #expect(APIStub.states.withLock {$0[host]?.requests.count} == 3)
+    }
+    @Test func settingsReviewRejectsMalformedOrUnchangedRevisionWithoutFallback() async throws {
+        let url=try #require(Bundle(for:APIStub.self).url(forResource:"contract",withExtension:"json",subdirectory:"ios-api"))
+        let root=try #require(JSONSerialization.jsonObject(with:Data(contentsOf:url)) as? [String:Any])
+        var envelope=try #require(root["settings_review"] as? [String:Any])
+        let (client,host)=try setup(StubReply(data:JSONSerialization.data(withJSONObject:envelope)),limit:8192);defer {remove(host)}
+        let view=try await client.settingsReview()
+        await #expect(throws:APIError.invalidConfiguration) {_=try await client.updateSettings(view.settings,revision:"bad")}
+        await #expect(throws:APIError.invalidResponse) {_=try await client.updateSettings(view.settings,revision:view.revision)}
+        envelope["revision"]="bad"
+        let bad=try JSONSerialization.data(withJSONObject:envelope)
+        APIStub.states.withLock {$0[host]?.reply.data=bad}
+        await #expect(throws:APIError.invalidResponse) {_=try await client.settingsReview()}
+        APIStub.states.withLock {$0[host]?.reply.status=404}
+        await #expect(throws:APIError.http(status:404)) {_=try await client.settingsReview()}
+    }
+    @Test func providerWritesUseWriteOnlyBodyAndSafeRemovalRoute() async throws {
+        let body=Data(#"{"id":"account-one","kind":"torbox","name":"Home","enabled":true,"is_default":false,"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}"#.utf8)
+        let (client,host)=try setup(StubReply(status:201,data:body),credential:.session("fixture_cookie"));defer {remove(host)}
+        _=try await client.addAccount(ProviderAccountWrite(kind:"torbox",name:"Home",apiKey:"fixture-provider-key"))
+        APIStub.states.withLock {$0[host]?.reply.status=200}
+        _=try await client.updateAccount(id:"account-one",input:ProviderAccountWrite(name:"Home",enabled:false))
+        APIStub.states.withLock {$0[host]?.reply=StubReply(status:204,headers:[:],data:Data())}
+        try await client.removeAccount(id:"account-one",includingTransfers:false)
+        try await client.removeAccount(id:"account-one",includingTransfers:true)
+        let requests=APIStub.states.withLock {$0[host]?.requests ?? []}
+        #expect(requests.map(\.httpMethod)==["POST","PATCH","DELETE","DELETE"])
+        let create=try #require(JSONSerialization.jsonObject(with:requestBody(requests[0])) as? [String:Any])
+        #expect((create["credentials"] as? [String:String]) == ["api_key":"fixture-provider-key"])
+        let edit=try #require(JSONSerialization.jsonObject(with:requestBody(requests[1])) as? [String:Any]);#expect(edit["credentials"] == nil)
+        #expect(requests[2].url?.path=="/debrid/api/v1/accounts/account-one")
+        #expect(requests[2].url?.query=="force=false")
+        #expect(requests[3].url?.path=="/debrid/api/v1/accounts/account-one/removal" && requests[3].url?.query=="force=true")
+        #expect(requests.allSatisfy {$0.value(forHTTPHeaderField:"Cookie")=="debrid_session=fixture_cookie" && $0.url?.query?.contains("fixture-provider-key") != true})
+    }
+    @Test func providerChecksUseExplicitPostAndScopedSessionWithExactAccountBinding() async throws {
+        let body=Data(#"{"id":"account-one","kind":"torbox","name":"Home","enabled":true,"is_default":true,"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}"#.utf8)
+        let (client,host)=try setup(StubReply(data:body),credential:.session("fixture_cookie"));defer {remove(host)}
+        _=try await client.account(id:"account-one")
+        APIStub.states.withLock {$0[host]?.reply.data=Data(#"{"premium":true}"#.utf8)}
+        _=try await client.checkAccount(id:"account-one")
+        let requests=APIStub.states.withLock {$0[host]?.requests ?? []}
+        #expect(requests.map(\.httpMethod)==["GET","POST"])
+        #expect(requests.map {$0.url?.path}==["/debrid/api/v1/accounts/account-one","/debrid/api/v1/accounts/account-one/test"])
+        #expect(requests.allSatisfy {$0.value(forHTTPHeaderField:"Cookie")=="debrid_session=fixture_cookie"})
+        APIStub.states.withLock {$0[host]?.reply.data=body}
+        await #expect(throws:APIError.invalidResponse) {_=try await client.account(id:"another-account")}
+        await #expect(throws:ServerAddress.ValidationError.invalidPathComponent) {_=try await client.checkAccount(id:"../escape")}
+    }
+    @Test func retryRequestAndReceiptPreserveBindingCredentialAndQuery() async throws {
+        let body=Data(#"{"kind":"torrent","resource_id":"retry-target","torrent_id":"retry-target","accepted_at":"2026-01-02T03:04:05Z","torrent_exists":true}"#.utf8)
+        let (client,host)=try setup(StubReply(data:body),credential:.session("fixture_cookie"));defer {remove(host)}
+        let key=UUID(),revision=String(repeating:"a",count:64)
+        _=try await client.requestRetry(kind:.torrent,id:"retry-target",key:key,revision:revision)
+        _=try await client.retryAcceptance(kind:.torrent,id:"retry-target",key:key,revision:revision)
+        let requests=APIStub.states.withLock {$0[host]?.requests ?? []}
+        #expect(requests.count==2 && requests[0].httpMethod=="POST" && requests[1].httpMethod=="GET")
+        #expect(requests[0].url?.path=="/debrid/api/v1/torrents/retry-target/retry-requests")
+        #expect(requests.allSatisfy {$0.value(forHTTPHeaderField:"Cookie")=="debrid_session=fixture_cookie"})
+        let submittedBody=try requestBody(requests[0])
+        let submitted=try #require(JSONSerialization.jsonObject(with:submittedBody) as? [String:String])
+        #expect(submitted==["key":key.uuidString.lowercased(),"revision":revision])
+        #expect(URLComponents(url:try #require(requests[1].url),resolvingAgainstBaseURL:false)?.queryItems==[URLQueryItem(name:"revision",value:revision)])
+    }
+    @Test func missingRetryReceiptIsUnknownAndWrongResourceIsRejected() async throws {
+        let (missing,missingHost)=try setup(StubReply(status:404));defer {remove(missingHost)}
+        #expect(try await missing.retryAcceptance(kind:.download,id:"failed-file",key:UUID(),revision:String(repeating:"a",count:64))==nil)
+        let body=Data(#"{"kind":"download","resource_id":"another-file","torrent_id":"parent","accepted_at":"2026-01-02T03:04:05Z","torrent_exists":true}"#.utf8)
+        let (wrong,wrongHost)=try setup(StubReply(data:body));defer {remove(wrongHost)}
+        await #expect(throws:APIError.invalidResponse) {_=try await wrong.requestRetry(kind:.download,id:"failed-file",key:UUID(),revision:String(repeating:"a",count:64))}
+    }
+
+    @Test func cancellationUsesBoundIDAndOriginalReceiptQuery() async throws {
+        let data=Data(#"{"torrent_id":"cancel-target","accepted_at":"2026-01-02T03:04:05Z","torrent_exists":true}"#.utf8)
+        let (client,host)=try setup(StubReply(data:data),credential:.session("fixture_session"));defer {remove(host)}
+        let key=UUID(),revision=String(repeating:"c",count:64)
+        _=try await client.requestCancellation(id:"cancel-target",key:key,revision:revision)
+        _=try await client.cancellationAcceptance(id:"cancel-target",key:key,revision:revision)
+        let requests=APIStub.states.withLock {$0[host]!.requests}
+        #expect(requests[0].url?.path=="/debrid/api/v1/torrents/cancel-target/cancellation-requests")
+        #expect(requests[1].url?.lastPathComponent==key.uuidString.lowercased())
+        #expect(URLComponents(url:requests[1].url!,resolvingAgainstBaseURL:false)?.queryItems==[URLQueryItem(name:"revision",value:revision)])
+        #expect(requests.allSatisfy {$0.value(forHTTPHeaderField:"Cookie") != nil})
+        let bodyData=try requestBody(requests[0])
+        let body=try #require(JSONSerialization.jsonObject(with:bodyData) as? [String:String])
+        #expect(body==["key":key.uuidString.lowercased(),"revision":revision])
+        let (missing,missingHost)=try setup(StubReply(status:404));defer {remove(missingHost)}
+        #expect(try await missing.cancellationAcceptance(id:"cancel-target",key:key,revision:revision)==nil)
+        await #expect(throws:APIError.invalidResponse) {_=try await client.requestCancellation(id:"wrong-target",key:key,revision:revision)}
+    }
+
+    @Test func removalBindsStrongRevisionOptionsAndTreatsRoute404AsError() async throws {
+        let (client,host)=try setup(StubReply(status:204,data:Data()),credential:.session("fixture_cookie"));defer {remove(host)}
+        let revision=String(repeating:"d",count:64)
+        try await client.removeTransfer(id:"remove-target",revision:revision,options:RemovalOptions(deleteFiles:true))
+        let request=APIStub.states.withLock {$0[host]!.requests[0]}
+        #expect(request.httpMethod=="DELETE" && request.url?.path=="/debrid/api/v1/torrents/remove-target/removal")
+        #expect(request.value(forHTTPHeaderField:"If-Match")=="\""+revision+"\"")
+        #expect(request.value(forHTTPHeaderField:"Cookie")=="debrid_session=fixture_cookie")
+        #expect(URLComponents(url:request.url!,resolvingAgainstBaseURL:false)?.queryItems==[URLQueryItem(name:"files",value:"true"),URLQueryItem(name:"provider",value:"false")])
+        let (missing,missingHost)=try setup(StubReply(status:404));defer {remove(missingHost)}
+        await #expect(throws:APIError.http(status:404)) {_=try await missing.removalReview(id:"remove-target")}
+        let absent=Data(#"{"torrent_id":"remove-target","exists":false,"provider_copy_known":false}"#.utf8)
+        let (absence,absenceHost)=try setup(StubReply(data:absent));defer {remove(absenceHost)}
+        #expect(try await !absence.removalReview(id:"remove-target").exists)
+        await #expect(throws:APIError.invalidResponse) {_=try await absence.removalReview(id:"other-target")}
+    }
+
     @Test func healthPreservesPrefixAndHeaderCredential() async throws {
         let (client, host) = try setup(credential: .bearer("fixture-key"))
         defer { remove(host) }

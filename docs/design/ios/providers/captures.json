@@ -1,0 +1,65 @@
+[
+  {
+    "file": "connection-settings.png",
+    "result": "Test-Debrid-2026.11.04_18-02-00-+0000.xcresult",
+    "fixture": true,
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178",
+    "runtime": "iOS 27.0"
+  },
+  {
+    "file": "provider-checked-dark.png",
+    "result": "Test-Debrid-2026.11.04_18-02-00-+0000.xcresult",
+    "fixture": true,
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178",
+    "runtime": "iOS 27.0"
+  },
+  {
+    "file": "provider-error-largest.png",
+    "result": "Test-Debrid-2026.11.04_18-05-44-+0000.xcresult",
+    "fixture": true,
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178",
+    "runtime": "iOS 27.0"
+  },
+  {
+    "file": "provider-unchecked.png",
+    "result": "Test-Debrid-2026.11.04_18-02-00-+0000.xcresult",
+    "fixture": true,
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178",
+    "runtime": "iOS 27.0"
+  },
+  {
+    "file": "providers-dark.png",
+    "result": "Test-Debrid-2026.11.04_18-02-00-+0000.xcresult",
+    "fixture": true,
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178",
+    "runtime": "iOS 27.0"
+  },
+  {
+    "file": "providers-empty.png",
+    "result": "Test-Debrid-2026.11.04_18-07-56-+0000.xcresult",
+    "fixture": true,
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178",
+    "runtime": "iOS 27.0"
+  },
+  {
+    "file": "providers-light.png",
+    "result": "Test-Debrid-2026.11.04_18-02-00-+0000.xcresult",
+    "fixture": true,
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178",
+    "runtime": "iOS 27.0"
+  },
+  {
+    "file": "providers-offline.png",
+    "result": "Test-Debrid-2026.11.04_18-07-56-+0000.xcresult",
+    "fixture": true,
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178",
+    "runtime": "iOS 27.0"
+  },
+  {
+    "file": "providers-search-empty.png",
+    "result": "Test-Debrid-2026.11.04_18-05-44-+0000.xcresult",
+    "fixture": true,
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178",
+    "runtime": "iOS 27.0"
+  }
+]

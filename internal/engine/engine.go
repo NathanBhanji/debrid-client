@@ -69,9 +69,11 @@ type Engine struct {
 
 	wake chan struct{}
 
-	mu       sync.Mutex
-	jobs     map[string]*job // by download id (or "add:"+torrent id)
-	lastList map[string]listSnapshot
+	mu         sync.Mutex
+	operations map[string]*operationSlot
+	jobs       map[string]*job // by download id (or "add:"+torrent id)
+	lastList   map[string]listSnapshot
+	listEpoch  map[string]uint64
 	// nextAttempt throttles jobs that finished without making progress
 	// (links not ready, metadata not ready, transient provider errors): a job
 	// key may not be relaunched before its time. Without this the scheduler
@@ -172,8 +174,8 @@ func (e *Engine) Wake() {
 // jobs, and drop the torrent's provider entry from the cached listing so a
 // delete-and-re-add doesn't adopt a torrent that is about to vanish.
 func (e *Engine) CancelTorrent(ctx context.Context, torrentID string) error {
-	if row, err := e.store.GetTorrent(ctx, torrentID); err == nil && row.ProviderID != "" {
-		e.forgetProviderTorrent(row.AccountID, row.ProviderID)
+	if row, err := e.store.GetTorrent(ctx, torrentID); err == nil {
+		e.ForgetProviderTorrent(row.AccountID, row.ProviderID)
 	}
 	e.mu.Lock()
 	var waiting []*job
@@ -391,8 +393,8 @@ func (e *Engine) mutateDL(ctx context.Context, id string, fn func(d *domain.Down
 func (e *Engine) fail(ctx context.Context, t *domain.Torrent, msg string) error {
 	e.log.Warn("torrent failed", "id", t.ID, "name", t.Name, "reason", msg)
 	nt, err := e.mutate(ctx, t.ID, func(t *domain.Torrent) error {
-		if t.Status.IsTerminal() && t.Error == msg {
-			return store.ErrSkip
+		if t.Status.IsTerminal() {
+			return store.ErrSkip // completed or explicitly stopped work stays terminal
 		}
 		if err := t.Transition(domain.TorrentError, msg); err != nil {
 			t.Status = domain.TorrentError // force: error is always reachable

@@ -25,19 +25,26 @@ public enum TorrentDocument {
     // NSFileCoordinator explicitly supports cancelling pending coordination from another thread.
     // The object is immutable here; only coordinate and its documented cancel cross threads.
     private final class ReadCoordination: @unchecked Sendable { let coordinator = NSFileCoordinator() }
-    private static func copy(_ url:URL) throws -> TorrentFile {
+    /// Invoke synchronously inside NSItemProvider's temporary-file callback.
+    /// The callback owns the URL lifetime; no URL escapes into an async task.
+    public static func copyProvidedFile(_ url:URL,requireTorrentExtension:Bool = true,maximumBytes:Int = TorrentFile.byteLimit) throws -> TorrentFile {
+        guard url.isFileURL,!requireTorrentExtension || url.pathExtension.lowercased()=="torrent" else {throw TorrentFileError.unavailable}
+        guard (0...TorrentFile.byteLimit).contains(maximumBytes) else {throw TorrentFileError.tooLarge}
+        return try copy(url,maximumBytes:maximumBytes)
+    }
+    private static func copy(_ url:URL,maximumBytes:Int = TorrentFile.byteLimit) throws -> TorrentFile {
         let fd = Darwin.open(url.path,O_RDONLY|O_NOFOLLOW|O_CLOEXEC|O_NONBLOCK)
         guard fd >= 0 else { throw TorrentFileError.unavailable }; defer { Darwin.close(fd) }
         var info = stat()
         guard fstat(fd,&info) == 0, (info.st_mode & S_IFMT) == S_IFREG, info.st_size >= 0 else { throw TorrentFileError.unavailable }
-        guard info.st_size <= TorrentFile.byteLimit else { throw TorrentFileError.tooLarge }
+        guard info.st_size <= maximumBytes else { throw TorrentFileError.tooLarge }
         var data = Data(), buffer = [UInt8](repeating:0,count:64*1024)
         while true {
             try Task.checkCancellation()
             let count = Darwin.read(fd,&buffer,buffer.count)
             if count < 0 && errno == EINTR { continue }
             guard count >= 0 else { throw TorrentFileError.unavailable }; if count == 0 { break }
-            guard data.count+count <= TorrentFile.byteLimit else { throw TorrentFileError.tooLarge }
+            guard data.count+count <= maximumBytes else { throw TorrentFileError.tooLarge }
             data.append(contentsOf:buffer.prefix(count))
         }
         return try TorrentFile(data)

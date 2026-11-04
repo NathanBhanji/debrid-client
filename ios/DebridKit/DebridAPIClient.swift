@@ -36,6 +36,7 @@ final class RefuseAPIRedirects: NSObject, URLSessionTaskDelegate, Sendable {
 }
 
 public final class DebridAPIClient: Sendable {
+    public var isPreview:Bool {false}
     public var serverURL:URL { server.url }
     private let server: ServerAddress
     private let credential: APICredential?
@@ -92,9 +93,10 @@ public final class DebridAPIClient: Sendable {
     }
 
     /// Bounded byte collection and JSON decoding run away from a caller's UI actor.
-    @concurrent func send<Response: Decodable & Sendable>(_ path: [String], method: String, body: Data? = nil, allowsEmpty: Bool = false, contentType:String = "application/json", headers:[String:String] = [:], expectedStatus:Int? = nil, submissionErrors:Bool = false) async throws -> Response {
+    @concurrent func send<Response: Decodable & Sendable>(_ path: [String], method: String, body: Data? = nil, allowsEmpty: Bool = false, contentType:String = "application/json", headers:[String:String] = [:], expectedStatus:Int? = nil, submissionErrors:Bool = false,query:[URLQueryItem] = []) async throws -> Response {
         try Task.checkCancellation()
-        let url = try server.endpoint(components: path)
+        var url = try server.endpoint(components: path)
+        if !query.isEmpty {url=url.appending(queryItems:query)}
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.httpBody = body
