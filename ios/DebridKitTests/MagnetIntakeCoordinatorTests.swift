@@ -2,10 +2,12 @@ import Foundation
 import Testing
 @testable import DebridKit
 
-private actor IntakeTestStore: PendingInboxAccess {
+actor IntakeTestStore: PendingInboxAccess {
     enum Point { case enqueue, claim, snapshot }
     let base: PendingInbox
     var failing = false
+    private var failAcceptance=false
+    func setAcceptanceFailing(_ value:Bool) { failAcceptance=value }
     private var point: Point?
     private var continuation: CheckedContinuation<Void,Never>?
     private(set) var paused = false
@@ -25,6 +27,12 @@ private actor IntakeTestStore: PendingInboxAccess {
     func enqueueTorrent(_ file:TorrentFile,source:PendingSource,target:ServerAddress?) async throws -> PendingReceipt {
         if failing { throw PendingInboxError.unavailable }; return try await base.enqueueTorrent(file,source:source,target:target)
     }
+    func reviewItem(_ id:UUID,token:UUID) async throws -> PendingItem { try await base.reviewItem(id,token:token) }
+    func prepareSubmission(_ id:UUID,token:UUID,server:ServerAddress,options:SubmissionOptions,confirmedTargetChange:Bool) async throws -> PreparedSubmission { try await base.prepareSubmission(id,token:token,server:server,options:options,confirmedTargetChange:confirmedTargetChange) }
+    func recordSubmissionAccepted(_ id:UUID,token:UUID,key:UUID,server:ServerAddress,transferID:String,exists:Bool) async throws { if failAcceptance { throw PendingInboxError.unavailable };try await base.recordSubmissionAccepted(id,token:token,key:key,server:server,transferID:transferID,exists:exists) }
+    func recordSubmissionMismatch(_ id:UUID,token:UUID,key:UUID) async throws { try await base.recordSubmissionMismatch(id,token:token,key:key) }
+    func recordSubmissionRejected(_ id:UUID,token:UUID,key:UUID,freshToken:UUID,reason:SubmissionRejection) async throws { try await base.recordSubmissionRejected(id,token:token,key:key,freshToken:freshToken,reason:reason) }
+    func loadTorrent(_ id:UUID,token:UUID) async throws -> TorrentFile { try await base.loadTorrent(id,token:token) }
     func claim(_ id:UUID) async throws -> PendingClaim { let result = try await base.claim(id); await pause(.claim); return result }
     func renew(_ id:UUID,token:UUID) async throws -> Date { try await base.renew(id,token:token) }
     func release(_ id:UUID,token:UUID) async throws { try await base.release(id,token:token) }
@@ -168,6 +176,12 @@ private actor IntakeSaturationStore: PendingInboxAccess {
     func resumeAll() { for continuation in continuations { continuation.resume(throwing:PendingInboxError.full) }; continuations = [] }
     func snapshot() async throws -> [PendingItem] { [] }
     func enqueueTorrent(_ file:TorrentFile,source:PendingSource,target:ServerAddress?) async throws -> PendingReceipt { throw PendingInboxError.full }
+    func reviewItem(_ id:UUID,token:UUID) async throws -> PendingItem { throw PendingInboxError.unavailable }
+    func prepareSubmission(_ id:UUID,token:UUID,server:ServerAddress,options:SubmissionOptions,confirmedTargetChange:Bool) async throws -> PreparedSubmission { throw PendingInboxError.unavailable }
+    func recordSubmissionAccepted(_ id:UUID,token:UUID,key:UUID,server:ServerAddress,transferID:String,exists:Bool) async throws { throw PendingInboxError.unavailable }
+    func recordSubmissionMismatch(_ id:UUID,token:UUID,key:UUID) async throws { throw PendingInboxError.unavailable }
+    func recordSubmissionRejected(_ id:UUID,token:UUID,key:UUID,freshToken:UUID,reason:SubmissionRejection) async throws { throw PendingInboxError.unavailable }
+    func loadTorrent(_ id:UUID,token:UUID) async throws -> TorrentFile { throw PendingInboxError.unavailable }
     func claim(_ id:UUID) async throws -> PendingClaim { throw PendingInboxError.notFound }
     func renew(_ id:UUID,token:UUID) async throws -> Date { throw PendingInboxError.notFound }
     func release(_ id:UUID,token:UUID) async throws {}

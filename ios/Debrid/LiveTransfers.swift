@@ -8,6 +8,7 @@ struct LiveTransfers: View {
     let auth: SessionCoordinator?
     @Environment(\.magnetIntake) private var intake
     @Environment(\.scenePhase) private var scenePhase
+    private struct IntakeNavigationContext:Hashable { let request:UUID?;let ready:Bool;let active:Bool }
     @State private var model: TransferListModel?
     @State private var setupFailed = false
     @State private var showingServer = false
@@ -98,6 +99,12 @@ struct LiveTransfers: View {
                     }
                 }
         }.tint(DebridStyle.tint)
+                .task(id:IntakeNavigationContext(request:intake?.navigationRequest?.id,ready:model != nil,active:scenePhase == .active)) {
+                    guard scenePhase == .active,let request=intake?.navigationRequest,request.serverURL==server.profile.serverURL,let model else { return }
+                    await model.refreshWhileActive()
+                    guard !Task.isCancelled,intake?.navigationRequest?.id==request.id else { return }
+                    path.append(.detail(request.transferID));intake?.finishNavigation(request.id)
+                }
                 .task(id: scenePhase) {
                     guard scenePhase == .active else { model?.stopLiveUpdates(); return }
                     do {
@@ -118,14 +125,14 @@ struct LiveTransfers: View {
                     guard scenePhase == .active, let model, model.requiresSignIn else { return }
                     Task {
                         guard scenePhase == .active, model.requiresSignIn else { return }
-                        await auth?.sessionRejected(for: model.profile.id)
+                        await auth?.sessionRejected(for:model.profile.id,connectionID:server.connectionID)
                     }
                 }
                 .onDisappear { model?.stopLiveUpdates() }
     }
     private func reload(_ model: TransferListModel) async {
         await model.refreshWhileActive()
-        if !Task.isCancelled, model.requiresSignIn { await auth?.sessionRejected(for: model.profile.id) }
+        if !Task.isCancelled, model.requiresSignIn { await auth?.sessionRejected(for:model.profile.id,connectionID:server.connectionID) }
     }
     private func readout(_ model: TransferListModel) -> some View {
         VStack(alignment: .leading, spacing: 10) {

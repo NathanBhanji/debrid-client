@@ -36,6 +36,7 @@ final class RefuseAPIRedirects: NSObject, URLSessionTaskDelegate, Sendable {
 }
 
 public final class DebridAPIClient: Sendable {
+    public var serverURL:URL { server.url }
     private let server: ServerAddress
     private let credential: APICredential?
     private let session: URLSession
@@ -91,19 +92,30 @@ public final class DebridAPIClient: Sendable {
     }
 
     /// Bounded byte collection and JSON decoding run away from a caller's UI actor.
-    @concurrent private func send<Response: Decodable & Sendable>(_ path: [String], method: String, body: Data? = nil, allowsEmpty: Bool = false) async throws -> Response {
+    @concurrent func send<Response: Decodable & Sendable>(_ path: [String], method: String, body: Data? = nil, allowsEmpty: Bool = false, contentType:String = "application/json", headers:[String:String] = [:], expectedStatus:Int? = nil, submissionErrors:Bool = false) async throws -> Response {
         try Task.checkCancellation()
         let url = try server.endpoint(components: path)
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.httpBody = body
-        if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
+        if body != nil { request.setValue(contentType, forHTTPHeaderField: "Content-Type") }
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        for (name,value) in headers { request.setValue(value,forHTTPHeaderField:name) }
         credential?.apply(to: &request)
         do {
             let (bytes, response) = try await session.bytes(for: request)
             defer { bytes.task.cancel() }
             guard let response = response as? HTTPURLResponse else { throw APIError.invalidResponse }
+            if submissionErrors {
+                switch (response.statusCode,response.value(forHTTPHeaderField:"X-Debrid-Error-Code")) {
+                case (409,"active_torrent"):
+                    guard let id = response.value(forHTTPHeaderField:"X-Debrid-Existing-Torrent-ID"), SubmissionIdentity.validID(id) else { throw APIError.invalidResponse }
+                    throw SubmissionFailure.activeTorrent(id)
+                case (409,"submission_removed"): throw SubmissionFailure.removed
+                case (422,"idempotency_mismatch"): throw SubmissionFailure.keyMismatch
+                default: break
+                }
+            }
             switch response.statusCode {
             case 200...299: break
             case 300...399: throw APIError.redirectRefused
@@ -112,6 +124,7 @@ public final class DebridAPIClient: Sendable {
             case 429: throw APIError.rateLimited(retryAfter: Self.retryAfter(response.value(forHTTPHeaderField: "Retry-After")))
             default: throw APIError.http(status: response.statusCode)
             }
+            if let expectedStatus, response.statusCode != expectedStatus { throw APIError.invalidResponse }
             let isJSON = response.mimeType.map { $0.lowercased() == "application/json" || $0.lowercased().hasSuffix("+json") } == true
             guard isJSON || allowsEmpty else { throw APIError.invalidContentType }
             guard response.expectedContentLength <= Int64(maximumResponseBytes) else { throw APIError.responseTooLarge }

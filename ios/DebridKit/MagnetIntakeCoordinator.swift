@@ -5,6 +5,12 @@ public protocol PendingInboxAccess: Sendable {
     func snapshot() async throws -> [PendingItem]
     func enqueue(_ magnet:MagnetLink,source:PendingSource,target:ServerAddress?) async throws -> PendingReceipt
     func enqueueTorrent(_ file:TorrentFile,source:PendingSource,target:ServerAddress?) async throws -> PendingReceipt
+    func reviewItem(_ id:UUID,token:UUID) async throws -> PendingItem
+    func prepareSubmission(_ id:UUID,token:UUID,server:ServerAddress,options:SubmissionOptions,confirmedTargetChange:Bool) async throws -> PreparedSubmission
+    func recordSubmissionAccepted(_ id:UUID,token:UUID,key:UUID,server:ServerAddress,transferID:String,exists:Bool) async throws
+    func recordSubmissionMismatch(_ id:UUID,token:UUID,key:UUID) async throws
+    func recordSubmissionRejected(_ id:UUID,token:UUID,key:UUID,freshToken:UUID,reason:SubmissionRejection) async throws
+    func loadTorrent(_ id:UUID,token:UUID) async throws -> TorrentFile
     func claim(_ id:UUID) async throws -> PendingClaim
     func renew(_ id:UUID,token:UUID) async throws -> Date
     func release(_ id:UUID,token:UUID) async throws
@@ -13,7 +19,7 @@ public protocol PendingInboxAccess: Sendable {
 }
 extension PendingInbox: PendingInboxAccess {}
 
-/// Routing ends at durable review. This type has no server mutation capability.
+/// Routes intake to durable review; the explicit review model owns server submission.
 @Observable @MainActor public final class MagnetIntakeCoordinator {
     public private(set) var items: [PendingItem] = []
     public private(set) var storageMessage: String?
@@ -38,6 +44,11 @@ extension PendingInbox: PendingInboxAccess {}
     private struct Input: Sendable { let id = UUID(); let content:Content; let source:PendingSource; let target:ServerAddress? }
     public private(set) var isImporting = false
     private var failed: [Input] = []
+    public private(set) var connection:AuthenticatedServer?
+    public struct NavigationRequest:Identifiable,Sendable { public let id=UUID();public let serverURL:URL;public let transferID:String }
+    public private(set) var navigationRequest:NavigationRequest?
+    private var unauthorized:(@MainActor (UUID) async -> Void)?
+    private let makeSubmissionAPI:@MainActor @Sendable (AuthenticatedServer) throws -> any TransferSubmissionAPI
     private var target: ServerAddress?
     private var lastReceiptID: UUID?
     private var snapshotRevision = 0
@@ -49,11 +60,27 @@ extension PendingInbox: PendingInboxAccess {}
     private let openInbox: @Sendable () throws -> any PendingInboxAccess
     private var cachedInbox: (any PendingInboxAccess)?
     @ObservationIgnored private var renewal: Task<Void,Never>?
-    public init(openInbox: @escaping @Sendable () throws -> any PendingInboxAccess = { try PendingInbox.shared() }, loadDocument:@escaping @Sendable (URL) async throws -> TorrentFile = { try await TorrentDocument.load($0) }) { self.openInbox = openInbox; self.loadDocument = loadDocument }
+    public init(openInbox: @escaping @Sendable () throws -> any PendingInboxAccess = { try PendingInbox.shared() }, loadDocument:@escaping @Sendable (URL) async throws -> TorrentFile = { try await TorrentDocument.load($0) },makeSubmissionAPI:@escaping @MainActor @Sendable (AuthenticatedServer) throws -> any TransferSubmissionAPI = { try DebridAPIClient(server:ServerAddress($0.profile.serverURL.absoluteString),credential:$0.credential) }) { self.openInbox = openInbox; self.loadDocument = loadDocument;self.makeSubmissionAPI=makeSubmissionAPI }
     public convenience init(inbox:any PendingInboxAccess) { self.init(openInbox:{ inbox }) }
     deinit { renewal?.cancel() }
     private func inbox() throws -> any PendingInboxAccess {
         if let cachedInbox { return cachedInbox }; let store = try openInbox(); cachedInbox = store; return store
+    }
+    public func setConnection(_ server:AuthenticatedServer?,onUnauthorized:(@MainActor (UUID) async -> Void)? = nil) {
+        if connection?.connectionID != server?.connectionID { navigationRequest=nil }
+        connection=server;unauthorized=onUnauthorized;setTargetServer(server?.profile.serverURL)
+    }
+    public func rejectConnection(_ id:UUID) async {
+        guard connection?.connectionID==id else { return };await unauthorized?(id)
+    }
+    public func submissionModel(claim:PendingClaim) throws -> TransferAddModel? {
+        guard let connection else { return nil }
+        return try TransferAddModel(claim:claim,server:connection,store:inbox(),api:makeSubmissionAPI(connection))
+    }
+    public func finishNavigation(_ id:UUID) { if navigationRequest?.id==id { navigationRequest=nil } }
+    public func viewTransfer(_ id:String,serverURL:URL) {
+        guard connection?.profile.serverURL==serverURL,SubmissionIdentity.validID(id) else { return }
+        navigationRequest=NavigationRequest(serverURL:serverURL,transferID:id);isPresented=false
     }
     public func setTargetServer(_ url:URL?) { target = url.flatMap { try? ServerAddress($0.absoluteString) } }
     public func present(focus:UUID? = nil) { focusID = focus; isPresented = true }

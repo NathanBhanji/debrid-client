@@ -2,6 +2,7 @@ import Foundation
 import Observation
 
 public struct AuthenticatedServer: Sendable {
+    public let connectionID = UUID()
     public let profile: ServerProfile
     public let username: String
     public let credential: APICredential
@@ -127,8 +128,8 @@ public struct AuthenticatedServer: Sendable {
         }
     }
     /// A response from an old server/view can never clear the current server's session.
-    public func sessionRejected(for profileID: String) async {
-        guard !Task.isCancelled, !isBusy, case .connected(let connected) = phase, connected.profile.id == profileID else { return }
+    public func sessionRejected(for profileID: String, connectionID:UUID? = nil) async {
+        guard !Task.isCancelled, !isBusy, case .connected(let connected) = phase, connected.profile.id == profileID, connectionID == nil || connectionID == connected.connectionID else { return }
         isBusy = true
         defer { isBusy = false }
         phase = .signedOut

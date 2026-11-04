@@ -298,3 +298,62 @@ struct DebridTransportTests {
     }
 
 }
+
+
+extension DebridTransportTests {
+    private func submissionFixture<T:Decodable>(_ key:String,as type:T.Type) throws -> T {
+        let url=try #require(Bundle(for:APIStub.self).url(forResource:"contract",withExtension:"json",subdirectory:"ios-api"))
+        let root=try #require(JSONSerialization.jsonObject(with:Data(contentsOf:url)) as? [String:Any])
+        return try DebridAPIClient.decoder().decode(type,from:JSONSerialization.data(withJSONObject:try #require(root[key])))
+    }
+    private func requestBody(_ request:URLRequest) throws -> Data {
+        if let data=request.httpBody { return data }
+        let stream=try #require(request.httpBodyStream);stream.open();defer { stream.close() }
+        var data=Data(),buffer=[UInt8](repeating:0,count:4096)
+        while stream.hasBytesAvailable {
+            let count=stream.read(&buffer,maxLength:buffer.count);guard count>=0 else { throw APIError.invalidResponse };if count==0 { break }
+            guard data.count+count<=TorrentFile.byteLimit+64*1024 else { throw APIError.responseTooLarge };data.append(contentsOf:buffer.prefix(count))
+        }
+        return data
+    }
+    @Test func nativeAddUsesExactRawMagnetFullSettingsCookieAndSubmissionHeader() async throws {
+        let settings:SettingsDTO=try submissionFixture("settings",as:SettingsDTO.self)
+        let torrent:TorrentDTO=try submissionFixture("torrent",as:TorrentDTO.self)
+        // Reuse the actual wire response without needing an Encodable transfer DTO.
+        let url=try #require(Bundle(for:APIStub.self).url(forResource:"contract",withExtension:"json",subdirectory:"ios-api")),root=try #require(JSONSerialization.jsonObject(with:Data(contentsOf:url)) as? [String:Any])
+        let response=try JSONSerialization.data(withJSONObject:try #require(root["torrent"]))
+        let (client,host)=try setup(StubReply(status:201,data:response),credential:.session("fixture_session"),limit:16384);defer { remove(host) }
+        let raw="magnet:?xt=urn:btih:"+String(repeating:"0",count:40)+"&tr=https%3a%2f%2ffixture.test%2fa%3ftoken%3dprivate&dn=Original%2bText",key=UUID()
+        let options=try SubmissionOptions(accountID:"fixture-account",category:"Documentaries",settings:settings.torrentDefaults)
+        #expect(try await client.submit(.magnet(MagnetLink(raw)),options:options,key:key).id==torrent.id)
+        let request=try #require(APIStub.states.withLock { $0[host]?.requests.first })
+        let body=try #require(JSONSerialization.jsonObject(with:requestBody(request)) as? [String:Any])
+        #expect(request.url?.path=="/debrid/api/v1/torrents" && request.httpMethod=="POST")
+        #expect(request.value(forHTTPHeaderField:"Cookie")=="debrid_session=fixture_session" && request.value(forHTTPHeaderField:"Origin")==nil && request.value(forHTTPHeaderField:"Idempotency-Key")==key.uuidString)
+        #expect(body["magnet"] as? String==raw && body["account"] as? String=="fixture-account")
+        let encoded=try #require(body["settings"] as? [String:Any]);#expect(encoded["download_retries"] as? Int==settings.torrentDefaults.downloadRetries && encoded["unpack"] as? Bool==settings.torrentDefaults.unpack)
+    }
+    @Test func nativeMultipartKeepsExactTorrentBytesAndJSONSettingsField() async throws {
+        let settings:SettingsDTO=try submissionFixture("settings",as:SettingsDTO.self)
+        let url=try #require(Bundle(for:APIStub.self).url(forResource:"contract",withExtension:"json",subdirectory:"ios-api")),root=try #require(JSONSerialization.jsonObject(with:Data(contentsOf:url)) as? [String:Any])
+        let response=try JSONSerialization.data(withJSONObject:try #require(root["torrent"]))
+        let (client,host)=try setup(StubReply(status:201,data:response),limit:16384);defer { remove(host) }
+        let file=try fixtureTorrent(),options=try SubmissionOptions(accountID:"fixture-account",category:"",settings:settings.torrentDefaults)
+        _ = try await client.submit(.torrent(file),options:options,key:UUID())
+        let request=try #require(APIStub.states.withLock { $0[host]?.requests.first }),body=try requestBody(request)
+        #expect(request.url?.path=="/debrid/api/v1/torrents/file" && request.value(forHTTPHeaderField:"Content-Type")?.hasPrefix("multipart/form-data; boundary=Debrid-")==true)
+        #expect(body.range(of:file.data) != nil)
+        #expect(body.range(of:Data("name=\"settings\"".utf8)) != nil && body.range(of:Data("download_retries".utf8)) != nil)
+    }
+    @Test func submissionConflictHeadersAreTypedWithoutReadingPrivateErrorBodiesAndReceipt404IsOptional() async throws {
+        let settings:SettingsDTO=try submissionFixture("settings",as:SettingsDTO.self),options=try SubmissionOptions(accountID:"fixture-account",category:"",settings:settings.torrentDefaults)
+        let reply=StubReply(status:409,headers:["Content-Type":"application/problem+json","X-Debrid-Error-Code":"active_torrent","X-Debrid-Existing-Torrent-ID":"existing-transfer"],data:Data("private-error-body".utf8))
+        let (client,host)=try setup(reply);defer { remove(host) }
+        let raw="magnet:?xt=urn:btih:"+String(repeating:"0",count:40)
+        await #expect(throws:SubmissionFailure.activeTorrent("existing-transfer")) { try await client.submit(.magnet(MagnetLink(raw)),options:options,key:UUID()) }
+        APIStub.states.withLock { $0[host]?.reply=StubReply(status:404,data:Data("private-error-body".utf8)) }
+        #expect(try await client.submissionReceipt(key:UUID())==nil)
+        let requests=APIStub.states.withLock { $0[host]?.requests ?? [] }
+        #expect(requests.count==2 && requests.last?.httpMethod=="GET" && requests.last?.url?.path.contains("torrent-submissions")==true)
+    }
+}

@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 
 public enum PendingInboxError: Error, Equatable, Sendable, LocalizedError {
-    case unavailable, sharedContainerUnavailable, busy, full, corrupt, unsupportedVersion, notFound, lostClaim, expired
+    case unavailable, sharedContainerUnavailable, busy, full, corrupt, unsupportedVersion, notFound, lostClaim, expired, submissionPending, serverMismatch
     public var errorDescription: String? {
         switch self {
         case .unavailable: "Pending items are unavailable. Unlock your iPhone and try again."
@@ -13,6 +13,8 @@ public enum PendingInboxError: Error, Equatable, Sendable, LocalizedError {
         case .unsupportedVersion: "Pending items use an unsupported version. Update Debrid to continue."
         case .notFound: "This pending link is no longer listed."
         case .lostClaim: "This review is no longer current. Reopen the pending link."
+        case .submissionPending: "This item has an unresolved submission. Check its result before changing or discarding it."
+        case .serverMismatch: "Review and confirm the destination server before adding this item."
         case .expired: "This saved item needs confirmation before it can be reviewed again."
         }
     }
@@ -29,6 +31,7 @@ public struct PendingItem: Identifiable, Sendable, CustomStringConvertible, Cust
     public var torrent: TorrentSummary? { if case .torrent(let file) = content { file } else { nil } }
     public var displayName: String { magnet?.displayName ?? torrent?.displayName ?? "Magnet link" }
     public var infoHash: String { magnet?.infoHash ?? torrent?.infoHash ?? "" }
+    public let submission:PendingSubmission?
     public let source: PendingSource
     public let targetServerURL: URL?
     public let createdAt: Date
@@ -76,7 +79,7 @@ public struct PendingInbox: Sendable {
             if let row = state.items.first(where:{ $0.rawURI == magnet.rawURI && $0.serverURL == target?.url }) { return (PendingReceipt(id:row.id,wasDuplicate:true),false) }
             guard state.items.count < Self.itemLimit, state.items.reduce(0,{ $0+($1.rawURI?.utf8.count ?? 0) })+magnet.rawURI.utf8.count <= Self.uriByteLimit else { throw PendingInboxError.full }
             if let target, target.url.absoluteString.utf8.count > 2048 { throw PendingInboxError.unavailable }
-            let row = Row(id:UUID(),rawURI:magnet.rawURI,torrent:nil,source:source,serverURL:target?.url,createdAt:now,retainedAt:now,lease:nil)
+            let row = Row(id:UUID(),rawURI:magnet.rawURI,torrent:nil,source:source,serverURL:target?.url,createdAt:now,retainedAt:now,lease:nil,submission:nil,freshRejectionToken:nil)
             state.items.append(row); return (PendingReceipt(id:row.id,wasDuplicate:false),true)
         }
     }
@@ -90,7 +93,7 @@ public struct PendingInbox: Sendable {
             if let target, target.url.absoluteString.utf8.count > 2048 { throw PendingInboxError.unavailable }
             let id = UUID()
             try write(file.data,to:payloadURL(id))
-            let row = Row(id:id,rawURI:nil,torrent:Payload(summary:file.summary,digest:file.digest,byteCount:file.data.count),source:source,serverURL:target?.url,createdAt:now,retainedAt:now,lease:nil)
+            let row = Row(id:id,rawURI:nil,torrent:Payload(summary:file.summary,digest:file.digest,byteCount:file.data.count),source:source,serverURL:target?.url,createdAt:now,retainedAt:now,lease:nil,submission:nil,freshRejectionToken:nil)
             state.items.append(row); return (PendingReceipt(id:id,wasDuplicate:false),true)
         }
     }
@@ -114,6 +117,64 @@ public struct PendingInbox: Sendable {
         return file
     }
     private func payloadURL(_ id:UUID) -> URL { directory.appendingPathComponent(id.uuidString+".torrent-payload") }
+    public func reviewItem(_ id:UUID,token:UUID) async throws -> PendingItem {
+        try await transaction { state,now in
+            let offset=try Self.reviewOffset(id,token:token,state:state,now:now)
+            return (try state.items[offset].publicItem(at:now),false)
+        }
+    }
+    public func prepareSubmission(_ id:UUID,token:UUID,server:ServerAddress,options:SubmissionOptions,confirmedTargetChange:Bool) async throws -> PreparedSubmission {
+        try options.validate()
+        return try await transaction { state,now in
+            let offset=try Self.reviewOffset(id,token:token,state:state,now:now)
+            if let attempt=state.items[offset].submission {
+                if attempt.phase != .rejected {
+                    guard attempt.phase == .prepared, attempt.serverURL==server.url, attempt.options==options else { throw PendingInboxError.submissionPending }
+                    return (PreparedSubmission(attempt:attempt,rejectionToken:nil),false)
+                }
+            }
+            if let target=state.items[offset].serverURL ?? (state.items[offset].submission?.phase == .rejected ? state.items[offset].submission?.serverURL : nil), target != server.url, !confirmedTargetChange { throw PendingInboxError.serverMismatch }
+            let attempt=PendingSubmission(serverURL:server.url,options:options,createdAt:now), fresh=UUID()
+            try attempt.validate()
+            state.items[offset].submission=attempt;state.items[offset].freshRejectionToken=fresh
+            return (PreparedSubmission(attempt:attempt,rejectionToken:fresh),true)
+        }
+    }
+    public func recordSubmissionAccepted(_ id:UUID,token:UUID,key:UUID,server:ServerAddress,transferID:String,exists:Bool) async throws {
+        guard SubmissionIdentity.validID(transferID) else { throw PendingInboxError.corrupt }
+        try await transaction { state,now in
+            let offset=try Self.reviewOffset(id,token:token,state:state,now:now)
+            guard let attempt=state.items[offset].submission, attempt.key==key, attempt.serverURL==server.url else { throw PendingInboxError.submissionPending }
+            if attempt.phase == .accepted {
+                guard attempt.acceptedID==transferID else { throw PendingInboxError.corrupt };return ((),false)
+            }
+            guard attempt.phase == .prepared else { throw PendingInboxError.submissionPending }
+            state.items[offset].submission=PendingSubmission(key:key,serverURL:attempt.serverURL,options:attempt.options,createdAt:attempt.createdAt,phase:.accepted,acceptedID:transferID,torrentExists:exists)
+            state.items[offset].freshRejectionToken=nil;return ((),true)
+        }
+    }
+    public func recordSubmissionMismatch(_ id:UUID,token:UUID,key:UUID) async throws {
+        try await transaction { state,now in
+            let offset=try Self.reviewOffset(id,token:token,state:state,now:now)
+            guard let attempt=state.items[offset].submission,attempt.key==key,attempt.phase == .prepared || attempt.phase == .blocked else { throw PendingInboxError.submissionPending }
+            state.items[offset].submission=PendingSubmission(key:key,serverURL:attempt.serverURL,options:attempt.options,createdAt:attempt.createdAt,phase:.blocked)
+            state.items[offset].freshRejectionToken=nil;return ((),true)
+        }
+    }
+    /// A one-use nonce is returned only to the creator's first dispatch, never restored/replayed.
+    public func recordSubmissionRejected(_ id:UUID,token:UUID,key:UUID,freshToken:UUID,reason:SubmissionRejection) async throws {
+        try await transaction { state,now in
+            let offset=try Self.reviewOffset(id,token:token,state:state,now:now)
+            guard let attempt=state.items[offset].submission, attempt.key==key, attempt.phase == .prepared, state.items[offset].freshRejectionToken==freshToken else { throw PendingInboxError.submissionPending }
+            let rejected=PendingSubmission(key:key,serverURL:attempt.serverURL,options:attempt.options,createdAt:attempt.createdAt,phase:.rejected,rejection:reason)
+            try rejected.validate();state.items[offset].submission=rejected;state.items[offset].freshRejectionToken=nil;return ((),true)
+        }
+    }
+    private static func reviewOffset(_ id:UUID,token:UUID,state:Envelope,now:Date) throws -> Int {
+        let offset=try offset(id,in:state)
+        guard !state.items[offset].expired(at:now), let lease=state.items[offset].lease, lease.token==token, lease.live(at:now) else { throw PendingInboxError.lostClaim }
+        return offset
+    }
     public func claim(_ id:UUID) async throws -> PendingClaim {
         try await transaction { state,now in
             let offset = try Self.offset(id,in:state)
@@ -153,12 +214,13 @@ public struct PendingInbox: Sendable {
     public func discard(_ id:UUID,token:UUID? = nil) async throws {
         try await transaction { state,now in
             let offset = try Self.offset(id,in:state), lease = state.items[offset].lease
+            guard state.items[offset].submission?.phase != .prepared, state.items[offset].submission?.phase != .blocked else { throw PendingInboxError.submissionPending }
             if let token { guard lease?.token == token else { throw PendingInboxError.lostClaim } }
             else if lease?.live(at:now) == true { throw PendingInboxError.busy }
             state.items.remove(at:offset); return ((),true)
         }
     }
-    private struct Envelope: Codable, Sendable { var version = 2; var items: [Row] = [] }
+    private struct Envelope: Codable, Sendable { var version = 3; var items: [Row] = [] }
     private struct Header: Decodable { let version:Int }
     private struct Lease: Codable, Sendable {
         let token:UUID; let issuedAt:Date; let expiresAt:Date
@@ -168,6 +230,7 @@ public struct PendingInbox: Sendable {
     private struct Row: Codable, Sendable {
         let id:UUID; let rawURI:String?; let torrent:Payload?; let source:PendingSource; let serverURL:URL?; let createdAt:Date
         var retainedAt:Date; var lease:Lease?
+        var submission:PendingSubmission?; var freshRejectionToken:UUID?
         func expired(at now:Date) -> Bool { now.timeIntervalSince(retainedAt) >= PendingInbox.retentionLifetime }
         func content() throws -> PendingContent {
             if let rawURI, torrent == nil { return .magnet(try MagnetLink(rawURI)) }
@@ -175,7 +238,7 @@ public struct PendingInbox: Sendable {
             throw PendingInboxError.corrupt
         }
         func publicItem(at now:Date) throws -> PendingItem {
-            PendingItem(id:id,content:try content(),source:source,targetServerURL:serverURL,createdAt:createdAt,state:expired(at:now) ? .expired : lease?.live(at:now) == true ? .reviewing : .pending)
+            PendingItem(id:id,content:try content(),submission:submission,source:source,targetServerURL:serverURL,createdAt:createdAt,state:expired(at:now) ? .expired : lease?.live(at:now) == true ? .reviewing : .pending)
         }
     }
     private static func offset(_ id:UUID,in state:Envelope) throws -> Int {
@@ -207,7 +270,7 @@ public struct PendingInbox: Sendable {
             let now = clock()
             guard now.timeIntervalSince1970.isFinite else { throw PendingInboxError.unavailable }
             let (value,changed) = try operation(&state,now)
-            if changed || state.version == 1 { state.version = 2; try save(state) }
+            if changed || state.version < 3 { state.version = 3; try save(state) }
             // After a committed removal, orphan cleanup is best effort: never turn success into an ambiguous failure.
             try? cleanup(state)
             return value
@@ -253,16 +316,19 @@ public struct PendingInbox: Sendable {
         catch ReadFailure.missing { return Envelope() }
         let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .millisecondsSince1970
         guard let header = try? decoder.decode(Header.self,from:data) else { throw PendingInboxError.corrupt }
-        guard header.version == 1 || header.version == 2 else { throw PendingInboxError.unsupportedVersion }
+        guard (1...3).contains(header.version) else { throw PendingInboxError.unsupportedVersion }
         guard let state = try? decoder.decode(Envelope.self,from:data), state.items.count <= Self.itemLimit, Set(state.items.map(\.id)).count == state.items.count,
               state.items.reduce(0,{ $0+($1.rawURI?.utf8.count ?? 0) }) <= Self.uriByteLimit,
               state.items.allSatisfy({ ($0.torrent?.byteCount ?? 0) >= 0 && ($0.torrent?.byteCount ?? 0) <= TorrentFile.byteLimit }),
               state.items.reduce(0,{ $0+($1.torrent?.byteCount ?? 0) }) <= Self.payloadByteLimit else { throw PendingInboxError.corrupt }
         for row in state.items {
             guard (try? row.content()) != nil, row.createdAt.timeIntervalSince1970.isFinite, row.retainedAt.timeIntervalSince1970.isFinite else { throw PendingInboxError.corrupt }
+            if let attempt=row.submission {
+                guard header.version==3, (try? attempt.validate()) != nil, attempt.phase == .prepared || row.freshRejectionToken == nil else { throw PendingInboxError.corrupt }
+            } else if row.freshRejectionToken != nil { throw PendingInboxError.corrupt }
             if let raw = row.rawURI { guard (try? MagnetLink(raw))?.rawURI == raw else { throw PendingInboxError.corrupt } }
             if let payload = row.torrent {
-                guard header.version == 2, payload.byteCount >= 0, payload.byteCount <= TorrentFile.byteLimit,
+                guard header.version >= 2, payload.byteCount >= 0, payload.byteCount <= TorrentFile.byteLimit,
                       payload.digest.utf8.count == 64, payload.digest.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }),
                       payload.summary.infoHash.utf8.count == 40, payload.summary.infoHash.utf8.allSatisfy({ (48...57).contains($0) || (97...102).contains($0) }),
                       payload.summary.totalBytes >= 0, (1...20_000).contains(payload.summary.fileCount), payload.summary.displayName.utf8.count <= 1024 else { throw PendingInboxError.corrupt }
