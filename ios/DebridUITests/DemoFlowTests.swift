@@ -418,3 +418,30 @@ final class NativeSubmissionFlowTests:XCTestCase {
         XCTAssertTrue(app.staticTexts["Selection confirmed"].waitForExistence(timeout:8))
     }
 }
+
+
+@MainActor final class NativeShareExtensionTests:XCTestCase {
+    func testActualShareSheetOpensEmbeddedExtensionAndCanCancel() throws {try exercise()}
+    func testLargestTextCanReachShareSaveAndCancel() throws {try exercise(large:true)}
+    private func exercise(large:Bool = false) throws {
+        let app=XCUIApplication()
+        app.launchArguments=["-DebridInboxTestNamespace",UUID().uuidString,"-DebridInboxCaptureMode","share-host"]
+        if large {app.launchArguments += ["-UIPreferredContentSizeCategoryName","UICTContentSizeCategoryAccessibilityXXXL"]}
+        app.launch()
+        let share=app.buttons["share-fixture"];XCTAssertTrue(share.waitForExistence(timeout:12));share.tap()
+        let debrid=app.staticTexts["Debrid"].firstMatch
+        if !debrid.waitForExistence(timeout:5) {
+            let more=app.staticTexts["More"].firstMatch
+            XCTAssertTrue(more.waitForExistence(timeout:5));more.tap()
+        }
+        XCTAssertTrue(debrid.waitForExistence(timeout:8));debrid.tap()
+        let save=app.buttons["Save to Debrid"]
+        XCTAssertTrue(save.waitForExistence(timeout:10))
+        XCTAssertTrue(app.staticTexts["Share Fixture"].waitForExistence(timeout:8))
+        for _ in 0..<15 where !save.isHittable {app.swipeUp()}
+        XCTAssertTrue(save.isHittable)
+        let shot=XCTAttachment(screenshot:app.screenshot());shot.name="share-extension-native";shot.lifetime = .keepAlways;add(shot)
+        app.buttons["Cancel"].tap()
+        XCTAssertTrue(app.buttons["share-fixture"].waitForExistence(timeout:8))
+    }
+}

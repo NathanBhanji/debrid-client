@@ -23,6 +23,8 @@ targets:
         excludes: [Info.plist]
     dependencies:
       - target: DebridKit
+      - target: DebridShare
+        embed: true
     info:
       path: Debrid/Info.plist
       properties:
@@ -62,6 +64,41 @@ targets:
         SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: ""
+  DebridShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: DebridShare
+        excludes: [Info.plist]
+      - path: Debrid/DesignSystem.swift
+      - path: Debrid/Assets.xcassets
+    dependencies:
+      - target: DebridKit
+        embed: false
+    info:
+      path: DebridShare/Info.plist
+      properties:
+        CFBundleDisplayName: Debrid
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsWebURLWithMaxCount: 16
+              NSExtensionActivationSupportsFileWithMaxCount: 16
+    entitlements:
+      path: DebridShare/DebridShare.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.dev.bhanji.debrid
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.bhanji.debrid.share
+        SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+        LD_RUNPATH_SEARCH_PATHS: ["$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks"]
   DebridKit:
     type: framework
     platform: iOS
