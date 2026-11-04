@@ -6,7 +6,9 @@ struct DebridApp: App {
     var body: some Scene {
         WindowGroup {
             #if DEBUG
-            if let index = ProcessInfo.processInfo.arguments.firstIndex(of: "-DesignScreen"),
+            if let index = ProcessInfo.processInfo.arguments.firstIndex(of: "-ProvidersFixture"), ProcessInfo.processInfo.arguments.indices.contains(index + 1) {
+                ProviderFixtureRoot(mode: ProcessInfo.processInfo.arguments[index + 1])
+            } else if let index = ProcessInfo.processInfo.arguments.firstIndex(of: "-DesignScreen"),
                ProcessInfo.processInfo.arguments.indices.contains(index + 1),
                let screen = DesignScreen(rawValue: ProcessInfo.processInfo.arguments[index + 1]) {
                 DesignScene(screen: screen)

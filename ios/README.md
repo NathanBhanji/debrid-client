@@ -158,3 +158,9 @@ The transport supports `native_cancellation_v1` review/request/receipt calls; ca
 ## Native cancel and remove
 
 Live detail offers separate cancellation and removal reviews. Cancel retains the transfer/files and warns about provider activity. Removal keeps NAS files/provider copies by default; requesting cleanup adds a native confirmation. Protected inbox6 freezes the original server/ID/revision/key/options before mutation and migrates formats1–5. Pending Items checks unknown results without automatic sending; explicit retries keep the original intent. Typed absence never claims cleanup completed. See [management contract and checks](../docs/plan/ios-management-actions.md) and [actual native captures](../docs/design/ios/management/README.md).
+
+### Provider overview
+
+The connected app uses Transfers, Providers and Settings tabs. Providers reads saved metadata and shows a dated credential check only after an explicit **Check connection** action. Disabled/default accounts remain visible. Premium/expiry reflect the provider's last response; quota is not reported by the API. Offline refresh retains the last snapshot; changed accounts invalidate old health. Checks never start transfers or enable accounts. The Settings tab exposes this connection's address, Pocket ID identity and confirmed sign-out.
+
+For no-network simulator review, launch a Debug app with `-ProvidersFixture normal` (or `light`, `failure`, `empty`, `offline`). These use production views with visibly labeled fictional data. `ProviderFlowTests` captures native states on the existing shared simulator; no new devices or runtime downloads are needed. See [behavior and validation](../docs/plan/ios-provider-overview.md).
