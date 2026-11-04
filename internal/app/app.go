@@ -121,7 +121,7 @@ func resolveAPIKey(ctx context.Context, cfg config.Config, svc *service.Service,
 	if err := svc.SetRaw(ctx, apiKeySetting, key); err != nil {
 		return "", err
 	}
-	log.Info("generated API key (saved in database; set server.api_key to override)", "api_key", key)
+	log.Info("generated API key (saved in database; retrieve locally with debrid config api-key)")
 	return key, nil
 }
 

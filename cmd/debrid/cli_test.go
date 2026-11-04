@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/anacrolix/torrent/bencode"
 	"github.com/anacrolix/torrent/metainfo"
@@ -21,6 +22,7 @@ import (
 	"github.com/NathanBhanji/debrid-client/internal/provider/providertest"
 	"github.com/NathanBhanji/debrid-client/internal/service"
 	"github.com/NathanBhanji/debrid-client/internal/store"
+	"github.com/NathanBhanji/debrid-client/internal/store/sqlcgen"
 )
 
 // run executes the CLI against srv (API key "k") and returns stdout.
@@ -230,5 +232,28 @@ func TestCLIDiscoveryAndRobustness(t *testing.T) {
 	root.SetArgs([]string{"--server", srv.URL, "--api-key", "dbkey", "settings", "set", "-"})
 	if err := root.Execute(); err != nil || !strings.Contains(out.String(), `"download_retries": 3`) || !strings.Contains(out.String(), `"tv"`) {
 		t.Fatalf("settings set should merge over current settings: %v\n%s", err, out.String())
+	}
+}
+
+func TestConfigAPIKeyReadsLocalDatabase(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(context.Background(), filepath.Join(dir, "debrid.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	err = st.UpsertSetting(context.Background(), sqlcgen.UpsertSettingParams{Key: "server.api_key", Value: "test-only-key", UpdatedAt: store.FormatTime(time.Now())})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	root := newRootCmd()
+	root.SetOut(&out)
+	root.SetArgs([]string{"config", "api-key", "--data-dir", dir})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != "test-only-key\n" {
+		t.Fatal("local key was not retrieved")
 	}
 }

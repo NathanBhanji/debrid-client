@@ -97,7 +97,16 @@ type HTTPError struct {
 	RetryAfter time.Duration // from a 429/503 Retry-After header, if any
 }
 
-func (e *HTTPError) Error() string { return fmt.Sprintf("fetch: http %d from %s", e.StatusCode, e.URL) }
+// Download URLs are bearer credentials, including tokens embedded in paths.
+// Errors are persisted and logged by the engine, so never format the URL.
+func (e *HTTPError) Error() string { return fmt.Sprintf("fetch: http %d", e.StatusCode) }
+
+// requestError preserves error classification without printing net/http errors:
+// url.Error and redirect/parse failures can contain a complete signed URL.
+type requestError struct{ cause error }
+
+func (e *requestError) Error() string { return "fetch: HTTP request failed" }
+func (e *requestError) Unwrap() error { return e.cause }
 
 // Retryable reports whether the status is worth retrying as-is.
 func (e *HTTPError) Retryable() bool {
@@ -300,7 +309,7 @@ func escapeRawQuery(q string) string {
 func (o Options) newRequest(ctx context.Context, rawURL string) (*http.Request, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, normalizeURL(rawURL), nil)
 	if err != nil {
-		return nil, err
+		return nil, &requestError{cause: err}
 	}
 	req.Header.Set("User-Agent", o.UserAgent)
 	for k, vs := range o.Header {
@@ -342,7 +351,7 @@ func (o Options) probeOnce(ctx context.Context, url string) (probe, error) {
 	req.Header.Set("Range", "bytes=0-0")
 	resp, err := o.Client.Do(req)
 	if err != nil {
-		return probe{}, err
+		return probe{}, &requestError{cause: err}
 	}
 	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
@@ -402,7 +411,7 @@ func (o Options) streamOnce(ctx context.Context, url, part string, size int64) (
 	}
 	resp, err := o.Client.Do(req)
 	if err != nil {
-		return 0, err
+		return 0, &requestError{cause: err}
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
@@ -565,7 +574,7 @@ func (o Options) fetchChunk(ctx context.Context, url string, f *os.File, st *sta
 	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", start, end))
 	resp, err := o.Client.Do(req)
 	if err != nil {
-		return err
+		return &requestError{cause: err}
 	}
 	defer func() { _ = resp.Body.Close() }()
 	switch resp.StatusCode {
