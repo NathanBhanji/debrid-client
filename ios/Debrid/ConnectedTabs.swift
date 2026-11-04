@@ -10,7 +10,7 @@ struct ConnectedTabs: View {
         TabView(selection: $tab) {
             Tab("Transfers", systemImage: "arrow.down.circle", value: 0) { LiveTransfers(server: server, auth: auth) }
             Tab("Providers", systemImage: "externaldrive.connected.to.line.below", value: 1) { LiveProviders(server: server, auth: auth) }
-            Tab("Settings", systemImage: "gearshape", value: 2) { ConnectionSettings(server: server, auth: auth) }
+            Tab("Settings", systemImage: "gearshape", value: 2) { LiveSettings(server: server, auth: auth) }
         }.tint(DebridStyle.tint)
         .onChange(of: intake?.navigationRequest?.id) {
             if intake?.navigationRequest?.serverURL == server.profile.serverURL { tab = 0 }
@@ -22,8 +22,12 @@ struct ConnectionSettings: View {
     let server: AuthenticatedServer
     let auth: SessionCoordinator?
     @State private var confirmingSignOut = false
+    private let embedded: Bool
+    init(server: AuthenticatedServer, auth: SessionCoordinator?, embedded: Bool = false) { self.server = server; self.auth = auth; self.embedded = embedded }
     var body: some View {
-        NavigationStack {
+        if embedded { content } else { NavigationStack { content } }
+    }
+    private var content: some View {
             List {
                 Section {
                     if auth == nil { Label("Preview · Sample server", systemImage: "viewfinder").font(.footnote).foregroundStyle(DebridStyle.secondary) }
@@ -54,6 +58,5 @@ struct ConnectionSettings: View {
                 Button("Sign out", role: .destructive) { Task { await auth?.signOut() } }
                 Button("Keep signed in", role: .cancel) {}
             } message: { Text("Downloads continue on your server. Saved links stay on this iPhone.") }
-        }
     }
 }

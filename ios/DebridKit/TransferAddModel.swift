@@ -83,7 +83,7 @@ import Observation
             async let serverSettings=api.settings()
             let (accounts,settings)=try await (providerAccounts,serverSettings);try Task.checkCancellation()
             guard accounts.count<=100,Set(accounts.map(\.id)).count==accounts.count,accounts.allSatisfy({ SubmissionIdentity.validID($0.id) }), (settings.categories?.count ?? 0)<=256 else { throw APIError.responseTooLarge }
-            self.accounts=accounts.filter { $0.enabled };categories=Array(Set((settings.categories ?? []).filter { !$0.isEmpty })).sorted()
+            self.accounts=accounts.filter { $0.enabled };categories=RuntimeSettingsDraft.byteDistinct((settings.categories ?? []).filter { !$0.isEmpty })
             if attempt == nil {
                 baseSettings=settings.torrentDefaults;unpack=settings.torrentDefaults.unpack
                 filePolicy=settings.torrentDefaults.waitForSelection == true ? .choose : .rules
@@ -107,6 +107,14 @@ import Observation
         guard features.contains("torrent_submissions_v1"),item.torrent == nil || features.contains("multipart_torrent_settings_v1") else { phase = .requiresUpdate;return false }
         if (inFlightOptions?.settings.waitForSelection ?? attempt?.options.settings.waitForSelection ?? (filePolicy == .choose)) && !features.contains("manual_file_selection_v1") {phase = .requiresUpdate;return false}
         capabilityReady=true;return true
+    }
+    public var editableOverrides: TorrentSettingsDTO? { canEdit ? reviewedSettings : nil }
+    public func applyOverrides(_ settings: TorrentSettingsDTO) {
+        guard canEdit else { return }
+        baseSettings = settings
+        unpack = settings.unpack
+        organization = settings.organize.map { $0 ? .on : .off } ?? .inherit
+        keepCopies = false
     }
     private func adjusted(_ base:TorrentSettingsDTO) -> TorrentSettingsDTO {
         let organize:Bool? = switch organization { case .inherit:nil;case .on:true;case .off:false }

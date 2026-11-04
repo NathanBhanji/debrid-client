@@ -2,7 +2,7 @@
 import DebridKit
 import SwiftUI
 
-private actor ProviderFixtureAPI: ProviderManagingAPI {
+actor ProviderFixtureAPI: ProviderManagingAPI {
     nonisolated let serverURL = URL(string: "https://debrid.example.test")!
     private var stored: [AccountDTO]?
     let mode: String

@@ -653,13 +653,13 @@ type OrganizePreviewInBody struct {
 	// Example: https://example.com/schemas/OrganizePreviewInBody.json
 	Schema *string `json:"$schema,omitempty"`
 
-	// MovieTemplate Override the saved movie template
+	// MovieTemplate Override the saved movie template; explicit empty uses the built-in default
 	MovieTemplate *string `json:"movie_template,omitempty"`
 
 	// Name Release name to preview
 	Name string `json:"name"`
 
-	// TvTemplate Override the saved TV template
+	// TvTemplate Override the saved TV template; explicit empty uses the built-in default
 	TvTemplate *string `json:"tv_template,omitempty"`
 }
 

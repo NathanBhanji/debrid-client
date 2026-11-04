@@ -1113,11 +1113,11 @@ export interface components {
        * @example https://example.com/schemas/OrganizePreviewInBody.json
        */
       readonly $schema?: string
-      /** @description Override the saved movie template */
+      /** @description Override the saved movie template; explicit empty uses the built-in default */
       movie_template?: string
       /** @description Release name to preview */
       name: string
-      /** @description Override the saved TV template */
+      /** @description Override the saved TV template; explicit empty uses the built-in default */
       tv_template?: string
     }
     OrganizePreviewOutBody: {

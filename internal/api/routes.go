@@ -394,9 +394,9 @@ func (h *Handler) registerRoutes(p string) {
 	// saving. Enabled is implied — previewing is the point.
 	huma.Register(api, huma.Operation{OperationID: "organize-preview", Method: http.MethodPost, Path: p + "/organize/preview", Summary: "Preview the organized folder for a release name", Tags: []string{"settings"}},
 		func(ctx context.Context, in *organizePreviewIn) (*organizePreviewOut, error) {
-			for _, tpl := range []string{in.Body.MovieTemplate, in.Body.TVTemplate} {
-				if tpl != "" {
-					if err := organize.ValidateTemplate(tpl); err != nil {
+			for _, tpl := range []*string{in.Body.MovieTemplate, in.Body.TVTemplate} {
+				if tpl != nil && *tpl != "" {
+					if err := organize.ValidateTemplate(*tpl); err != nil {
 						return nil, huma.Error422UnprocessableEntity(err.Error())
 					}
 				}
@@ -407,11 +407,11 @@ func (h *Handler) registerRoutes(p string) {
 			}
 			org := st.Organize
 			org.Enabled = true
-			if in.Body.MovieTemplate != "" {
-				org.MovieTemplate = in.Body.MovieTemplate
+			if in.Body.MovieTemplate != nil {
+				org.MovieTemplate = *in.Body.MovieTemplate
 			}
-			if in.Body.TVTemplate != "" {
-				org.TVTemplate = in.Body.TVTemplate
+			if in.Body.TVTemplate != nil {
+				org.TVTemplate = *in.Body.TVTemplate
 			}
 			path, organized := service.DirPathFor(domain.Torrent{Name: in.Body.Name, Hash: "preview"}, org)
 			out := &organizePreviewOut{}
@@ -497,9 +497,9 @@ func typedEvent(e events.Event) any {
 
 type organizePreviewIn struct {
 	Body struct {
-		Name          string `json:"name" minLength:"1" maxLength:"512" doc:"Release name to preview"`
-		MovieTemplate string `json:"movie_template,omitempty" doc:"Override the saved movie template"`
-		TVTemplate    string `json:"tv_template,omitempty" doc:"Override the saved TV template"`
+		Name          string  `json:"name" minLength:"1" maxLength:"512" doc:"Release name to preview"`
+		MovieTemplate *string `json:"movie_template,omitempty" nullable:"false" doc:"Override the saved movie template; explicit empty uses the built-in default"`
+		TVTemplate    *string `json:"tv_template,omitempty" nullable:"false" doc:"Override the saved TV template; explicit empty uses the built-in default"`
 	}
 }
 
