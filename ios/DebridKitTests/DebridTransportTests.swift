@@ -67,6 +67,20 @@ struct DebridTransportTests {
     }
     private func remove(_ host: String) { APIStub.states.withLock { _ = $0.removeValue(forKey: host) } }
 
+    @Test func providerChecksUseExplicitPostAndScopedSessionWithExactAccountBinding() async throws {
+        let body=Data(#"{"id":"account-one","kind":"torbox","name":"Home","enabled":true,"is_default":true,"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}"#.utf8)
+        let (client,host)=try setup(StubReply(data:body),credential:.session("fixture_cookie"));defer {remove(host)}
+        _=try await client.account(id:"account-one")
+        APIStub.states.withLock {$0[host]?.reply.data=Data(#"{"premium":true}"#.utf8)}
+        _=try await client.checkAccount(id:"account-one")
+        let requests=APIStub.states.withLock {$0[host]?.requests ?? []}
+        #expect(requests.map(\.httpMethod)==["GET","POST"])
+        #expect(requests.map {$0.url?.path}==["/debrid/api/v1/accounts/account-one","/debrid/api/v1/accounts/account-one/test"])
+        #expect(requests.allSatisfy {$0.value(forHTTPHeaderField:"Cookie")=="debrid_session=fixture_cookie"})
+        APIStub.states.withLock {$0[host]?.reply.data=body}
+        await #expect(throws:APIError.invalidResponse) {_=try await client.account(id:"another-account")}
+        await #expect(throws:ServerAddress.ValidationError.invalidPathComponent) {_=try await client.checkAccount(id:"../escape")}
+    }
     @Test func retryRequestAndReceiptPreserveBindingCredentialAndQuery() async throws {
         let body=Data(#"{"kind":"torrent","resource_id":"retry-target","torrent_id":"retry-target","accepted_at":"2026-01-02T03:04:05Z","torrent_exists":true}"#.utf8)
         let (client,host)=try setup(StubReply(data:body),credential:.session("fixture_cookie"));defer {remove(host)}

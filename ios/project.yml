@@ -29,6 +29,8 @@ targets:
       path: Debrid/Info.plist
       properties:
         CFBundleDisplayName: Debrid
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         DebridKeychainAccessGroup: $(AppIdentifierPrefix)dev.bhanji.debrid
         CFBundleURLTypes:
           - CFBundleURLName: dev.bhanji.debrid.auth
@@ -79,6 +81,8 @@ targets:
       path: DebridShare/Info.plist
       properties:
         CFBundleDisplayName: Debrid
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.share-services
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
