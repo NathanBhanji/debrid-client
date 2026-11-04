@@ -30,6 +30,11 @@ targets:
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         ITSAppUsesNonExemptEncryption: false
+    entitlements:
+      path: Debrid/Debrid.entitlements
+      properties:
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)dev.bhanji.debrid
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.bhanji.debrid
@@ -59,6 +64,7 @@ targets:
         type: folder
         buildPhase: resources
     dependencies:
+      - target: Debrid
       - target: DebridKit
     info:
       path: DebridKitTests/Info.plist
