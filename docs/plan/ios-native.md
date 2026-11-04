@@ -1,6 +1,6 @@
 # Native iPhone delivery · 29 reviewable PRs
 
-Status: delivery proposal; Nathan approved the Debrid name, teal/graphite palette and three tabs, and chose Pocket ID SSO as the primary sign-in on 2026-11-03. Only PR 01 is implemented here. Each number is a delivery unit with a coherent behavior and checks, not a commitment to open everything at once. Dependency numbers are logical prerequisites, not an instruction to create 29 simultaneous branches. Keep at most 2–3 open dependent PRs and one active implementation checkout. Do not merge, release, provision paid infrastructure or deploy automatically.
+Status: delivery proposal; Nathan approved the Debrid name and three tabs, and chose Pocket ID SSO as the primary sign-in on 2026-11-03. He then corrected the visual direction: preserve the existing web identity while feeling native to iOS 27, using Emil’s design skills in boards and code. Only PR 01 is implemented here. Each number is a delivery unit with a coherent behavior and checks, not a commitment to open everything at once. Dependency numbers are logical prerequisites, not an instruction to create 29 simultaneous branches. Keep at most 2–3 open dependent PRs and one active implementation checkout. Do not merge, release, provision paid infrastructure or deploy automatically.
 
 | PR | Deliverable | Depends | Acceptance checks |
 |---|---|---|---|
@@ -36,7 +36,7 @@ Status: delivery proposal; Nathan approved the Debrid name, teal/graphite palett
 
 ## Review gates
 
-After 01: review board and runnable fixture app here with Nathan; name, palette and tabs are approved; prioritize Pocket ID SSO before live use. Confirm phone OS and review the detailed add/share states. PRs 02/03/12 can progress independently of styling while feedback is pending.
+After 01: review board and runnable fixture app here with Nathan; name and tabs are approved; review the revised web-family/native iOS 27 visual design; prioritize Pocket ID SSO before live use. Confirm phone OS and review the detailed add/share states. PRs 02/03/12 can progress independently of styling while feedback is pending.
 
 After 04: discovery can check public health/auth status only. Use a fixture server first. Confirm 05's native auth contract before building 06; Pocket ID SSO is the live-use gate. Existing API-key support remains compatible for CLI/MCP; a native advanced fallback is deferred, not part of normal onboarding. Never request secrets in chat. Backend changes must be published and separately approved for deployment before the current production server can support native SSO.
 

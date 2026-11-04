@@ -8,10 +8,6 @@ struct DebridApp: App {
     }
 }
 
-private enum Desk {
-    static let accent = Color("DeskAccent")
-}
-
 struct DemoRoot: View {
     var body: some View {
         TabView {
@@ -19,7 +15,7 @@ struct DemoRoot: View {
             Tab("Providers", systemImage: "externaldrive.connected.to.line.below") { ProvidersView() }
             Tab("Settings", systemImage: "gearshape") { SettingsView() }
         }
-        .tint(Desk.accent)
+        .tint(DebridStyle.tint)
     }
 }
 
@@ -42,52 +38,67 @@ struct TransfersView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section { DemoNotice() }
                 Section {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Making room for the next discovery.").font(.title2.weight(.semibold))
-                        Text("1 downloading · 1 needs your choice").foregroundStyle(.secondary)
-                        Text("Downloads continue on your server when you leave the app.")
-                            .font(.footnote).foregroundStyle(.secondary)
-                    }.padding(.vertical, 8)
+                    DebridWordmark()
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                    TransferReadout()
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 0, trailing: 0))
                 }
                 Section("Your transfers") {
                     ForEach(transfers) { transfer in
                         NavigationLink { TransferDetail(transfer: transfer) } label: {
                             TransferRow(transfer: transfer)
                         }
+                        .listRowBackground(DebridStyle.surface)
+                        .accessibilityIdentifier("transfer-" + transfer.id)
                     }
                 }
                 if transfers.isEmpty {
                     ContentUnavailableView.search(text: search)
                 }
             }
+            .modifier(DebridListStyle())
             .navigationTitle("Transfers")
             .toolbarColorScheme(colorScheme, for: .navigationBar)
             .searchable(text: $search, prompt: "Search transfers")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button("Add transfer", systemImage: "plus") { showingAdd = true }
+                        .accessibilityIdentifier("add-transfer")
                 }
             }
-            .sheet(isPresented: $showingAdd) { AddPreview() }
+            .sheet(isPresented: $showingAdd) {
+                AddPreview().presentationDetents([.large]).presentationDragIndicator(.visible)
+            }
         }
     }
 }
 
 private struct TransferRow: View {
     let transfer: TransferPreview
+    @Environment(\.dynamicTypeSize) private var typeSize
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(transfer.name).font(.headline).foregroundStyle(.primary)
-            Label(transfer.phase.rawValue, systemImage: transfer.phase == .completed ? "checkmark.circle" : "arrow.down.circle")
-                .font(.subheadline).foregroundStyle(Desk.accent)
-            if transfer.phase == .downloading {
-                ProgressView(value: transfer.fraction)
-                    .accessibilityLabel("Download progress")
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                if !typeSize.isAccessibilitySize { TransferLamp(phase: transfer.phase) }
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(transfer.name).font(.headline).foregroundStyle(DebridStyle.ink)
+                    Label(transfer.phase.rawValue, systemImage: transfer.phase.symbol)
+                        .font(.subheadline).foregroundStyle(transfer.phase.ink)
+                }
             }
-            Text(transfer.detail).font(.caption).foregroundStyle(.secondary)
-        }.padding(.vertical, 8)
+            if transfer.phase == .downloading {
+                TransferSegments(fraction: transfer.fraction, color: transfer.phase.lamp)
+            }
+            Text(transfer.detail).font(.footnote).monospacedDigit().foregroundStyle(DebridStyle.secondary)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.vertical, 10)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -105,7 +116,8 @@ private struct TransferDetail: View {
                 Label("File selection arrives in a later milestone", systemImage: "doc")
                     .foregroundStyle(.secondary)
             }
-        }.toolbarColorScheme(colorScheme, for: .navigationBar)
+        }.modifier(DebridListStyle())
+        .toolbarColorScheme(colorScheme, for: .navigationBar)
         .navigationTitle(transfer.name).navigationBarTitleDisplayMode(.inline)
     }
 }
@@ -139,6 +151,7 @@ private struct AddPreview: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            .modifier(DebridListStyle())
             .toolbarColorScheme(colorScheme, for: .navigationBar)
             .navigationTitle("Add transfer").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } } }
@@ -157,7 +170,9 @@ private struct ProvidersView: View {
                     Label("Real-Debrid", systemImage: "externaldrive")
                 }
                 Section { Text("Account health is checked on demand. A saved account is not proof that a provider is reachable.").foregroundStyle(.secondary) }
-            }.toolbarColorScheme(colorScheme, for: .navigationBar).navigationTitle("Providers")
+            }.modifier(DebridListStyle())
+            .toolbarColorScheme(colorScheme, for: .navigationBar)
+            .navigationTitle("Providers")
         }
     }
 }
@@ -176,7 +191,9 @@ private struct SettingsView: View {
                     LabeledContent("Debrid", value: "0.1 · Design preview")
                     Text("Native on your phone. Downloads on your server.")
                 }
-            }.toolbarColorScheme(colorScheme, for: .navigationBar).navigationTitle("Settings")
+            }.modifier(DebridListStyle())
+            .toolbarColorScheme(colorScheme, for: .navigationBar)
+            .navigationTitle("Settings")
         }
     }
 }

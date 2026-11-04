@@ -23,7 +23,7 @@ Read-only `nas-agent debrid-client status` confirmed service running pinned 0.2.
 
 ## Confirmed product decision
 
-Nathan approved Debrid, teal/graphite and Transfers/Providers/Settings on 2026-11-03. Pocket ID SSO is the primary sign-in, using the existing server OIDC integration plus the planned native exchange. Do not ask Nathan to copy a server API key onto the phone as the normal onboarding flow. Production 0.2.1 cannot support that exchange until a separately approved backend deployment.
+Nathan approved Debrid and Transfers/Providers/Settings on 2026-11-03. The original teal palette is superseded by his correction to preserve the web identity within native iOS 27 design; see docs/design/ios/research.md. Pocket ID SSO is the primary sign-in, using the existing server OIDC integration plus the planned native exchange. Do not ask Nathan to copy a server API key onto the phone as the normal onboarding flow. Production 0.2.1 cannot support that exchange until a separately approved backend deployment.
 
 ## Apple evidence and limits
 

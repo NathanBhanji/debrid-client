@@ -4,19 +4,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Debrid · iPhone design direction</title>
 <style>
-*{box-sizing:border-box}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif;color:var(--foreground,#182c29)}.intro{padding:14px 0 24px}.eyebrow{font:11px ui-monospace,monospace;letter-spacing:2px;color:#087b70;text-transform:uppercase}h1{font-size:38px;line-height:1.05;letter-spacing:-1.6px;margin:12px 0}p{line-height:1.5}.intro p{max-width:560px;color:var(--muted-foreground,#566661)}.controls{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0}button{font:inherit;padding:9px 15px;border:1px solid #71877f;border-radius:22px;background:transparent;color:inherit;cursor:pointer}button[aria-pressed=true]{background:#087b70;color:white;border-color:#087b70}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:28px 18px}.specimen>h2{font:12px ui-monospace,monospace;letter-spacing:.5px;margin:0 0 10px}.phone{--bg:#f4f3ef;--surface:#fff;--ink:#182c29;--sub:#566661;--line:#dce3de;--teal:#087b70;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:32px;padding:20px 16px;min-height:568px;display:flex;flex-direction:column;box-shadow:0 8px 24px #102c2910}.dark .phone{--bg:#121716;--surface:#202725;--ink:#f1f5f2;--sub:#b3c2bc;--line:#39453f;--teal:#70d9c5}.status{display:flex;justify-content:space-between;font-size:12px;font-weight:600;padding:0 6px 28px}.nav{display:flex;justify-content:space-between;align-items:center;color:var(--teal);font-size:13px;margin-bottom:14px}.phone h3{font-size:29px;letter-spacing:-.8px;margin:0 0 18px}.phone h4{font-size:20px;line-height:1.25;margin:0 0 8px}.phone p{font-size:13px;color:var(--sub);margin:7px 0}.hero{padding:12px 0 20px}.kicker{font-size:11px;letter-spacing:1px;color:var(--sub);margin:14px 2px 8px;text-transform:uppercase}.card{background:var(--surface);border-radius:16px;padding:16px;margin-bottom:10px}.row{display:flex;justify-content:space-between;gap:12px;font-size:13px;padding:11px 0;border-bottom:1px solid var(--line)}.row:last-child{border-bottom:0}.sub{color:var(--sub)}.phase{font-size:12px;color:var(--teal);margin:10px 0 6px;font-weight:600}.progress{height:5px;border-radius:4px;background:var(--line);margin:12px 0}.progress i{display:block;height:100%;width:64%;background:var(--teal);border-radius:4px}.title{font-size:15px;font-weight:650;line-height:1.4}.pill{display:inline-block;font-size:11px;padding:5px 8px;background:var(--bg);border-radius:7px;color:var(--sub)}.primary{background:var(--teal);color:var(--bg);text-align:center;font-size:14px;font-weight:650;padding:14px;border-radius:15px;margin-top:14px}.secondary{text-align:center;color:var(--teal);font-size:13px;padding:12px}.tabs{margin-top:auto;padding:18px 4px 2px;display:flex;justify-content:space-around;color:var(--sub);font-size:10px;text-align:center}.tabs b{color:var(--teal)}.tabs span{font-size:21px;display:block;margin-bottom:5px}.notice{font-size:11px;color:var(--sub);border-left:2px solid var(--teal);padding:5px 10px;margin:8px 0 14px}.field{border:1px solid var(--line);border-radius:10px;padding:12px;font-size:13px;overflow-wrap:anywhere;margin:12px 0}.symbol{font-size:38px;color:var(--teal);margin:18px 0}.note{font-size:12px;line-height:1.5;color:var(--muted-foreground,#566661);margin:10px 0 0}.large .phone{font-size:120%}.large .phone p,.large .row,.large .title{font-size:18px}.large .row{flex-direction:column;gap:6px}.large .phone{min-height:650px}.foot{padding:28px 0;font-size:13px;color:var(--muted-foreground,#566661)}@media(max-width:520px){.grid{grid-template-columns:1fr}h1{font-size:34px}.phone{min-height:560px}}
+*{box-sizing:border-box}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif;color:var(--foreground,#23241f)}.intro{padding:14px 0 24px}.eyebrow{font:11px ui-monospace,monospace;letter-spacing:1.6px;color:var(--muted-foreground,#626359);text-transform:uppercase}h1{font-size:38px;line-height:1.05;letter-spacing:-1.4px;margin:12px 0}p{line-height:1.5}.intro p{max-width:60ch;color:var(--muted-foreground,#626359)}.controls{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0}button{font:inherit;min-height:44px;padding:10px 16px;border:1px solid var(--border,#b3b0a6);border-radius:24px;background:transparent;color:inherit;cursor:pointer;touch-action:manipulation;transition:transform 140ms cubic-bezier(.23,1,.32,1)}button:active{transform:scale(.97)}button:focus-visible{outline:2px solid #e35a20;outline-offset:3px}button[aria-pressed=true]{background:#b63700;color:white;border-color:transparent}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:28px 18px}.specimen>h2{font:12px ui-monospace,monospace;letter-spacing:.5px;margin:0 0 10px}.phone{--bg:#f3f1eb;--surface:#faf9f5;--ink:#23241f;--sub:#626359;--line:#c7c4bb;--action:#b63700;--stage:#005b83;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:34px;padding:20px 16px;min-height:590px;display:flex;flex-direction:column;position:relative}.dark .phone{--bg:#181b17;--surface:#282c25;--ink:#f2f1ec;--sub:#b8bcaf;--line:#555a4a;--action:#ff9a6a;--stage:#7ad9f2}.status{display:flex;justify-content:space-between;font-size:12px;font-weight:600;padding:0 6px 24px}.nav{display:flex;justify-content:space-between;align-items:center;color:var(--action);font-size:13px;margin-bottom:14px;min-height:30px}.nav>span:last-child{border-radius:24px;padding:9px 12px;background:color-mix(in srgb,var(--surface) 70%,transparent);box-shadow:0 1px 4px #0000000d,inset 0 1px 0 #ffffff55;backdrop-filter:blur(14px)}.phone h3{font-size:29px;letter-spacing:-.7px;margin:0 0 18px}.phone h4{font-size:20px;line-height:1.25;margin:0 0 8px}.phone p{font-size:13px;color:var(--sub);margin:7px 0}.hero{padding:12px 0 20px}.kicker{font-size:11px;letter-spacing:.8px;color:var(--sub);margin:14px 2px 8px;text-transform:uppercase}.card{background:var(--surface);border-radius:20px;padding:16px;margin-bottom:10px}.row{display:flex;justify-content:space-between;gap:12px;font-size:14px;padding:12px 0;border-bottom:1px solid var(--line)}.row:last-child{border-bottom:0}.sub{color:var(--sub)}.phase{font-size:13px;color:var(--stage);margin:10px 0 6px;font-weight:500}.phase.amber{color:#765000}.dark .phase.amber{color:#ffd27a}.phase.green{color:#256b35}.dark .phase.green{color:#96e1a7}.progress{height:8px;border-radius:2px;background:repeating-linear-gradient(90deg,var(--line) 0 calc(8.333% - 3px),transparent calc(8.333% - 3px) 8.333%);margin:12px 0}.progress i{display:block;height:100%;width:66.666%;background:repeating-linear-gradient(90deg,#39c2ff 0 calc(12.5% - 3px),transparent calc(12.5% - 3px) 12.5%)}.title{font-size:16px;font-weight:600;line-height:1.4}.pill{display:inline-block;font-size:11px;padding:5px 8px;background:var(--bg);border-radius:7px;color:var(--sub)}.primary{background:var(--action);color:var(--bg);text-align:center;font-size:15px;font-weight:600;padding:15px;border-radius:26px;margin-top:14px}.secondary{text-align:center;color:var(--action);font-size:14px;padding:13px}.tabs{margin:22px 4px 0;padding:12px 8px 10px;display:flex;justify-content:space-around;gap:12px;color:var(--sub);font-size:11px;text-align:center;border-radius:32px;background:color-mix(in srgb,var(--surface) 76%,transparent);box-shadow:0 2px 14px #00000012,inset 0 1px 0 #ffffff66;backdrop-filter:blur(16px);margin-top:auto}.tabs b{color:var(--action);font-weight:600}.tabs span{font-size:20px;display:block;margin-bottom:5px}.notice{font-size:12px;color:var(--sub);border-left:2px solid #ff4f00;padding:7px 12px;margin:10px 0 16px}.field{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:13px;font-size:14px;overflow-wrap:anywhere;margin:12px 0}.symbol{font-size:34px;color:var(--action);margin:18px 0}.note{font-size:12px;line-height:1.5;color:var(--muted-foreground,#626359);margin:10px 0 0}.large .phone p,.large .row,.large .title{font-size:18px}.large .row{flex-direction:column;gap:6px}.large .phone{min-height:700px}.foot{padding:28px 0;font-size:13px;color:var(--muted-foreground,#626359)}.brand{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;letter-spacing:1.8px;margin:0 0 14px}.brand i{width:8px;height:8px;border-radius:50%;background:#ff4f00}.brand em{font-style:normal;color:#ff4f00}.readout{background:#1d211b;color:#c9f5b1;border-radius:20px;padding:18px;margin:0 0 14px}.readout .kicker{font-family:ui-monospace,monospace;color:#c9f5b1;margin-top:0;font-size:10px}.readout h4{font-size:20px;font-weight:600;letter-spacing:0}.readout p{color:#c9f5b1;font-size:12px}.lamp{display:inline-grid;place-items:center;background:#39c2ff;color:#182c29;width:27px;height:27px;border-radius:8px;float:left;margin-right:10px}.large .lamp{display:none}@media(max-width:520px){.grid{grid-template-columns:1fr}h1{font-size:34px}.phone{min-height:580px}}@media(prefers-reduced-motion:reduce){button{transition:none}button:active{transform:none}}@media(prefers-reduced-transparency:reduce){.tabs,.nav>span:last-child{background:var(--surface);backdrop-filter:none}}@media(prefers-contrast:more){.phone{--sub:var(--ink)}.card,.tabs{outline:1px solid var(--ink)}}
 </style>
 <body>
 <div class="intro">
-<div class="eyebrow">Debrid / Native iPhone / Design direction 01</div>
-<h1>A quiet desk.<br>For everything in motion.</h1>
-<p>Native controls, clear transfer stages, and deliberate actions. Your phone manages the work. Your server does the downloading.</p>
+<div class="eyebrow">Debrid / Native iPhone / Design direction 02</div>
+<h1>Same Debrid.<br>Native on iPhone.</h1>
+<p>The orange mark, warm surfaces and status readouts from the web app. System navigation, sheets and controls from iOS 27.</p>
 <div class="controls">
 <button id="light" aria-pressed="true" onclick="theme(false)">Light</button>
 <button id="dark" aria-pressed="false" onclick="theme(true)">Dark</button>
 <button id="type" aria-pressed="false" onclick="large(this)">Large text study</button>
 </div>
-<p class="note">Fictional content throughout. These are screen studies; the first SwiftUI build implements the fixture shell only. The text-size toggle is a layout study, not a Dynamic Type test.</p>
+<p class="note">Fictional content. The board approximates system glass; actual materials, text scaling and gestures are verified in the SwiftUI build. Content remains matte. The large-text toggle is a layout study.</p>
 </div>
 <main class="grid">
 <section class="specimen">
@@ -71,14 +71,20 @@
 <div class="nav">Sample server<span>＋ Add</span>
 </div>
 <h3>Transfers</h3>
-<div class="hero">
-<h4>Making room for the<br>next discovery.</h4>
-<p>1 downloading · 1 needs your choice</p>
+<div class="brand">
+<i>
+</i>DEBRID<em>.</em>
+</div>
+<div class="readout">
+<div class="kicker">Transfer status · Demo</div>
+<h4>1 downloading<br>1 needs file selection</h4>
+<p>Sample data · No server connected</p>
 </div>
 <div class="field">⌕ Search transfers</div>
 <div class="card">
-<div class="title">The Open Ocean</div>
-<div class="phase">↓ Downloading to NAS</div>
+<div class="title">
+<span class="lamp">↓</span>The Open Ocean</div>
+<div class="phase">Downloading to NAS</div>
 <div class="progress">
 <i>
 </i>
@@ -87,7 +93,7 @@
 </div>
 <div class="card">
 <div class="title">Field Recordings · Vol. 02</div>
-<div class="phase">☷ Choose files</div>
+<div class="phase amber">☷ Choose files</div>
 <p>12 files · Real-Debrid</p>
 </div>
 <div class="tabs">
@@ -214,7 +220,7 @@
 <div class="card">
 <div class="title">TorBox <span class="pill">Default</span>
 </div>
-<div class="phase">✓ Connection checked</div>
+<div class="phase green">✓ Connection checked</div>
 <p>Checked just now</p>
 <div class="row">
 <span>Account details</span>
@@ -354,7 +360,7 @@
 <p class="note">Loading uses native indicators; 401 reconnects, 429 states retry timing, TLS failures keep validation intact. No automatic destructive cleanup.</p>
 </section>
 </main>
-<div class="foot">Review points: name & palette · three-tab navigation · Pocket ID sign-in · share review and offline drafts.<br>29 dependent delivery units. No automatic merges, live submissions or production changes.</div>
+<div class="foot">Review points: web identity within native iOS 27 navigation · Pocket ID sign-in · share review and offline drafts.<br>29 dependent delivery units. No automatic merges, live submissions or production changes.</div>
 <script>function theme(d){document.body.classList.toggle("dark",d);document.getElementById("dark").setAttribute("aria-pressed",d);document.getElementById("light").setAttribute("aria-pressed",!d)}function large(b){let v=document.body.classList.toggle("large");b.setAttribute("aria-pressed",v)}</script>
 </body>
 </html>

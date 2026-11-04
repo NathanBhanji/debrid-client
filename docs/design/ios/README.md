@@ -1,24 +1,29 @@
 # Debrid · iPhone design proposal
 
-**Direction: a quiet transfer desk.** Native on your phone, downloads on your server. Three tabs: Transfers, Providers, Settings. Add lives in the Transfers toolbar and opens a native review sheet. No dashboard charts, cache-hit claims or device-download metaphor. Nathan approved the name, palette and tab structure on 2026-11-03; detailed flow review continues in this thread. Pocket ID SSO is the primary login.
+**Direction: Debrid’s web identity in a native iOS 27 app.** Warm matte content, orange-dot DEBRID. wordmark, a dark status readout, semantic phase lamps and segmented progress. System TabView, NavigationStack, toolbar buttons, search, sheets and forms supply the navigation layer and gestures. No desktop device frame, physical-key imitation or blanket glass on content. Nathan requested this correction after the unrelated initial teal design; the revised detailed screens are ready for review. Three tabs remain Transfers, Providers, Settings. Pocket ID SSO remains the primary login.
 
-Open [board.html](board.html) for screen compositions. It is a review artifact, not shipped UI. The native app intentionally implements only the first fixture shell, search, navigation and review layout. Full board flows arrive through the roadmap.
+Research and the applied Emil skill review: [research.md](research.md). This is the design contract for both the board and the real SwiftUI code, not just a mood board.
+
+Open [board.html](board.html) for screen compositions, and [native-review.html](native-review.html) for actual simulator captures. It is a review artifact, not shipped UI. The native app intentionally implements only the first fixture shell, search, navigation and review layout. Full board flows arrive through the roadmap.
 
 ## Tokens and native behavior
 
 | Token | Light | Dark | Use |
 |---|---|---|---|
-| Canvas | warm grouped #F4F3EF | graphite #121716 | grouped screen background |
-| Surface | #FFFFFF | #202725 | native grouped rows/sheets |
-| Primary ink | #182C29 | #F1F5F2 | titles/content |
-| Secondary ink | #566661 | #B3C2BC | explanatory text |
-| Accent | #087B70 | #70D9C5 | primary actions and progress |
-| Attention | #875300 | #F3BF70 | action needed, always with icon/text |
-| Destructive | system red | system red | explicit destructive buttons |
+| Canvas | #F3F1EB | #181B17 | softer derivative of web chassis |
+| Surface | #FAF9F5 | #282C25 | matte native list content |
+| Primary ink | #23241F | #F2F1EC | titles/content |
+| Secondary ink | #626359 | #B8BCAF | readable explanatory text |
+| Brand orange | #FF4F00 | #FF4F00 | wordmark dot; graphical identity |
+| Action tint | #B63700 | #FF9A6A | legible orange-family native controls |
+| Readout | #1D211B / #C9F5B1 | same | status content, never navigation |
+| Stage | blue / amber / green / red | adaptive inks | NAS download / choose/provider / complete / error |
 
-Use SF native semantic text styles (largeTitle/title2/headline/body/caption), rounded numerals only for progress, monospaced digits for byte counts. System colors in shipped UI adapt to accessibility; the board illustrates palette intent. Native glass belongs to system navigation/toolbars, not every row. Group sections with 16–24pt rhythm, generous headings, subtle separators and no decorative graphs. Minimum 44pt interactive targets. Use semantic labels, not color-only state.
+Use semantic SF text styles. SF monospaced labels and monospaced digits echo the web instrumentation only where useful; do not copy its desktop fonts or tiny type across the app. All custom colors supply light/dark/increased-contrast variants. Label every phase in words and symbols; color and decorative lamps are supplementary.
 
-Progress row: title → explicit stage → stage progress when measurable → bytes/provider. Do not combine provider and server progress into a misleading single percentage. Details show destination/category, provider stage, download stage, files and contextual actions. Safe area insets and intrinsic heights; no fixed card height. Largest accessibility sizes stack labels/values vertically; long release names wrap. Reduce Motion removes decorative transitions. VoiceOver reads title, stage, progress and provider; exposes actions with clear consequences.
+Retain system Liquid Glass for functional controls/navigation, including the floating native tab bar, scroll edges, toolbar controls and sheet transitions. Do not hand-draw a replacement or force a fixed glass appearance over the user's settings. Content stays matte; no glass nesting, screws, pulsing lights, artificial beveled controls or slow decorative entrances. Emil's motion decision framework calls for no added custom animation here: native scrolling/back gestures/sheet dragging remain interruptible and system-owned. The HTML board uses press feedback with reduced-motion/transparency/contrast adaptations; it only approximates native chrome.
+
+Minimum 44pt interactive targets; intrinsic row heights, wrapped names, native picker/forms, and no fixed text scaling. At accessibility sizes hide the supplementary lamp to give text room. Segments expose a single progress label/value to assistive technology. Byte counts use tabular digits to avoid jitter. VoiceOver combines meaningful row content and skips decorative lamps/wordmark dot. Do not conflate provider and NAS progress. App Group/signing and full VoiceOver/material testing on iPhone remain device gates.
 
 ## Screens and states
 
@@ -43,4 +48,4 @@ Offline: cached transfers are read-only with age shown; draft intake remains ava
 
 ## Review and acceptance
 
-Nathan approved the tab structure and palette; review terminology and add/share flow here before wider UI implementation. Use Pocket ID SSO for primary onboarding; defer advanced API-key fallback. Confirm physical iPhone OS before locking iOS 27 minimum. Test light/dark, largest Dynamic Type, VoiceOver, Reduce Motion, landscape, long names, empty/failed states and an interrupted add. Board typography is illustrative; only simulator/device screenshots establish native HIG behavior. Platform routing limitations and evidence: [audit](../../plan/ios-audit.md).
+The initial teal direction is superseded. Review the revised web-family styling, native material/gesture behavior, terminology and add/share flow here before wider UI implementation. Use Pocket ID SSO for primary onboarding; defer advanced API-key fallback. Confirm physical iPhone OS before locking iOS 27 minimum. Test light/dark, largest Dynamic Type, VoiceOver, Reduce Motion, landscape, long names, empty/failed states and an interrupted add. Board typography is illustrative; only simulator/device screenshots establish native HIG behavior. Platform routing limitations and evidence: [audit](../../plan/ios-audit.md).
