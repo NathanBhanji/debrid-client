@@ -14,6 +14,10 @@ settings:
     MARKETING_VERSION: 0.1.0
     CURRENT_PROJECT_VERSION: 1
     ENABLE_USER_SCRIPT_SANDBOXING: YES
+  configs:
+    Release:
+      CODE_SIGN_STYLE: Manual
+      CODE_SIGN_IDENTITY[sdk=iphoneos*]: Apple Distribution
 targets:
   Debrid:
     type: application
@@ -21,6 +25,8 @@ targets:
     sources:
       - path: Debrid
         excludes: [Info.plist]
+      - path: PrivacyInfo.xcprivacy
+        buildPhase: resources
     dependencies:
       - target: DebridKit
       - target: DebridShare
@@ -53,6 +59,8 @@ targets:
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         ITSAppUsesNonExemptEncryption: false
+        LSSupportsOpeningDocumentsInPlace: false
+        DebridSourceRevision: $(DEBRID_SOURCE_REVISION)
     entitlements:
       path: Debrid/Debrid.entitlements
       properties:
@@ -65,13 +73,20 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: dev.bhanji.debrid
         SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
         TARGETED_DEVICE_FAMILY: "1"
-        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      configs:
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Apple Distribution
+          PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]: Debrid AppStore AppGroup
   DebridShare:
     type: app-extension
     platform: iOS
     sources:
       - path: DebridShare
         excludes: [Info.plist]
+      - path: PrivacyInfo.xcprivacy
+        buildPhase: resources
       - path: Debrid/DesignSystem.swift
       - path: Debrid/Assets.xcassets
     dependencies:
@@ -103,14 +118,24 @@ targets:
         APPLICATION_EXTENSION_API_ONLY: YES
         SKIP_INSTALL: YES
         LD_RUNPATH_SEARCH_PATHS: ["$(inherited)", "@executable_path/Frameworks", "@executable_path/../../Frameworks"]
+      configs:
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Apple Distribution
+          PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]: Debrid Share AppStore AppGroup
   DebridKit:
     type: framework
     platform: iOS
     sources:
       - path: DebridKit
         excludes: [Info.plist]
+      - path: PrivacyInfo.xcprivacy
+        buildPhase: resources
     info:
       path: DebridKit/Info.plist
+      properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.bhanji.debrid.kit
