@@ -583,3 +583,53 @@ func TestNormalizeURL(t *testing.T) {
 		}
 	}
 }
+
+// Failure diagnostics flow into the database, API and server logs. Signed
+// URLs may carry credentials in paths as well as query parameters.
+func TestDownloadErrorsDoNotExposeCredentials(t *testing.T) {
+	for _, stage := range []string{"probe", "stream", "chunk", "transport", "invalid-url"} {
+		t.Run(stage, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if stage == "probe" || r.Header.Get("Range") != "bytes=0-0" {
+					w.WriteHeader(http.StatusForbidden)
+					return
+				}
+				if stage == "chunk" {
+					w.Header().Set("Content-Range", "bytes 0-0/2")
+					w.WriteHeader(http.StatusPartialContent)
+				} else {
+					w.Header().Set("Content-Length", "2")
+				}
+				_, _ = w.Write([]byte("ab"))
+			}))
+			defer srv.Close()
+			if stage == "transport" {
+				srv.Close()
+			}
+			raw := srv.URL + "/path-secret?token=query-secret"
+			if stage == "invalid-url" {
+				raw = "http://[invalid/path-secret?token=query-secret"
+			}
+			_, err := Download(context.Background(), raw, filepath.Join(t.TempDir(), "file"), Options{ChunkSize: 1})
+			if err == nil {
+				t.Fatal("expected failure")
+			}
+			for _, secret := range []string{"path-secret", "query-secret"} {
+				if strings.Contains(err.Error(), secret) {
+					t.Fatal("download failure exposes credentials")
+				}
+			}
+			if stage == "transport" {
+				var requestFailure *requestError
+				if !errors.As(err, &requestFailure) || requestFailure.Unwrap() == nil {
+					t.Fatal("transport cause was lost")
+				}
+			} else if stage != "invalid-url" {
+				var statusFailure *HTTPError
+				if !errors.As(err, &statusFailure) || !statusFailure.LinkExpired() {
+					t.Fatal("expired-link classification was lost")
+				}
+			}
+		})
+	}
+}

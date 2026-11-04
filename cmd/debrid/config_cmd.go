@@ -2,11 +2,13 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"go.yaml.in/yaml/v3"
 
 	"github.com/NathanBhanji/debrid-client/internal/config"
+	"github.com/NathanBhanji/debrid-client/internal/store"
 )
 
 // globalFlags holds flag values shared by all commands.
@@ -76,6 +78,26 @@ func newConfigCmd(g *globalFlags) *cobra.Command {
 		},
 	}
 
-	cmd.AddCommand(initCmd, showCmd, pathCmd)
+	keyCmd := &cobra.Command{
+		Use:   "api-key",
+		Short: "Print the local server API key (secret; for first-run browser setup)",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			cfg, err := g.loadConfig(cmd)
+			if err != nil {
+				return err
+			}
+			key := cfg.Server.APIKey
+			if key == "" {
+				key, err = store.ReadSettingReadOnly(cmd.Context(), filepath.Join(cfg.DataDir, "debrid.db"), "server.api_key")
+				if err != nil {
+					return fmt.Errorf("read local API key (start the server first): %w", err)
+				}
+			}
+			_, err = fmt.Fprintln(cmd.OutOrStdout(), key)
+			return err
+		},
+	}
+	config.BindFlags(keyCmd.Flags())
+	cmd.AddCommand(initCmd, showCmd, pathCmd, keyCmd)
 	return cmd
 }
