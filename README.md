@@ -18,7 +18,7 @@ Docker (`ghcr.io/nathanbhanji/debrid-client`): see [`docker-compose.yml`](docker
 
 ```sh
 debrid config init                       # optional: writes a commented config file
-debrid serve                             # API on 127.0.0.1:8080; prints the generated API key on first run
+debrid serve                             # API on 127.0.0.1:8080; generates and stores the API key on first run
 
 debrid accounts add --kind torbox --key $TORBOX_API_KEY
 debrid torrents add "magnet:?xt=urn:btih:..." -c tv
@@ -38,7 +38,7 @@ Turn on `organize` in settings (UI, `debrid settings set`, API or MCP) and new t
 
 `debrid serve` also serves a web UI at the server address (http://127.0.0.1:8080 by default). Add magnets or drop `.torrent` files, watch progress live, and manage accounts and settings. Release binaries and Docker images ship with the UI embedded; when building from source, run `make web` before `make build` to include it (plain `go build` works without it and serves the API only).
 
-On first visit the UI runs a one-time onboarding: choose **username & password** or **SSO/passkeys via any OIDC provider** (e.g. a self-hosted [Pocket ID](https://pocket-id.org)); completing it requires the API key printed by `debrid serve`, which proves you own the server. Browser sessions use HttpOnly cookies; the API key keeps working unchanged for the CLI, MCP and automation. For OIDC, register a client at your provider with callback `https://<host>/api/v1/auth/oidc/callback` — the first sign-in pins your identity and nobody else's account at that provider can log in.
+On first visit the UI runs a one-time onboarding: choose **username & password** or **SSO/passkeys via any OIDC provider** (e.g. a self-hosted [Pocket ID](https://pocket-id.org)); completing it requires the local API key from `debrid config api-key` (run on the server with its data directory/configuration), which proves you own the server. Browser sessions use HttpOnly cookies; the API key keeps working unchanged for the CLI, MCP and automation. For OIDC, register a client at your provider with callback `https://<host>/api/v1/auth/oidc/callback` — the first sign-in pins your identity and nobody else's account at that provider can log in.
 
 The UI uses root-absolute URLs, so it requires an empty `server.base_path` (the default) — put it behind its own (sub)domain rather than a path prefix if proxying.
 

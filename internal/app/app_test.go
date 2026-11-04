@@ -1,8 +1,10 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -124,5 +126,27 @@ func TestMCPMountedInProcess(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != 200 || !strings.Contains(string(body), `"download_dir"`) || strings.Contains(string(body), "$schema") {
 		t.Fatalf("tools/call over in-process mount: %d %s", resp.StatusCode, body)
+	}
+}
+
+func TestGeneratedKeyIsNotLogged(t *testing.T) {
+	var logs bytes.Buffer
+	cfg := config.Default().Derived()
+	cfg.DataDir = t.TempDir()
+	cfg.DownloadDir = filepath.Join(cfg.DataDir, "dl")
+	a, err := New(context.Background(), cfg, slog.New(slog.NewTextHandler(&logs, nil)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = a.Close() }()
+	if a.APIKey == "" {
+		t.Fatal("key not generated")
+	}
+	if strings.Contains(logs.String(), a.APIKey) {
+		t.Fatal("generated key exposed in logs")
+	}
+	saved, err := a.Store.GetSetting(context.Background(), "server.api_key")
+	if err != nil || saved != a.APIKey {
+		t.Fatal("generated key not persisted")
 	}
 }
