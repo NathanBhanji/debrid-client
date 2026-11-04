@@ -292,3 +292,10 @@ func parseDur(s string) (time.Duration, error) {
 	}
 	return time.ParseDuration(s)
 }
+
+// RetryReview exposes no provider URL/error/settings payload, only eligibility
+// and the digest that binds an explicit native retry request.
+type RetryReview service.RetryReview
+
+// RetryAcceptance confirms one local retry mutation, not eventual completion.
+type RetryAcceptance service.RetryAcceptance

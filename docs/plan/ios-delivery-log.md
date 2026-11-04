@@ -85,3 +85,9 @@ Actual extension opening and Cancel are verified; tests did not press Save into 
 ## 2026-11-04 — retry21 backend draft started
 
 PR58 merged as28278876c60d51f7a1191df2dd1928729d7119f0; post-merge CI185 passed. Milestones01–20 are merged. Initial21 work adds per-torrent retry/scheduler admission, stale scheduled-cleanup protection and abort-on-drain-failure deletion. Service/engine race suites and pinned lint pass; independent source review approved this initial guard scope after corrections. Native receipt/API/UI work is still pending, so21 is not merge-ready. See [retry audit](ios-retry-actions.md). No production action or simulator use.
+
+## 2026-11-04 — retry21 protocol foundation
+
+Added review/request/receipt routes for exact torrent/download IDs, namespaced durable retry keys and atomic receipt/reset commits. Replays precede eligibility and cancellation and survive parent/file-row removal. Parent-scoped receipt fencing covers native and legacy file retries, including identical timestamp/counter cycles. Migration5 adds a parent receipt index; upgrade/tombstone preservation, indexed plan and integrity checks pass. Fresh backup is required before later production deployment; no production change occurred.
+
+Full Go race suite and pinned lint passed. Independent-handle concurrency and HTTP cookie/auth/Origin/mismatch/no-store coverage passed. Go/OpenAPI/native fixtures and web types regenerated; web formatting/lint/typecheck/build passed. New native RetryAPI DTO/client and query support passed23 Go-wire/transport tests. Independent read-only protocol review approved this foundation. The same PR59 remains draft: protected native retry intent, captured-parent validation, model/lifecycle/confirmation/recovery UI and source/visual validation remain pending. Milestones01–20 are merged. No native retry button is enabled yet.

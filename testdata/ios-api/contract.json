@@ -21,13 +21,29 @@
     "capabilities": [
       "torrent_submissions_v1",
       "multipart_torrent_settings_v1",
-      "manual_file_selection_v1"
+      "manual_file_selection_v1",
+      "native_retry_v1"
     ]
   },
   "identity": {
     "$schema": "https://example.com/schemas/MeOutBody.json",
     "mode": "",
     "api_key": true
+  },
+  "retry_acceptance": {
+    "kind": "download",
+    "resource_id": "fixture-download",
+    "torrent_id": "fixture-transfer",
+    "accepted_at": "2026-01-02T03:04:05.123456789Z",
+    "torrent_exists": true
+  },
+  "retry_review": {
+    "kind": "torrent",
+    "resource_id": "fixture-transfer",
+    "torrent_id": "fixture-transfer",
+    "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "allowed": true,
+    "wait_for_selection": true
   },
   "settings": {
     "torrent_defaults": {

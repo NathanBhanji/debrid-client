@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"io/fs"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -90,5 +91,63 @@ func TestSubmissionMigrationPreservesLegacyDuplicateRowsAndPayloads(t *testing.T
 	receipt, err := migrated.GetTorrentSubmission(ctx, string(bytes.Repeat([]byte("a"), 64)))
 	if err != nil || receipt.TorrentExists {
 		t.Fatal("accepted tombstone lost after deletion")
+	}
+}
+
+func TestParentReceiptIndexMigrationPreservesReceiptsAndAvoidsGlobalScan(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "v4.db")
+	db, err := sql.Open("sqlite", dsn(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	migrations, err := fs.Sub(migrationsFS, "migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := goose.NewProvider(goose.DialectSQLite3, db, migrations)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.UpTo(ctx, 4); err != nil {
+		t.Fatal(err)
+	}
+	q := sqlcgen.New(db)
+	key := strings.Repeat("a", 64)
+	original := sqlcgen.InsertTorrentSubmissionParams{KeyHash: key, RequestHash: strings.Repeat("b", 64), TorrentID: "removed-parent", CreatedAt: FormatTime(time.Now().UTC())}
+	if err := q.InsertTorrentSubmission(ctx, original); err != nil {
+		t.Fatal(err)
+	}
+	before, err := q.GetTorrentSubmission(ctx, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	migrated, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = migrated.Close() }()
+	after, err := migrated.GetTorrentSubmission(ctx, key)
+	if err != nil || after != before {
+		t.Fatal("index migration altered receipt", after, err)
+	}
+	var id, parent, unused int
+	var plan string
+	if err := migrated.DB().QueryRowContext(ctx, "EXPLAIN QUERY PLAN SELECT COUNT(*) FROM torrent_submissions WHERE torrent_id = ?", "removed-parent").Scan(&id, &parent, &unused, &plan); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(plan, "INDEX torrent_submissions_torrent_id") {
+		t.Fatal("parent fence scans global receipt table", plan)
+	}
+	count, err := migrated.CountTorrentSubmissions(ctx, "removed-parent")
+	if err != nil || count != 1 {
+		t.Fatal(count, err)
+	}
+	var integrity string
+	if err := migrated.DB().QueryRowContext(ctx, "PRAGMA integrity_check").Scan(&integrity); err != nil || integrity != "ok" {
+		t.Fatal(integrity, err)
 	}
 }

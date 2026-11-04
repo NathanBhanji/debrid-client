@@ -9,6 +9,17 @@ import (
 	"context"
 )
 
+const countTorrentSubmissions = `-- name: CountTorrentSubmissions :one
+SELECT COUNT(*) FROM torrent_submissions WHERE torrent_id = ?
+`
+
+func (q *Queries) CountTorrentSubmissions(ctx context.Context, torrentID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countTorrentSubmissions, torrentID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const getTorrentSubmission = `-- name: GetTorrentSubmission :one
 SELECT key_hash, request_hash, torrent_id, created_at, EXISTS(SELECT 1 FROM torrents WHERE id = torrent_submissions.torrent_id) AS torrent_exists
 FROM torrent_submissions WHERE key_hash = ?

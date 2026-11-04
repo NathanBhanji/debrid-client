@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/NathanBhanji/debrid-client/internal/api"
@@ -54,6 +55,8 @@ func generate() error {
 		Settings: defaults, AddedAt: at,
 		Downloads: []apimodel.Download{{ID: "fixture-download", TorrentID: "fixture-transfer", FileID: "film", Path: "The Open Ocean.mkv", Filename: "The Open Ocean.mkv", Size: 10000000000, BytesDone: 6400000000, Progress: 0.64, State: "downloading", QueuedAt: at, StartedAt: &at}},
 	}
+	fixtures["retry_review"] = apimodel.RetryReview{Kind: "torrent", ResourceID: "fixture-transfer", TorrentID: "fixture-transfer", Revision: strings.Repeat("a", 64), Allowed: true, WaitForSelection: true}
+	fixtures["retry_acceptance"] = apimodel.RetryAcceptance{Kind: "download", ResourceID: "fixture-download", TorrentID: "fixture-transfer", AcceptedAt: at, TorrentExists: true}
 	fixtures["account"] = apimodel.Account{ID: "fixture-account", Kind: "torbox", Name: "Home account", Enabled: true, IsDefault: true, CreatedAt: at, UpdatedAt: at}
 	fixtures["settings"] = apimodel.Settings{TorrentDefaults: defaults, Categories: []string{"Documentaries", "Audio"}, UnpackMaxDepth: 2, Organize: apimodel.OrganizeSettings{Enabled: false}}
 	fixtures["system_status"] = apimodel.Status{Version: "fixture", DownloadDir: "/downloads", Accounts: 1, Torrents: map[string]int{"finished": 1}, Downloads: map[string]int{"downloading": 1}, DiskFree: 500000000000, DiskTotal: 1000000000000}

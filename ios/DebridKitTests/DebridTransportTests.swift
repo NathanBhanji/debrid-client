@@ -67,6 +67,29 @@ struct DebridTransportTests {
     }
     private func remove(_ host: String) { APIStub.states.withLock { _ = $0.removeValue(forKey: host) } }
 
+    @Test func retryRequestAndReceiptPreserveBindingCredentialAndQuery() async throws {
+        let body=Data(#"{"kind":"torrent","resource_id":"retry-target","torrent_id":"retry-target","accepted_at":"2026-01-02T03:04:05Z","torrent_exists":true}"#.utf8)
+        let (client,host)=try setup(StubReply(data:body),credential:.session("fixture_cookie"));defer {remove(host)}
+        let key=UUID(),revision=String(repeating:"a",count:64)
+        _=try await client.requestRetry(kind:.torrent,id:"retry-target",key:key,revision:revision)
+        _=try await client.retryAcceptance(kind:.torrent,id:"retry-target",key:key,revision:revision)
+        let requests=APIStub.states.withLock {$0[host]?.requests ?? []}
+        #expect(requests.count==2 && requests[0].httpMethod=="POST" && requests[1].httpMethod=="GET")
+        #expect(requests[0].url?.path=="/debrid/api/v1/torrents/retry-target/retry-requests")
+        #expect(requests.allSatisfy {$0.value(forHTTPHeaderField:"Cookie")=="debrid_session=fixture_cookie"})
+        let submittedBody=try requestBody(requests[0])
+        let submitted=try #require(JSONSerialization.jsonObject(with:submittedBody) as? [String:String])
+        #expect(submitted==["key":key.uuidString.lowercased(),"revision":revision])
+        #expect(URLComponents(url:try #require(requests[1].url),resolvingAgainstBaseURL:false)?.queryItems==[URLQueryItem(name:"revision",value:revision)])
+    }
+    @Test func missingRetryReceiptIsUnknownAndWrongResourceIsRejected() async throws {
+        let (missing,missingHost)=try setup(StubReply(status:404));defer {remove(missingHost)}
+        #expect(try await missing.retryAcceptance(kind:.download,id:"failed-file",key:UUID(),revision:String(repeating:"a",count:64))==nil)
+        let body=Data(#"{"kind":"download","resource_id":"another-file","torrent_id":"parent","accepted_at":"2026-01-02T03:04:05Z","torrent_exists":true}"#.utf8)
+        let (wrong,wrongHost)=try setup(StubReply(data:body));defer {remove(wrongHost)}
+        await #expect(throws:APIError.invalidResponse) {_=try await wrong.requestRetry(kind:.download,id:"failed-file",key:UUID(),revision:String(repeating:"a",count:64))}
+    }
+
     @Test func healthPreservesPrefixAndHeaderCredential() async throws {
         let (client, host) = try setup(credential: .bearer("fixture-key"))
         defer { remove(host) }
