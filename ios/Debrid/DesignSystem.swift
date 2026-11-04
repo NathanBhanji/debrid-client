@@ -22,6 +22,8 @@ struct DebridWordmark: View {
                 .font(.subheadline.weight(.bold)).tracking(1.5)
         }
         .foregroundStyle(DebridStyle.ink)
+        .frame(minHeight: 44, alignment: .leading)
+        .contentShape(.accessibility, Rectangle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Debrid")
     }
@@ -59,7 +61,7 @@ extension TransferPreview.Phase {
         case .downloading: Color("StageBlue")
         case .selecting: Color("StageAmber")
         case .completed: Color("StageGreen")
-        case .failed: .red
+        case .failed: Color("DangerInk")
         }
     }
 
@@ -110,5 +112,17 @@ struct DebridListStyle: ViewModifier {
             .scrollContentBackground(.hidden)
             .background(DebridStyle.canvas)
             .foregroundStyle(DebridStyle.ink)
+    }
+}
+
+/// Keep the native Button semantics while giving form actions a full touch target.
+/// Press feedback is immediate; no custom motion is added to repeated actions.
+struct DebridRowActionStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(minWidth: 44, minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+            .opacity(isEnabled ? (configuration.isPressed ? 0.65 : 1) : 0.4)
     }
 }

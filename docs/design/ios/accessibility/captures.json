@@ -1,0 +1,115 @@
+[
+  {
+    "file": "selection-accessibility-state-largest.png",
+    "test": "AccessibilityAuditTests/testFileSelectionExposesBothStatesWithoutSubmitting()",
+    "result": "Test-Debrid-2026.11.04_22-54-10-+0000.xcresult",
+    "casePassed": true,
+    "runPassed": false,
+    "fixture": true,
+    "runtime": "iOS27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178"
+  },
+  {
+    "file": "audit-connect.png",
+    "test": "AccessibilityAuditTests/testOnboardingAudit()",
+    "result": "Test-Debrid-2026.11.04_22-54-10-+0000.xcresult",
+    "casePassed": true,
+    "runPassed": false,
+    "fixture": true,
+    "runtime": "iOS27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178"
+  },
+  {
+    "file": "audit-providers-light.png",
+    "test": "AccessibilityAuditTests/testProviderAuditLight()",
+    "result": "Test-Debrid-2026.11.04_22-54-10-+0000.xcresult",
+    "casePassed": true,
+    "runPassed": false,
+    "fixture": true,
+    "runtime": "iOS27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178"
+  },
+  {
+    "file": "audit-settings-dark.png",
+    "test": "AccessibilityAuditTests/testSettingsAuditDark()",
+    "result": "Test-Debrid-2026.11.04_22-54-10-+0000.xcresult",
+    "casePassed": true,
+    "runPassed": false,
+    "fixture": true,
+    "runtime": "iOS27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178"
+  },
+  {
+    "file": "audit-detail.png",
+    "test": "AccessibilityAuditTests/testTransfersAndDetailAudits()",
+    "result": "Test-Debrid-2026.11.04_22-54-10-+0000.xcresult",
+    "casePassed": true,
+    "runPassed": false,
+    "fixture": true,
+    "runtime": "iOS27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178"
+  },
+  {
+    "file": "audit-transfers.png",
+    "test": "AccessibilityAuditTests/testTransfersAndDetailAudits()",
+    "result": "Test-Debrid-2026.11.04_22-54-10-+0000.xcresult",
+    "casePassed": true,
+    "runPassed": false,
+    "fixture": true,
+    "runtime": "iOS27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178"
+  },
+  {
+    "file": "share-extension-native.png",
+    "test": "NativeShareExtensionTests/testLargestTextCanReachShareSaveAndCancel()",
+    "result": "Test-Debrid-2026.11.04_22-52-04-+0000.xcresult",
+    "casePassed": true,
+    "runPassed": false,
+    "fixture": true,
+    "runtime": "iOS27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178"
+  },
+  {
+    "file": "audit-transfers-largest.png",
+    "test": "AccessibilityAuditTests/testDynamicTypeGrowsActualTransferRow()",
+    "result": "Test-Debrid-2026.11.04_23-04-10-+0000.xcresult",
+    "casePassed": true,
+    "runPassed": false,
+    "fixture": true,
+    "runtime": "iOS27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178",
+    "capture": "XCUIApplication"
+  },
+  {
+    "file": "audit-transfers-regular.png",
+    "test": "AccessibilityAuditTests/testDynamicTypeGrowsActualTransferRow()",
+    "result": "Test-Debrid-2026.11.04_23-04-10-+0000.xcresult",
+    "casePassed": true,
+    "runPassed": false,
+    "fixture": true,
+    "runtime": "iOS27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178",
+    "capture": "XCUIApplication"
+  },
+  {
+    "file": "audit-landscape-largest.png",
+    "test": "AccessibilityAuditTests/testLargestTextLandscapeAndKeyboard()",
+    "result": "Test-Debrid-2026.11.04_23-04-10-+0000.xcresult",
+    "casePassed": true,
+    "runPassed": false,
+    "fixture": true,
+    "runtime": "iOS27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178",
+    "capture": "XCUIScreen.main"
+  },
+  {
+    "file": "system-reduce-motion-detail.png",
+    "test": "AccessibilityAuditTests/testNavigationWithSystemReduceMotionEnabled()",
+    "result": "Test-Debrid-2026.11.04_23-07-10-+0000.xcresult",
+    "casePassed": true,
+    "runPassed": true,
+    "fixture": true,
+    "runtime": "iOS27.0",
+    "simulator": "7906FB6B-4D78-41CD-8155-70D93E0B1178"
+  }
+]

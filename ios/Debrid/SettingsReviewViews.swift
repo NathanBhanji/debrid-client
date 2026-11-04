@@ -58,9 +58,9 @@ struct SettingsSaveReview: View {
                 Section { Text("Save these server defaults?").font(.headline); Text("Changes apply to new transfers and future lifecycle work. Existing paths are not moved.").font(.subheadline).foregroundStyle(DebridStyle.secondary) }
                 ForEach(changed, id: \.self) { section in Section(section.label) { SettingsSectionSummary(draft: model.draft, section: section) } }
                 Section {
-                    Button("Keep editing") { dismiss() }.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint)
+                    Button("Keep editing") { dismiss() }.buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint)
                     Button("Save settings", systemImage: "checkmark") { guard model.canReview else { return }; save() }
-                        .buttonStyle(.borderless).foregroundStyle(model.draft.policy.hasDeletion ? Color("DangerInk") : DebridStyle.tint)
+                        .buttonStyle(DebridRowActionStyle()).foregroundStyle(model.draft.policy.hasDeletion ? Color("DangerInk") : DebridStyle.tint)
                         .disabled(!model.canReview).accessibilityIdentifier("settings-save")
                 } footer: { Text("Settings are replaced together using the version you reviewed. Newer server changes will be refused for review.") }
             }.modifier(DebridListStyle()).navigationTitle("Review settings").navigationBarTitleDisplayMode(.inline)
@@ -89,7 +89,7 @@ struct SettingsConflictView: View {
                     }
                 }
                 Section { Button("Review combined draft", systemImage: "checklist") { model.mergeForReview(); if model.phase == .editing { dismiss() } }
-                    .buttonStyle(.borderless).foregroundStyle(model.conflicts.contains { model.choices[$0] == nil } ? DebridStyle.secondary : DebridStyle.tint)
+                    .buttonStyle(DebridRowActionStyle()).foregroundStyle(model.conflicts.contains { model.choices[$0] == nil } ? DebridStyle.secondary : DebridStyle.tint)
                     .disabled(model.conflicts.contains { model.choices[$0] == nil }).accessibilityIdentifier("settings-merge") }
             } else { Section { Button("Load latest settings", action: reload).foregroundStyle(DebridStyle.tint).disabled(model.isBusy) } }
         }.modifier(DebridListStyle()).navigationTitle("Review server changes").navigationBarTitleDisplayMode(.inline)

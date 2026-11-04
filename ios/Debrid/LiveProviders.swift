@@ -36,7 +36,7 @@ struct LiveProviders: View {
             List {
                 if let model {
                     if query.isEmpty { Section {
-                        if auth == nil { Label("Preview · Sample accounts", systemImage: "viewfinder").font(.footnote).foregroundStyle(DebridStyle.secondary) }
+                        if auth == nil { Label("Preview · Sample accounts", systemImage: "viewfinder").font(.footnote).fixedSize(horizontal: false, vertical: true).foregroundStyle(DebridStyle.secondary) }
                         DebridWordmark().padding(.vertical, 6)
                         Text("Your provider accounts")
                             .font(.title2.weight(.semibold))
@@ -47,7 +47,7 @@ struct LiveProviders: View {
                         Section {
                             Label(message, systemImage: "wifi.exclamationmark")
                             if model.hasLoaded { Text("Showing the last loaded accounts.").font(.footnote) }
-                            Button("Try again") { checkTask = Task { await model.refresh() } }.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint).disabled(model.isLoading || model.isChecking)
+                            Button("Try again") { checkTask = Task { await model.refresh() } }.buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint).disabled(model.isLoading || model.isChecking)
                         }.foregroundStyle(DebridStyle.secondary)
                     }
                     if model.isLoading && !model.hasLoaded {
@@ -170,7 +170,7 @@ private struct ProviderAccountDetail: View {
     var body: some View {
         List {
             if let account {
-                if preview { Section { Label("Preview · Sample account", systemImage: "viewfinder").font(.footnote).foregroundStyle(DebridStyle.secondary) } }
+                if preview { Section { Label("Preview · Sample account", systemImage: "viewfinder").font(.footnote).fixedSize(horizontal: false, vertical: true).foregroundStyle(DebridStyle.secondary) } }
                 Section {
                     if model.checkErrors[id] == nil { ProviderAccountRow(account: account, check: model.checks[id], failed: false) }
                     else { Text(ProviderNames.label(account.kind)).foregroundStyle(DebridStyle.secondary) }
@@ -183,7 +183,7 @@ private struct ProviderAccountDetail: View {
                     if model.checkingID == id { ProgressView("Checking connection…").accessibilityIdentifier("provider-check-progress") }
                     else {
                         Button("Check connection", systemImage: "arrow.trianglehead.2.clockwise") { check() }
-                            .buttonStyle(.borderless).foregroundStyle(DebridStyle.tint)
+                            .buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint)
                             .disabled(model.isLoading || model.isChecking)
                             .accessibilityIdentifier("provider-check")
                     }

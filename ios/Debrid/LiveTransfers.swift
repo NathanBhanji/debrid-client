@@ -8,6 +8,7 @@ struct LiveTransfers: View {
     let auth: SessionCoordinator?
     @Environment(\.magnetIntake) private var intake
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var typeSize
     private struct IntakeNavigationContext:Hashable { let request:UUID?;let ready:Bool;let active:Bool }
     @State private var model: TransferListModel?
     @State private var selectionModel:FileSelectionModel?
@@ -18,6 +19,7 @@ struct LiveTransfers: View {
     @State private var showingServer = false
     @State private var showingFilters = false
     @State private var initialQuery = ""
+    @FocusState private var searchFocused: Bool
     @State private var path: [TransferRoute] = []
     init(server: AuthenticatedServer, auth: SessionCoordinator) { self.server = server; self.auth = auth }
     #if DEBUG
@@ -39,6 +41,7 @@ struct LiveTransfers: View {
             transferList.modifier(DebridListStyle()).scrollDismissesKeyboard(.interactively)
                 .navigationTitle("Transfers")
                 .searchable(text:Binding(get:{ model?.search.query ?? initialQuery },set:{ initialQuery = TransferSearchIndex.bounded($0,limit:256); model?.setQuery(initialQuery) }),prompt:"Search transfers")
+                .searchFocused($searchFocused).onSubmit(of: .search) { searchFocused = false }
                 .autocorrectionDisabled().textInputAutocapitalization(.never)
                 .toolbar {
                     if let intake { ToolbarItem(placement:.topBarTrailing) { PendingLinksButton(intake:intake) } }
@@ -99,12 +102,13 @@ struct LiveTransfers: View {
                         await auth?.sessionRejected(for:model.profile.id,connectionID:server.connectionID)
                     }
                 }
+                .onChange(of: path) { if !path.isEmpty { searchFocused = false } }
                 .onDisappear { model?.stopLiveUpdates() }
     }
     private var transferList:some View {
         List {
                 if auth == nil {
-                    Section { Label("Preview · Sample transfers", systemImage:"viewfinder").font(.footnote).foregroundStyle(DebridStyle.secondary) }
+                    Section { Label("Preview · Sample transfers", systemImage:"viewfinder").font(.footnote).fixedSize(horizontal: false, vertical: true).foregroundStyle(DebridStyle.secondary) }
                         .listRowBackground(Color.clear).listRowSeparator(.hidden)
                 }
                 if model?.search.hasCriteria != true { Section {
@@ -126,7 +130,7 @@ struct LiveTransfers: View {
                             TimelineView(.periodic(from: .now, by: 1)) { _ in
                                 Button("Try again") { Task { await reload(model) } }
                                     .disabled(model.isRefreshThrottled)
-                                    .buttonStyle(.borderless).foregroundStyle(DebridStyle.tint)
+                                    .buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint)
                             }
                         }
                     }
@@ -141,7 +145,7 @@ struct LiveTransfers: View {
                             ContentUnavailableView {
                                 Label("No matching transfers", systemImage: "magnifyingglass")
                             } description: { Text("Try another search or clear your filters.") }
-                            actions: { Button("Clear search and filters") { model.resetSearch() }.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint) }
+                            actions: { Button("Clear search and filters") { model.resetSearch() }.buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint) }
                         }.listRowBackground(Color.clear)
                     } else {
                         Section {
@@ -150,7 +154,9 @@ struct LiveTransfers: View {
                             }
                         } header: {
                             VStack(alignment:.leading,spacing:4) {
-                                HStack { Text("Your transfers"); Spacer(); Text("\(model.visibleItems.count) of \(model.items.count)").monospacedDigit() }
+                                if typeSize.isAccessibilitySize {
+                                    VStack(alignment: .leading, spacing: 4) { Text("Your transfers"); Text("\(model.visibleItems.count) of \(model.items.count)").monospacedDigit() }
+                                } else { HStack { Text("Your transfers"); Spacer(); Text("\(model.visibleItems.count) of \(model.items.count)").monospacedDigit() } }
                                 if model.search.hasCriteria { Text(model.liveStatus.label).font(.caption) }
                             }.accessibilityElement(children:.combine)
                         }
@@ -196,12 +202,12 @@ struct LiveTransfers: View {
         NavigationStack {
             Form {
                 Section("Server") {
-                    Text(server.profile.serverURL.absoluteString).textSelection(.enabled)
+                    Text(server.profile.serverURL.absoluteString).textSelection(.enabled).accessibilityLabel("Server address").accessibilityValue(server.profile.serverURL.absoluteString)
                     LabeledContent("Signed in as", value: server.username)
                 }
                 if let auth { Section {
                     Button("Sign out on this iPhone", role: .destructive) { Task { await auth.signOut() } }
-                        .buttonStyle(.borderless).foregroundStyle(.red).disabled(auth.isBusy)
+                        .buttonStyle(DebridRowActionStyle()).foregroundStyle(Color("DangerInk")).disabled(auth.isBusy)
                     if auth.isBusy { ProgressView("Signing out…") }
                     if let message = auth.message { Text(message).foregroundStyle(DebridStyle.secondary) }
                 } } else { Section { Text("Preview only. No server session exists.").foregroundStyle(DebridStyle.secondary) } }
@@ -216,7 +222,7 @@ private struct LiveTransferRow: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     private var color: Color {
         switch item.stage {
-        case .failed: .red
+        case .failed: Color("DangerInk")
         case .selecting: Color("StageAmber")
         case .completed: Color("StageGreen")
         case .cancelled, .unknown: DebridStyle.secondary

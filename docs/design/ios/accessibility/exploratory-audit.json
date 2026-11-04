@@ -1,0 +1,74 @@
+[
+  {
+    "test": "AccessibilityAuditTests/testOnboardingAudit()",
+    "result": "Test-Debrid-2026.11.04_22-26-05-+0000.xcresult",
+    "findings": [
+      "4: Hit area is too small \u00b7 unidentified \u00b7 The size of this SwiftUI.AccessibilityNode is too small for user to interact.",
+      "65536: Dynamic Type font sizes are partially unsupported \u00b7 Server found \u00b7 User will not be able to change the font size of this SwiftUI.AccessibilityNode",
+      "65536: Dynamic Type font sizes are partially unsupported \u00b7 Continue with Pocket ID \u00b7 User will not be able to change the font size of this SwiftUI.AccessibilityNode",
+      "65536: Dynamic Type font sizes are partially unsupported \u00b7 Server address \u00b7 User will not be able to change the font size of this SwiftUI.AccessibilityNode",
+      "65536: Dynamic Type font sizes are partially unsupported \u00b7 Use the full HTTPS address, including any path prefix. A tailnet-only server needs Tailscale access on this iPhone. \u00b7 User will not be able to change the font size of this SwiftUI.AccessibilityNode",
+      "65536: Dynamic Type font sizes are partially unsupported \u00b7 https://debrid.example.test \u00b7 User will not be able to change the font size of this SwiftUI.AccessibilityNode",
+      "65536: Dynamic Type font sizes are partially unsupported \u00b7 Debrid Preview \u00b7 User will not be able to change the font size of this SwiftUI.AccessibilityNode",
+      "65536: Dynamic Type font sizes are partially unsupported \u00b7 Check connection \u00b7 User will not be able to change the font size of this SwiftUI.AccessibilityNode",
+      "65536: Dynamic Type font sizes are partially unsupported \u00b7 Pocket ID is available \u00b7 User will not be able to change the font size of this SwiftUI.AccessibilityNode",
+      "131072: Text clipped \u00b7  \u00b7 Text of this SwiftUI.UIKitTextField may be clipped at larger Dynamic Type sizes.",
+      "131072: Text clipped \u00b7 Check connection \u00b7 Text of this SwiftUI.AccessibilityNode may be clipped at larger Dynamic Type sizes.",
+      "131072: Text clipped \u00b7 unidentified \u00b7 Text of this element may be clipped at larger Dynamic Type sizes.",
+      "8: Label not human-readable \u00b7 https://debrid.example.test \u00b7 The accessibilityLabel of this SwiftUI.AccessibilityNode is not human-readable."
+    ],
+    "runPassed": false
+  },
+  {
+    "test": "AccessibilityAuditTests/testProviderAuditLight()",
+    "result": "Test-Debrid-2026.11.04_22-26-05-+0000.xcresult",
+    "findings": [
+      "1: Contrast failed \u00b7 unidentified \u00b7 Contrast failed for SwiftUI.AccessibilityNode",
+      "1: Contrast failed \u00b7 unidentified \u00b7 Contrast failed for SwiftUI.AccessibilityNode",
+      "65536: Dynamic Type font sizes are partially unsupported \u00b7 Accounts \u00b7 User will not be able to change the font size of this SwiftUI.AccessibilityNode",
+      "131072: Text clipped \u00b7 Search accounts \u00b7 Text of this UISearchBarTextField may be clipped at larger Dynamic Type sizes."
+    ],
+    "runPassed": false
+  },
+  {
+    "test": "AccessibilityAuditTests/testSettingsAuditDark()",
+    "result": "Test-Debrid-2026.11.04_22-26-05-+0000.xcresult",
+    "findings": [
+      "65536: Dynamic Type font sizes are partially unsupported \u00b7 Connection \u00b7 User will not be able to change the font size of this SwiftUI.AccessibilityNode",
+      "65536: Dynamic Type font sizes are partially unsupported \u00b7 Library organization \u00b7 User will not be able to change the font size of this SwiftUI.AccessibilityNode",
+      "65536: Dynamic Type font sizes are partially unsupported \u00b7 Download defaults \u00b7 User will not be able to change the font size of this SwiftUI.AccessibilityNode",
+      "65536: Dynamic Type font sizes are partially unsupported \u00b7 Server preferences \u00b7 User will not be able to change the font size of this SwiftUI.AccessibilityNode",
+      "65536: Dynamic Type font sizes are partially unsupported \u00b7 Categories \u00b7 User will not be able to change the font size of this SwiftUI.AccessibilityNode",
+      "131072: Text clipped \u00b7 Library organization \u00b7 Text of this SwiftUI.AccessibilityNode may be clipped at larger Dynamic Type sizes.",
+      "131072: Text clipped \u00b7 Categories \u00b7 Text of this SwiftUI.AccessibilityNode may be clipped at larger Dynamic Type sizes.",
+      "131072: Text clipped \u00b7 Preview \u00b7 Sample settings \u00b7 Text of this SwiftUI.AccessibilityNode may be clipped at larger Dynamic Type sizes.",
+      "131072: Text clipped \u00b7 Download defaults \u00b7 Text of this SwiftUI.AccessibilityNode may be clipped at larger Dynamic Type sizes.",
+      "8: Label not human-readable \u00b7 https://debrid.example.test \u00b7 The accessibilityLabel of this SwiftUI.AccessibilityNode is not human-readable."
+    ],
+    "runPassed": false
+  },
+  {
+    "test": "AccessibilityAuditTests/testTransfersAndDetailAudits()",
+    "result": "Test-Debrid-2026.11.04_22-26-05-+0000.xcresult",
+    "findings": [
+      "1: Contrast failed \u00b7 unidentified \u00b7 Contrast failed for SwiftUI.AccessibilityNode",
+      "65536: Dynamic Type font sizes are partially unsupported \u00b7 3 of 3 \u00b7 User will not be able to change the font size of this SwiftUI.AccessibilityNode",
+      "65536: Dynamic Type font sizes are partially unsupported \u00b7 Your transfers \u00b7 User will not be able to change the font size of this SwiftUI.AccessibilityNode",
+      "131072: Text clipped \u00b7 Preview \u00b7 Sample transfers \u00b7 Text of this SwiftUI.AccessibilityNode may be clipped at larger Dynamic Type sizes."
+    ],
+    "runPassed": false,
+    "frameNote": "Baseline detail navigation failed; reports labeled detail in that mixed run still described the transfer list. Do not use as detail evidence."
+  },
+  {
+    "test": "AccessibilityAuditTests/testTransfersAndDetailAudits()",
+    "result": "Test-Debrid-2026.11.04_22-26-05-+0000.xcresult",
+    "findings": [
+      "1: Contrast failed \u00b7 unidentified \u00b7 Contrast failed for SwiftUI.AccessibilityNode",
+      "65536: Dynamic Type font sizes are partially unsupported \u00b7 3 of 3 \u00b7 User will not be able to change the font size of this SwiftUI.AccessibilityNode",
+      "65536: Dynamic Type font sizes are partially unsupported \u00b7 Your transfers \u00b7 User will not be able to change the font size of this SwiftUI.AccessibilityNode",
+      "131072: Text clipped \u00b7 Preview \u00b7 Sample transfers \u00b7 Text of this SwiftUI.AccessibilityNode may be clipped at larger Dynamic Type sizes."
+    ],
+    "runPassed": false,
+    "frameNote": "Baseline detail navigation failed; reports labeled detail in that mixed run still described the transfer list. Do not use as detail evidence."
+  }
+]

@@ -452,10 +452,11 @@ final class NativeSubmissionFlowTests:XCTestCase {
         }
         XCTAssertTrue(debrid.waitForExistence(timeout:8));debrid.tap()
         let save=app.buttons["Save to Debrid"]
-        XCTAssertTrue(save.waitForExistence(timeout:10))
-        XCTAssertTrue(app.staticTexts["Share Fixture"].waitForExistence(timeout:8))
-        for _ in 0..<15 where !save.isHittable {app.swipeUp()}
-        XCTAssertTrue(save.isHittable)
+        let item = app.staticTexts["Share Fixture"]
+        for _ in 0..<15 { if item.exists && item.isHittable { break }; app.swipeUp() }
+        XCTAssertTrue(item.exists && item.isHittable)
+        for _ in 0..<15 { if save.exists && save.isHittable { break }; app.swipeUp() }
+        XCTAssertTrue(save.exists && save.isHittable)
         let shot=XCTAttachment(screenshot:app.screenshot());shot.name="share-extension-native";shot.lifetime = .keepAlways;add(shot)
         app.buttons["Cancel"].tap()
         XCTAssertTrue(app.buttons["share-fixture"].waitForExistence(timeout:8))

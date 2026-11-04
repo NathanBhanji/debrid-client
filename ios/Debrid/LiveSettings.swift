@@ -23,7 +23,7 @@ struct LiveSettings: View {
         NavigationStack(path: $path) {
             List {
                 Section {
-                    if auth == nil { Label("Preview · Sample settings", systemImage: "viewfinder").font(.footnote).foregroundStyle(DebridStyle.secondary) }
+                    if auth == nil { Label("Preview · Sample settings", systemImage: "viewfinder").font(.footnote).fixedSize(horizontal: false, vertical: true).foregroundStyle(DebridStyle.secondary) }
                     DebridWordmark().padding(.vertical, 6)
                     Text("Your server, your rules.").font(.title2.weight(.semibold))
                     Text("Defaults apply to new transfers. Existing download paths stay where they are.").font(.subheadline).foregroundStyle(DebridStyle.secondary)
@@ -37,12 +37,12 @@ struct LiveSettings: View {
                             NavigationLink(value: RuntimeSettingsRoute.organization) { Label("Library organization", systemImage: "square.stack.3d.up") }.accessibilityIdentifier("settings-organization")
                         }.disabled(model.phase != .editing || model.isBusy)
                         if model.isDirty && model.phase == .editing {
-                            Section { Button("Review changes", systemImage: "checklist") { reviewing = true }.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint).disabled(!model.canReview).accessibilityIdentifier("settings-review") }
+                            Section { Button("Review changes", systemImage: "checklist") { reviewing = true }.buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint).disabled(!model.canReview).accessibilityIdentifier("settings-review") }
                         }
                     }
                 } else if setupFailed { ContentUnavailableView("Settings unavailable", systemImage: "exclamationmark.triangle", description: Text("Reconnect and try again.")) } else { ProgressView("Loading settings…") }
                 Section("Connection") {
-                    Text(server.profile.serverURL.absoluteString).font(.footnote).textSelection(.enabled)
+                    Text(server.profile.serverURL.absoluteString).font(.footnote).textSelection(.enabled).accessibilityLabel("Server address").accessibilityValue(server.profile.serverURL.absoluteString)
                     NavigationLink("Server and sign-in", value: RuntimeSettingsRoute.connection)
                 }
             }.modifier(DebridListStyle()).navigationTitle("Settings")
@@ -215,4 +215,4 @@ private struct SettingsOrganization: View {
 
 private extension String { var settingsUTF8Identity: Data { Data(utf8) } }
 
-struct SettingsSampleNotice: View { var body: some View { Label("Preview · Sample settings", systemImage: "viewfinder").font(.footnote).foregroundStyle(DebridStyle.secondary) } }
+struct SettingsSampleNotice: View { var body: some View { Label("Preview · Sample settings", systemImage: "viewfinder").font(.footnote).fixedSize(horizontal: false, vertical: true).foregroundStyle(DebridStyle.secondary) } }

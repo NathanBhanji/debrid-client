@@ -29,13 +29,13 @@ struct TransferFiltersView: View {
                 Section {
                     Text("\(model.visibleItems.count) of \(model.items.count) transfers match").monospacedDigit()
                     Button("Clear search and filters") { model.resetSearch() }
-                        .buttonStyle(.borderless).foregroundStyle(DebridStyle.tint)
+                        .buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint)
                         .disabled(!model.search.hasCriteria)
                 }
                 if let message = model.accountsMessage {
                     Section {
                         Text(message).foregroundStyle(DebridStyle.secondary)
-                        Button("Reload account labels") { model.reloadAccounts() }.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint)
+                        Button("Reload account labels") { model.reloadAccounts() }.buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint)
                     }
                 }
                 if let message = model.preferencesMessage { Section { Text(message).foregroundStyle(DebridStyle.secondary) } }

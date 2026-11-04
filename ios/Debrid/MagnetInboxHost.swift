@@ -310,8 +310,8 @@ private struct PendingItemReview: View {
                 if let addModel { SubmissionReviewSections(model:addModel) { action in request=ReviewRequest(action:action) } }
                 else if intake.connection == nil { Section { Text("Connect to your server to add this saved item.");Button("Connect to server") { intake.isPresented=false } } }
                 Section {
-                    Button("Keep for later") { dismiss() }.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint)
-                    Button("Discard saved item",role:.destructive) { confirmation = .discard }.buttonStyle(.borderless).foregroundStyle(.red).disabled(addModel.map { !$0.canDiscard } ?? (claim.item.submission?.phase == .prepared || claim.item.submission?.phase == .blocked))
+                    Button("Keep for later") { dismiss() }.buttonStyle(DebridRowActionStyle()).foregroundStyle(DebridStyle.tint)
+                    Button("Discard saved item",role:.destructive) { confirmation = .discard }.buttonStyle(DebridRowActionStyle()).foregroundStyle(Color("DangerInk")).disabled(addModel.map { !$0.canDiscard } ?? (claim.item.submission?.phase == .prepared || claim.item.submission?.phase == .blocked))
                 }
             }
         }.modifier(DebridListStyle()).navigationTitle("Saved item").navigationBarTitleDisplayMode(.inline)
