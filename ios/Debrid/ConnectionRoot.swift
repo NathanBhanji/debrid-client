@@ -26,7 +26,7 @@ struct ConnectionRoot: View {
     var body: some View {
         Group {
             if let auth, case .connected(let connected) = auth.phase {
-                ConnectedLanding(server: connected, auth: auth)
+                LiveTransfers(server: connected, auth: auth).id(connected.profile.id)
             } else { connectionForm }
         }
         .task { await prepare() }
@@ -182,29 +182,6 @@ struct ConnectionRoot: View {
             guard operation == saveRevision else { return }
             storageError = "The server could not be saved. Try again; existing credentials have not been changed."
         }
-    }
-}
-
-private struct ConnectedLanding: View {
-    let server: AuthenticatedServer
-    let auth: SessionCoordinator
-    var body: some View {
-        NavigationStack {
-            List {
-                Section { DebridWordmark() }.listRowBackground(Color.clear).listRowSeparator(.hidden)
-                Section("Connected server") {
-                    Label("Signed in as \(server.username)", systemImage: "person.crop.circle.badge.checkmark")
-                    Text(server.profile.serverURL.absoluteString).font(.footnote).textSelection(.enabled)
-                }
-                Section {
-                    Button("Sign out on this iPhone", role: .destructive) { Task { await auth.signOut() } }
-                        .buttonStyle(.borderless).foregroundStyle(.red).disabled(auth.isBusy)
-                    if auth.isBusy { ProgressView("Signing out…") }
-                    if let message = auth.message { Text(message).foregroundStyle(DebridStyle.secondary) }
-                }
-            }.modifier(DebridListStyle())
-                .navigationTitle("Debrid")
-        }.tint(DebridStyle.tint)
     }
 }
 

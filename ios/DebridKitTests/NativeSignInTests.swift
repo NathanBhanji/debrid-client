@@ -76,6 +76,9 @@ private actor AuthFixture: NativeSignInAPI {
     var identities = 0
     var identityError: APIError?
     var logoutError: APIError?
+    var holdIdentity = false
+    var identityPending: CheckedContinuation<IdentityDTO, any Error>?
+    var waitingForIdentity: CheckedContinuation<Void, Never>?
     var holdExchange = false
     var exchangePending: CheckedContinuation<NativeSessionDTO, Never>?
     var waitingForExchange: CheckedContinuation<Void, Never>?
@@ -98,10 +101,19 @@ private actor AuthFixture: NativeSignInAPI {
     func releaseExchange() { exchangePending?.resume(returning:NativeSessionDTO(sessionToken:"fixture_session",username:"Fixture User")); exchangePending = nil }
     func identity() async throws -> IdentityDTO {
         identities += 1
+        if holdIdentity {
+            return try await withCheckedThrowingContinuation { identityPending = $0; waitingForIdentity?.resume(); waitingForIdentity = nil }
+        }
         if let identityError { throw identityError }
         return IdentityDTO(username:"Fixture User",mode:"oidc",apiKey:false)
     }
     func logout() async throws { logouts += 1; if let logoutError { throw logoutError } }
+    func setHoldIdentity() { holdIdentity = true }
+    func waitForIdentity() async {
+        if identityPending != nil { return }
+        await withCheckedContinuation { waitingForIdentity = $0 }
+    }
+    func failIdentity(_ error: APIError) { identityPending?.resume(throwing: error); identityPending = nil }
     func setIdentityError(_ error: APIError?) { identityError = error }
     func setLogoutError(_ error: APIError?) { logoutError = error }
     func setHoldExchange() { holdExchange = true }
@@ -254,6 +266,32 @@ private actor AuthFixture: NativeSignInAPI {
         #expect(try await store.session(for:a.id) == nil)
         #expect(try await store.session(for:b.id) != nil)
         #expect(await api.logouts == 1)
+    }
+
+    @Test func rejectionFromPreviousServerCannotRemoveCurrentCredential() async throws {
+        let (coordinator,store,_,_,_) = fixture()
+        let a = try profile(), b = try profile("b.example.test")
+        try await store.saveProfile(a); try await store.saveSession(token:"fixture_a",username:"A",for:a.id)
+        await coordinator.signIn(to:b)
+        await coordinator.sessionRejected(for:a.id)
+        guard case .connected(let current) = coordinator.phase else { Issue.record("Wrong server rejected current session"); return }
+        #expect(current.profile == b)
+        #expect(try await store.session(for:b.id) != nil)
+        await coordinator.sessionRejected(for:b.id)
+        #expect(try await store.session(for:b.id) == nil)
+        #expect(try await store.session(for:a.id) != nil)
+    }
+
+    @Test func cancelledRestoreFailureCannotDeleteSavedCredential() async throws {
+        let (coordinator,store,_,api,_) = fixture()
+        let a = try profile()
+        try await store.saveProfile(a); try await store.saveSession(token:"fixture_a",username:"A",for:a.id); try await store.select(a.id)
+        await api.setHoldIdentity()
+        let task = Task { await coordinator.restore() }
+        await api.waitForIdentity(); task.cancel()
+        await api.failIdentity(.unauthorized); await task.value
+        #expect(try await store.session(for:a.id) != nil)
+        #expect(coordinator.message == nil)
     }
 
 }

@@ -12,6 +12,8 @@ struct DebridApp: App {
                 DesignScene(screen: screen)
             } else if ProcessInfo.processInfo.arguments.contains("-DesignGallery") {
                 DesignGallery()
+            } else if ProcessInfo.processInfo.arguments.contains("-TransfersPreview") {
+                LiveTransfersPreview()
             } else if ProcessInfo.processInfo.arguments.contains("-ConnectionPreview") {
                 ConnectionRoot(discoveryPreview: SignInDiscoveryPreview())
             } else if ProcessInfo.processInfo.arguments.contains("-Demo") { DemoRoot() }
