@@ -105,6 +105,54 @@ func (e DownloadState) Valid() bool {
 	}
 }
 
+// Defines values for FileSelectionState.
+const (
+	FileSelectionStateAccepted    FileSelectionState = "accepted"
+	FileSelectionStateAutomatic   FileSelectionState = "automatic"
+	FileSelectionStatePending     FileSelectionState = "pending"
+	FileSelectionStateReady       FileSelectionState = "ready"
+	FileSelectionStateUnavailable FileSelectionState = "unavailable"
+)
+
+// Valid indicates whether the value is a known member of the FileSelectionState enum.
+func (e FileSelectionState) Valid() bool {
+	switch e {
+	case FileSelectionStateAccepted:
+		return true
+	case FileSelectionStateAutomatic:
+		return true
+	case FileSelectionStatePending:
+		return true
+	case FileSelectionStateReady:
+		return true
+	case FileSelectionStateUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TorrentFileSelectionState.
+const (
+	TorrentFileSelectionStateAccepted  TorrentFileSelectionState = "accepted"
+	TorrentFileSelectionStateAutomatic TorrentFileSelectionState = "automatic"
+	TorrentFileSelectionStatePending   TorrentFileSelectionState = "pending"
+)
+
+// Valid indicates whether the value is a known member of the TorrentFileSelectionState enum.
+func (e TorrentFileSelectionState) Valid() bool {
+	switch e {
+	case TorrentFileSelectionStateAccepted:
+		return true
+	case TorrentFileSelectionStateAutomatic:
+		return true
+	case TorrentFileSelectionStatePending:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TorrentStatus.
 const (
 	TorrentStatusAdding           TorrentStatus = "adding"
@@ -291,6 +339,16 @@ type ChangePasswordInBody struct {
 	NewPassword     string  `json:"new_password"`
 }
 
+// ConfirmFileSelectionInBody defines model for ConfirmFileSelectionInBody.
+type ConfirmFileSelectionInBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	//
+	// Example: https://example.com/schemas/ConfirmFileSelectionInBody.json
+	Schema   *string  `json:"$schema,omitempty"`
+	FileIds  []string `json:"file_ids"`
+	Revision string   `json:"revision"`
+}
+
 // Credentials defines model for Credentials.
 type Credentials struct {
 	// ApiKey API key / token for the provider
@@ -436,6 +494,24 @@ type File struct {
 	Selected bool   `json:"selected"`
 	Size     int64  `json:"size"`
 }
+
+// FileSelection defines model for FileSelection.
+type FileSelection struct {
+	// Schema A URL to the JSON Schema for this object.
+	//
+	// Example: https://example.com/schemas/FileSelection.json
+	Schema          *string            `json:"$schema,omitempty"`
+	Files           []File             `json:"files"`
+	Message         string             `json:"message"`
+	ProviderSelects bool               `json:"provider_selects"`
+	Revision        *string            `json:"revision,omitempty"`
+	SelectedIds     []string           `json:"selected_ids"`
+	State           FileSelectionState `json:"state"`
+	TorrentId       string             `json:"torrent_id"`
+}
+
+// FileSelectionState defines model for FileSelection.State.
+type FileSelectionState string
 
 // HealthOutBody defines model for HealthOutBody.
 type HealthOutBody struct {
@@ -682,9 +758,12 @@ type Torrent struct {
 	DirName   *string    `json:"dir_name,omitempty"`
 	Downloads []Download `json:"downloads"`
 	Error     *string    `json:"error,omitempty"`
-	Files     []File     `json:"files"`
-	Hash      string     `json:"hash"`
-	Id        string     `json:"id"`
+
+	// FileSelectionState Explicit NAS-download selection state, independent of provider lifecycle
+	FileSelectionState TorrentFileSelectionState `json:"file_selection_state"`
+	Files              []File                    `json:"files"`
+	Hash               string                    `json:"hash"`
+	Id                 string                    `json:"id"`
 
 	// LocalProgress 0..1 progress of local downloads
 	LocalProgress float64 `json:"local_progress"`
@@ -711,6 +790,9 @@ type Torrent struct {
 	// StatusReason Human-readable detail about the current state
 	StatusReason *string `json:"status_reason,omitempty"`
 }
+
+// TorrentFileSelectionState Explicit NAS-download selection state, independent of provider lifecycle
+type TorrentFileSelectionState string
 
 // TorrentStatus defines model for Torrent.Status.
 type TorrentStatus string
@@ -752,6 +834,9 @@ type TorrentSettings struct {
 
 	// Unpack Extract archives after download
 	Unpack *bool `json:"unpack,omitempty"`
+
+	// WaitForSelection Hold NAS downloads for explicit provider-file review at add time; confirmed through the file-selection endpoint
+	WaitForSelection *bool `json:"wait_for_selection,omitempty"`
 }
 
 // TorrentSettingsFinishedAction What to do at the provider after local completion
@@ -900,6 +985,9 @@ type AddTorrentFileMultipartRequestBody AddTorrentFileMultipartBody
 
 // UpdateTorrentJSONRequestBody defines body for UpdateTorrent for application/json ContentType.
 type UpdateTorrentJSONRequestBody = UpdateTorrentInBody
+
+// ConfirmFileSelectionJSONRequestBody defines body for ConfirmFileSelection for application/json ContentType.
+type ConfirmFileSelectionJSONRequestBody = ConfirmFileSelectionInBody
 
 // SelectFilesJSONRequestBody defines body for SelectFiles for application/json ContentType.
 type SelectFilesJSONRequestBody = SelectFilesInBody
@@ -1256,6 +1344,25 @@ type ClientInterface interface {
 	//
 	// Corresponds with PATCH /api/v1/torrents/{id} (the `UpdateTorrent` operationId).
 	UpdateTorrent(ctx context.Context, id string, body UpdateTorrentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetFileSelection Review authoritative provider files before NAS download
+	//
+	// Corresponds with GET /api/v1/torrents/{id}/file-selection (the `GetFileSelection` operationId).
+	GetFileSelection(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ConfirmFileSelectionWithBody Confirm one immutable reviewed file selection
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /api/v1/torrents/{id}/file-selection (the `ConfirmFileSelection` operationId).
+	ConfirmFileSelectionWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ConfirmFileSelection Confirm one immutable reviewed file selection
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /api/v1/torrents/{id}/file-selection (the `ConfirmFileSelection` operationId).
+	ConfirmFileSelection(ctx context.Context, id string, body ConfirmFileSelectionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// SelectFilesWithBody Select which files to download
 	//
@@ -1976,6 +2083,55 @@ func (c *Client) UpdateTorrentWithBody(ctx context.Context, id string, contentTy
 // Corresponds with PATCH /api/v1/torrents/{id} (the `UpdateTorrent` operationId).
 func (c *Client) UpdateTorrent(ctx context.Context, id string, body UpdateTorrentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUpdateTorrentRequest(c.Server, id, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetFileSelection Review authoritative provider files before NAS download
+//
+// Corresponds with GET /api/v1/torrents/{id}/file-selection (the `GetFileSelection` operationId).
+func (c *Client) GetFileSelection(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetFileSelectionRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ConfirmFileSelectionWithBody Confirm one immutable reviewed file selection
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /api/v1/torrents/{id}/file-selection (the `ConfirmFileSelection` operationId).
+func (c *Client) ConfirmFileSelectionWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewConfirmFileSelectionRequestWithBody(c.Server, id, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ConfirmFileSelection Confirm one immutable reviewed file selection
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /api/v1/torrents/{id}/file-selection (the `ConfirmFileSelection` operationId).
+func (c *Client) ConfirmFileSelection(ctx context.Context, id string, body ConfirmFileSelectionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewConfirmFileSelectionRequest(c.Server, id, body)
 	if err != nil {
 		return nil, err
 	}
@@ -3303,6 +3459,87 @@ func NewUpdateTorrentRequestWithBody(server string, id string, contentType strin
 	return req, nil
 }
 
+// NewGetFileSelectionRequest constructs an http.Request for the GetFileSelection method
+func NewGetFileSelectionRequest(server string, id string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/torrents/%s/file-selection", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewConfirmFileSelectionRequest calls the generic ConfirmFileSelection builder with application/json body
+func NewConfirmFileSelectionRequest(server string, id string, body ConfirmFileSelectionJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewConfirmFileSelectionRequestWithBody(server, id, "application/json", bodyReader)
+}
+
+// NewConfirmFileSelectionRequestWithBody constructs an http.Request for the ConfirmFileSelection method, with any body, and a specified content type
+func NewConfirmFileSelectionRequestWithBody(server string, id string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/torrents/%s/file-selection", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewSelectFilesRequest calls the generic SelectFiles builder with application/json body
 func NewSelectFilesRequest(server string, id string, body SelectFilesJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -3742,6 +3979,27 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with PATCH /api/v1/torrents/{id} (the `UpdateTorrent` operationId).
 	UpdateTorrentWithResponse(ctx context.Context, id string, body UpdateTorrentJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateTorrentResponse, error)
+
+	// GetFileSelectionWithResponse Review authoritative provider files before NAS download
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/torrents/{id}/file-selection (the `GetFileSelection` operationId).
+	GetFileSelectionWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*GetFileSelectionResponse, error)
+
+	// ConfirmFileSelectionWithBodyWithResponse Confirm one immutable reviewed file selection
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /api/v1/torrents/{id}/file-selection (the `ConfirmFileSelection` operationId).
+	ConfirmFileSelectionWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ConfirmFileSelectionResponse, error)
+
+	// ConfirmFileSelectionWithResponse Confirm one immutable reviewed file selection
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /api/v1/torrents/{id}/file-selection (the `ConfirmFileSelection` operationId).
+	ConfirmFileSelectionWithResponse(ctx context.Context, id string, body ConfirmFileSelectionJSONRequestBody, reqEditors ...RequestEditorFn) (*ConfirmFileSelectionResponse, error)
 
 	// SelectFilesWithBodyWithResponse Select which files to download
 	//
@@ -5277,6 +5535,116 @@ func (r UpdateTorrentResponse) ContentType() string {
 	return ""
 }
 
+// GetFileSelectionResponse200Headers the declared response headers of an HTTP 200 response for GetFileSelection
+type GetFileSelectionResponse200Headers struct {
+	CacheControl *string
+}
+
+type GetFileSelectionResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *FileSelection
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *GetFileSelectionResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetFileSelectionResponse) GetJSON200() *FileSelection {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r GetFileSelectionResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetFileSelectionResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetFileSelectionResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetFileSelectionResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetFileSelectionResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ConfirmFileSelectionResponse200Headers the declared response headers of an HTTP 200 response for ConfirmFileSelection
+type ConfirmFileSelectionResponse200Headers struct {
+	CacheControl *string
+}
+
+type ConfirmFileSelectionResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *FileSelection
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ConfirmFileSelectionResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ConfirmFileSelectionResponse) GetJSON200() *FileSelection {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r ConfirmFileSelectionResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ConfirmFileSelectionResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ConfirmFileSelectionResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ConfirmFileSelectionResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ConfirmFileSelectionResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type SelectFilesResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -5944,6 +6312,45 @@ func (c *ClientWithResponses) UpdateTorrentWithResponse(ctx context.Context, id 
 		return nil, err
 	}
 	return ParseUpdateTorrentResponse(rsp)
+}
+
+// GetFileSelectionWithResponse Review authoritative provider files before NAS download
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/torrents/{id}/file-selection (the `GetFileSelection` operationId).
+func (c *ClientWithResponses) GetFileSelectionWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*GetFileSelectionResponse, error) {
+	rsp, err := c.GetFileSelection(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetFileSelectionResponse(rsp)
+}
+
+// ConfirmFileSelectionWithBodyWithResponse Confirm one immutable reviewed file selection
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /api/v1/torrents/{id}/file-selection (the `ConfirmFileSelection` operationId).
+func (c *ClientWithResponses) ConfirmFileSelectionWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ConfirmFileSelectionResponse, error) {
+	rsp, err := c.ConfirmFileSelectionWithBody(ctx, id, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseConfirmFileSelectionResponse(rsp)
+}
+
+// ConfirmFileSelectionWithResponse Confirm one immutable reviewed file selection
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /api/v1/torrents/{id}/file-selection (the `ConfirmFileSelection` operationId).
+func (c *ClientWithResponses) ConfirmFileSelectionWithResponse(ctx context.Context, id string, body ConfirmFileSelectionJSONRequestBody, reqEditors ...RequestEditorFn) (*ConfirmFileSelectionResponse, error) {
+	rsp, err := c.ConfirmFileSelection(ctx, id, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseConfirmFileSelectionResponse(rsp)
 }
 
 // SelectFilesWithBodyWithResponse Select which files to download
@@ -7123,6 +7530,98 @@ func ParseUpdateTorrentResponse(rsp *http.Response) (*UpdateTorrentResponse, err
 		}
 		response.ApplicationproblemJSONDefault = &dest
 
+	}
+
+	return response, nil
+}
+
+// ParseGetFileSelectionResponse parses an HTTP response from a GetFileSelectionWithResponse call
+func ParseGetFileSelectionResponse(rsp *http.Response) (*GetFileSelectionResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetFileSelectionResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest FileSelection
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers GetFileSelectionResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseConfirmFileSelectionResponse parses an HTTP response from a ConfirmFileSelectionWithResponse call
+func ParseConfirmFileSelectionResponse(rsp *http.Response) (*ConfirmFileSelectionResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ConfirmFileSelectionResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest FileSelection
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ConfirmFileSelectionResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		response.Headers200 = &headers
 	}
 
 	return response, nil

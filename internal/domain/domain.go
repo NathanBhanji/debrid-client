@@ -193,6 +193,10 @@ type TorrentSettings struct {
 	ExcludeRegex string `json:"exclude_regex,omitempty"`
 	// ManualFiles, when non-empty, selects exactly these provider file IDs.
 	ManualFiles []string `json:"manual_files,omitempty"`
+	// WaitForSelection holds local downloads until an explicit provider-file review.
+	WaitForSelection bool `json:"wait_for_selection,omitempty"`
+	// Selection is internal acceptance proof, never accepted from an API settings body.
+	Selection *FileSelectionReceipt `json:"selection_receipt,omitempty"`
 	// FinishedAction and FinishedDelay control provider-side cleanup.
 	FinishedAction FinishedAction `json:"finished_action,omitempty"`
 	FinishedDelay  time.Duration  `json:"finished_delay,omitempty"`

@@ -74,7 +74,7 @@ A typed Go client is generated into `internal/apiclient`; `debrid openapi` print
 
 ## Native iPhone app (in development)
 
-A native SwiftUI app is being built in [`ios/`](ios/README.md). The first milestone is a fixture-only design preview; live connection and magnet/share intake follow the [29-PR roadmap](docs/plan/ios-native.md). Review the [design proposal](docs/design/ios/README.md).
+A native SwiftUI app is being built in [`ios/`](ios/README.md), with Pocket ID connection, live transfers, search, details/files and protected magnet/paste/torrent review/add. File selection, sharing and management follow the [30-PR roadmap](docs/plan/ios-native.md). Review the [native designs](docs/design/ios/README.md). Signed device/TestFlight delivery is still pending.
 
 ## MCP
 

@@ -28,7 +28,7 @@ Dismissing/backgrounding cancels the local task and releases the editing lease. 
 
 ## File policy
 
-Reviewed rules preserve full defaults; choosing all files clears manual IDs, size and include/exclude filters. A keep-copies override clears automatic provider cleanup and deletion after an error. The provider completion deadline is preserved and shown separately; it can fail a transfer without deleting its copies. Destructive effects are explicitly shown before Add. Actual provider-file selection before download is milestone18 and needs backend waiting semantics; this form does not claim it.
+Reviewed rules preserve full defaults; choosing all files clears manual IDs, size and include/exclude filters. A keep-copies override clears automatic provider cleanup and deletion after an error. The provider completion deadline is preserved and shown separately; it can fail a transfer without deleting its copies. Destructive effects are explicitly shown before Add. Actual provider-file selection before download uses backend18 and native19, with explicit waiting semantics; this form does not claim it.
 
 ## Validation
 
