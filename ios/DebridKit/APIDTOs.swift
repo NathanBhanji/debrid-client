@@ -119,3 +119,23 @@ public struct SystemStatusDTO: Decodable, Sendable {
     public let diskFreeBytes: Int64
     public let diskTotalBytes: Int64
 }
+
+public enum RetryResourceKind:String,Codable,Sendable {case torrent,download
+    var collection:String {self == .torrent ? "torrents" : "downloads"}
+}
+public struct RetryReviewDTO:Decodable,Sendable {
+    public let kind:String
+    public let resourceId:String
+    public let torrentId:String
+    public let revision:String
+    public let allowed:Bool
+    public let waitForSelection:Bool
+}
+public struct RetryAcceptanceDTO:Decodable,Sendable {
+    public let kind:String
+    public let resourceId:String
+    public let torrentId:String
+    public let acceptedAt:Date
+    /// Parent existence only. A previously retried file row may since be gone.
+    public let torrentExists:Bool
+}

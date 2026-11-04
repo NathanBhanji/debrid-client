@@ -96,11 +96,11 @@ private actor SelectionTestAPI:FileSelectionAPI {
         let f=try fixture();defer {try? FileManager.default.removeItem(at:f.directory)}
         _=try await f.store.snapshot()
         let file=f.directory.appendingPathComponent("inbox.json")
-        for version in 1...3 {
-            try JSONSerialization.data(withJSONObject:["version":version,"items":[]]).write(to:file)
+        for version in 1...4 {
+            try JSONSerialization.data(withJSONObject:["version":version,"items":[],"fileSelections":[]]).write(to:file)
             _=try await f.store.snapshot()
             let upgraded=try #require(JSONSerialization.jsonObject(with:Data(contentsOf:file)) as? [String:Any])
-            #expect(upgraded["version"] as? Int==4 && upgraded["fileSelections"] is [Any])
+            #expect(upgraded["version"] as? Int==5 && upgraded["fileSelections"] is [Any])
         }
         let corrupt=try JSONSerialization.data(withJSONObject:["version":4,"items":[]])
         try corrupt.write(to:file)

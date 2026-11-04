@@ -38,9 +38,10 @@ public struct FileSelectionProposal:Sendable,CustomStringConvertible,CustomRefle
     public private(set) var isBusy=false
     public private(set) var requiresSignIn=false
     public var isPreview:Bool {api.isPreview}
-    public var canEdit:Bool {active && phase == .editing && !isBusy}
+    public var canEdit:Bool {active && connectionIsCurrent() && phase == .editing && !isBusy}
     public var canReview:Bool {canEdit && !selected.isEmpty}
-    public var canRetry:Bool {active && !isBusy && phase == .uncertain && intent?.phase == .prepared && capabilitiesReady}
+    public var canRetry:Bool {active && connectionIsCurrent() && !isBusy && phase == .uncertain && intent?.phase == .prepared && capabilitiesReady}
+    private let connectionIsCurrent:@MainActor @Sendable ()->Bool
     private let api:any FileSelectionAPI
     private let store:any FileSelectionIntentStoring
     private var claim:FileSelectionClaim?
@@ -49,12 +50,12 @@ public struct FileSelectionProposal:Sendable,CustomStringConvertible,CustomRefle
     private var capabilitiesReady=false
     @ObservationIgnored private var renewal:Task<Void,Never>?
     @ObservationIgnored private var cleanup:Task<Void,Never>?
-    public init(server:AuthenticatedServer,transferID:String,name:String,api:any FileSelectionAPI,store:any FileSelectionIntentStoring) throws {
+    public init(server:AuthenticatedServer,transferID:String,name:String,api:any FileSelectionAPI,store:any FileSelectionIntentStoring,isConnectionCurrent:@escaping @MainActor @Sendable ()->Bool = {true}) throws {
         guard server.profile.serverURL==api.serverURL,SubmissionIdentity.validID(transferID) else {throw APIError.invalidConfiguration}
-        connectionID=server.connectionID;serverURL=server.profile.serverURL;self.transferID=transferID;self.name=name;self.api=api;self.store=store
+        connectionID=server.connectionID;serverURL=server.profile.serverURL;self.transferID=transferID;self.name=name;self.api=api;self.store=store;connectionIsCurrent=isConnectionCurrent
     }
     deinit {renewal?.cancel()}
-    private func current(_ value:Int)->Bool {active && generation==value && !Task.isCancelled}
+    private func current(_ value:Int)->Bool {active && generation==value && connectionIsCurrent() && !Task.isCancelled}
     private func release(_ claim:FileSelectionClaim) {
         let store=self.store
         // A fresh cleanup task must survive cancellation of the view's structured task.
@@ -77,7 +78,7 @@ public struct FileSelectionProposal:Sendable,CustomStringConvertible,CustomRefle
         }
     }
     public func open() async {
-        guard !isBusy,!Task.isCancelled else {return}
+        guard !isBusy,!Task.isCancelled,connectionIsCurrent() else {return}
         if claim != nil {await refresh();return}
         active=true;generation &+= 1;let value=generation;isBusy=true;defer {finish(value)};phase = .loading;message=nil;requiresSignIn=false
         do {

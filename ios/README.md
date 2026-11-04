@@ -143,3 +143,8 @@ The inbox schema is now version2; version1 magnets retain their IDs, raw URIs, s
 The actual native saved-item form loads enabled provider accounts, categories and the server’s full default settings. Review or override file rules, unpacking, organization and automatic copy cleanup before explicitly adding. Magnets retain their original URI; torrent uploads retain the original bytes. Servers must advertise durable submissions; file intake also requires multipart settings parity (both ship in v0.2.3). A saved attempt freezes its server/options/key before POST. An interrupted or lost response offers receipt lookup and an explicit retry of that same request; reopening never automatically submits. Confirmed results open the existing live detail screen. See [submission state and checks](../docs/plan/ios-review-add.md).
 
 This increment offers server file rules or all files. Waiting for a provider’s file list before any download requires the focused backend policy in milestone18; it is not claimed here. Native file-selection UI follows in19, then the Share Extension in20.
+
+
+## Native retry
+
+Failed transfers and failed files have separate explicit review sheets. The app persists an immutable server/resource/parent-bound request before submission; interrupted responses reopen with receipt lookup and an explicit retry of the same request. Pending Items retains uncertain retries. Requires `native_retry_v1`; older servers show an update requirement. Current inbox format5 migrates formats1–4 without dropping drafts, submissions or selections. See [retry contract and validation](../docs/plan/ios-retry-actions.md). Release signing and real-phone/App Group checks remain separate from simulator evidence.

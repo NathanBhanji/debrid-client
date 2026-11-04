@@ -29,9 +29,9 @@ nonisolated private func openPendingInboxForApp() throws -> any PendingInboxAcce
     return try PendingInbox.shared()
 }
 #if DEBUG
-nonisolated func openPendingInboxForSelectionFixture() throws -> (any FileSelectionIntentStoring)? {
+nonisolated func openPendingInboxForNativeFixture() throws -> (any PendingInboxAccess)? {
     guard intakeTestConfiguration() != nil else {return nil}
-    return try openPendingInboxForApp() as? any FileSelectionIntentStoring
+    return try openPendingInboxForApp()
 }
 #endif
 @MainActor private func makeSubmissionAPIForApp(_ server:AuthenticatedServer) throws -> any TransferSubmissionAPI {
@@ -47,7 +47,8 @@ struct NativeAppRoot: View {
     var body: some View {
         MagnetInboxHost {
             #if DEBUG
-            if let configuration=intakeTestConfiguration(),configuration.mode=="share-host" { ShareHostFixture() }
+            if let configuration=intakeTestConfiguration(),["retry","retry-file","retry-uncertain","retry-light"].contains(configuration.mode ?? "") { RetryFixtureRoot(kind:configuration.mode=="retry-file" ? .download : .torrent,uncertain:configuration.mode=="retry-uncertain").preferredColorScheme(configuration.mode=="retry-light" ? .light : nil) }
+            else if let configuration=intakeTestConfiguration(),configuration.mode=="share-host" { ShareHostFixture() }
             else if let configuration=intakeTestConfiguration(),configuration.mode=="selection" || configuration.mode=="selection-uncertain" { SelectionFixtureRoot(uncertain:configuration.mode=="selection-uncertain") }
             else if let configuration=intakeTestConfiguration(),["submit","uncertain"].contains(configuration.mode ?? "") { LiveTransfersPreview() }
             else if intakeTestConfiguration() != nil { ConnectionRoot(discoveryPreview:SignInDiscoveryPreview()) }
@@ -132,6 +133,7 @@ struct PendingLinksSheet: View {
     let intake: MagnetIntakeCoordinator
     @State private var path: [UUID]
     @State private var selectionModel:FileSelectionModel?
+    @State private var retryModel:RetryModel?
     @State private var selectionMessage:String?
     @State private var showingPaste = false
     @State private var showingImporter = false
@@ -154,9 +156,12 @@ struct PendingLinksSheet: View {
         }.tint(DebridStyle.tint)
             .task { await intake.refresh() }
             .sheet(isPresented:Binding(get:{selectionModel != nil},set:{if !$0 {selectionModel=nil}}),onDismiss:{Task {await intake.refresh()}}) {
-                if let selectionModel {FileSelectionSheet(model:selectionModel).onChange(of:selectionModel.requiresSignIn) {if selectionModel.requiresSignIn {Task {await intake.rejectConnection(selectionModel.connectionID)}}}}
+                if let selectionModel {FileSelectionSheet(model:selectionModel,connectionID:intake.connection?.connectionID).onChange(of:selectionModel.requiresSignIn) {if selectionModel.requiresSignIn {Task {await intake.rejectConnection(selectionModel.connectionID)}}}}
             }
-            .alert("Saved selection",isPresented:Binding(get:{selectionMessage != nil},set:{if !$0 {selectionMessage=nil}})) {Button("OK",role:.cancel) {selectionMessage=nil}} message: {Text(selectionMessage ?? "")}
+            .sheet(isPresented:Binding(get:{retryModel != nil},set:{if !$0 {retryModel=nil}}),onDismiss:{Task {await intake.refresh()}}) {
+                if let retryModel {RetrySheet(model:retryModel,connectionID:intake.connection?.connectionID).onChange(of:retryModel.requiresSignIn) {if retryModel.requiresSignIn {Task {await intake.rejectConnection(retryModel.connectionID)}}}}
+            }
+            .alert("Saved action",isPresented:Binding(get:{selectionMessage != nil},set:{if !$0 {selectionMessage=nil}})) {Button("OK",role:.cancel) {selectionMessage=nil}} message: {Text(selectionMessage ?? "")}
             .sheet(isPresented:$showingPaste) { MagnetPasteSheet(intake:intake) }
             .fileImporter(isPresented:$showingImporter,allowedContentTypes:[.debridTorrent],allowsMultipleSelection:false) { result in
                 switch result {
@@ -185,8 +190,9 @@ struct PendingLinksSheet: View {
                 if let message = intake.storageMessage { Section { Label(message,systemImage:"exclamationmark.triangle"); Button("Try again") { Task { await intake.refresh() } } } }
                 if intake.items.isEmpty && intake.storageMessage != nil { ContentUnavailableView("Saved items unavailable",systemImage:"lock",description:Text("Try again when protected storage is available.")) }
                 else if (!intake.hasSnapshot || intake.isLoading) && intake.items.isEmpty { ProgressView("Loading saved items…") }
-                else if intake.items.isEmpty && intake.savedSelections.isEmpty { ContentUnavailableView("No pending links",systemImage:"tray",description:Text("Links and torrent files you save in Debrid appear here for review.")) }
+                else if intake.items.isEmpty && intake.savedSelections.isEmpty && intake.savedRetries.isEmpty { ContentUnavailableView("No pending links",systemImage:"tray",description:Text("Links and torrent files you save in Debrid appear here for review.")) }
                 savedSelectionRows
+                savedRetryRows
                 ForEach(intake.items) { item in
                     Group {
                         if item.state == .expired { Button { action = .keep(item) } label: { row(item) } }
@@ -206,6 +212,16 @@ struct PendingLinksSheet: View {
                         } catch {selectionMessage="The saved selection could not be opened. Try again when protected storage is available."}
                     } label: {VStack(alignment:.leading,spacing:4) {Text(saved.name).font(.headline);Text("Check saved selection").font(.subheadline);Text(saved.serverURL.absoluteString).font(.footnote)}.foregroundStyle(DebridStyle.ink)}
                 }}}
+    }
+    @ViewBuilder private var savedRetryRows:some View {
+        if !intake.savedRetries.isEmpty {Section("Saved retry requests") {ForEach(intake.savedRetries) {saved in
+            Button {
+                do {
+                    retryModel=try intake.retryModel(kind:saved.kind,resourceID:saved.resourceID,torrentID:saved.torrentID,name:saved.name,serverURL:saved.serverURL)
+                    if retryModel==nil {selectionMessage="Connect to "+saved.serverURL.absoluteString+" to check this saved retry."}
+                } catch {selectionMessage="The saved retry could not be opened. Try again when protected storage is available."}
+            } label: {VStack(alignment:.leading,spacing:4) {Text(saved.name).font(.headline);Text(saved.kind == .torrent ? "Check transfer retry" : "Check file retry").font(.subheadline);Text(saved.serverURL.absoluteString).font(.footnote)}.foregroundStyle(DebridStyle.ink)}
+        }}}
     }
     private func row(_ item:PendingItem) -> some View {
         VStack(alignment:.leading,spacing:6) {
