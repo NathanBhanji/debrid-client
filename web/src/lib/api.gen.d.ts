@@ -405,6 +405,27 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/settings/review': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /** Read runtime settings with an opaque write revision */
+    get: operations['review-settings']
+    /**
+     * Replace runtime settings only if the reviewed revision is current
+     * @description Requires exactly one strong quoted If-Match.412 refuses stale state atomically, including changes through legacy clients and ABA changes. Missing/empty/weak/list/duplicate headers are rejected; no unconditional fallback. A lost response is not an acceptance receipt: read current settings and require fresh review, never automatically replay.
+     */
+    put: operations['update-reviewed-settings']
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/system/status': {
     parameters: {
       query?: never
@@ -1202,6 +1223,16 @@ export interface components {
       torrent_defaults: components['schemas']['TorrentSettings']
       /** Format: int64 */
       unpack_max_depth?: number
+    }
+    SettingsReviewBody: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://example.com/schemas/SettingsReviewBody.json
+       */
+      readonly $schema?: string
+      revision: string
+      settings: components['schemas']['Settings']
     }
     SetupOIDCInBody: {
       /**
@@ -2363,6 +2394,74 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['Settings']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'review-settings': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          'Cache-Control'?: string
+          ETag?: string
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['SettingsReviewBody']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'update-reviewed-settings': {
+    parameters: {
+      query?: never
+      header: {
+        'If-Match': string
+      }
+      path?: never
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['Settings']
+      }
+    }
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          'Cache-Control'?: string
+          ETag?: string
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['SettingsReviewBody']
         }
       }
       /** @description Error */

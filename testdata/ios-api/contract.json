@@ -36,7 +36,8 @@
       "native_retry_v1",
       "native_cancellation_v1",
       "native_removal_precondition_v1",
-      "native_account_removal_drain_v1"
+      "native_account_removal_drain_v1",
+      "native_settings_revision_v1"
     ]
   },
   "identity": {
@@ -84,6 +85,23 @@
     "organize": {
       "enabled": false
     }
+  },
+  "settings_review": {
+    "$schema": "https://example.com/schemas/SettingsReviewBody.json",
+    "settings": {
+      "torrent_defaults": {
+        "finished_action": "keep",
+        "download_retries": 3,
+        "torrent_retries": 1,
+        "unpack": true
+      },
+      "categories": [],
+      "unpack_max_depth": 1,
+      "organize": {
+        "enabled": false
+      }
+    },
+    "revision": "903eda72bd17c4948466fef87191aa8e5d6ea57ecef8bd2385368e585468a4bb"
   },
   "system_status": {
     "version": "fixture",

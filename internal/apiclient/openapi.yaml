@@ -898,6 +898,26 @@ components:
       required:
         - torrent_defaults
       type: object
+    SettingsReviewBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/SettingsReviewBody.json
+          format: uri
+          readOnly: true
+          type: string
+        revision:
+          maxLength: 64
+          minLength: 64
+          pattern: ^[a-f0-9]{64}$
+          type: string
+        settings:
+          $ref: "#/components/schemas/Settings"
+      required:
+        - settings
+        - revision
+      type: object
     SetupOIDCInBody:
       additionalProperties: false
       properties:
@@ -2099,6 +2119,72 @@ paths:
                 $ref: "#/components/schemas/ErrorModel"
           description: Error
       summary: Replace runtime settings
+      tags:
+        - settings
+  /api/v1/settings/review:
+    get:
+      operationId: review-settings
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettingsReviewBody"
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            ETag:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Read runtime settings with an opaque write revision
+      tags:
+        - settings
+    put:
+      description: "Requires exactly one strong quoted If-Match.412 refuses stale state atomically, including changes through legacy clients and ABA changes. Missing/empty/weak/list/duplicate headers are rejected; no unconditional fallback. A lost response is not an acceptance receipt: read current settings and require fresh review, never automatically replay."
+      operationId: update-reviewed-settings
+      parameters:
+        - in: header
+          name: If-Match
+          required: true
+          schema:
+            maxLength: 66
+            minLength: 66
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Settings"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SettingsReviewBody"
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+            ETag:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Replace runtime settings only if the reviewed revision is current
       tags:
         - settings
   /api/v1/system/status:
