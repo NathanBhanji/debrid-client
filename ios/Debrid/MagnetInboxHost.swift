@@ -47,7 +47,8 @@ struct NativeAppRoot: View {
     var body: some View {
         MagnetInboxHost {
             #if DEBUG
-            if let configuration=intakeTestConfiguration(),configuration.mode=="selection" || configuration.mode=="selection-uncertain" { SelectionFixtureRoot(uncertain:configuration.mode=="selection-uncertain") }
+            if let configuration=intakeTestConfiguration(),configuration.mode=="share-host" { ShareHostFixture() }
+            else if let configuration=intakeTestConfiguration(),configuration.mode=="selection" || configuration.mode=="selection-uncertain" { SelectionFixtureRoot(uncertain:configuration.mode=="selection-uncertain") }
             else if let configuration=intakeTestConfiguration(),["submit","uncertain"].contains(configuration.mode ?? "") { LiveTransfersPreview() }
             else if intakeTestConfiguration() != nil { ConnectionRoot(discoveryPreview:SignInDiscoveryPreview()) }
             else { ConnectionRoot() }
@@ -349,3 +350,18 @@ private struct MagnetPasteSheet: View {
         }.tint(DebridStyle.tint)
     }
 }
+
+#if DEBUG
+private struct ShareHostFixture:View {
+    private let raw="magnet:?xt=urn:btih:"+String(repeating:"0",count:40)+"&dn=Share+Fixture"
+    var body:some View {
+        NavigationStack {
+            List {Section {
+                Label("Preview · Fictional share host",systemImage:"viewfinder")
+                ShareLink("Share sample magnet",item:raw).accessibilityIdentifier("share-fixture")
+                Text("Use Cancel in the extension. No test transfer is submitted.")
+            }}.modifier(DebridListStyle()).navigationTitle("Share preview")
+        }.tint(DebridStyle.tint)
+    }
+}
+#endif
