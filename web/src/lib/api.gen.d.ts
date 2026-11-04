@@ -265,6 +265,57 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/v1/downloads/{id}/retry-requests': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Accept one revision-checked durable retry request */
+    post: operations['request-download-retry']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/downloads/{id}/retry-requests/{key}': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /** Check a saved retry without repeating the mutation */
+    get: operations['get-download-retry-request']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/downloads/{id}/retry-review': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /** Review retry eligibility and immutable revision */
+    get: operations['review-download-retry']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/v1/events': {
     parameters: {
       query?: never
@@ -480,6 +531,57 @@ export interface paths {
     put?: never
     /** Retry an errored or completed torrent from scratch */
     post: operations['retry-torrent']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/torrents/{id}/retry-requests': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /** Accept one revision-checked durable retry request */
+    post: operations['request-torrent-retry']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/torrents/{id}/retry-requests/{key}': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /** Check a saved retry without repeating the mutation */
+    get: operations['get-torrent-retry-request']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/v1/torrents/{id}/retry-review': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /** Review retry eligibility and immutable revision */
+    get: operations['review-torrent-retry']
+    put?: never
+    post?: never
     delete?: never
     options?: never
     head?: never
@@ -876,6 +978,45 @@ export interface components {
       movie_template?: string
       /** @description TV path template; empty = '{title} ({year})/Season {season:02}' */
       tv_template?: string
+    }
+    RetryAcceptance: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://example.com/schemas/RetryAcceptance.json
+       */
+      readonly $schema?: string
+      /** Format: date-time */
+      accepted_at: string
+      kind: string
+      resource_id: string
+      torrent_exists: boolean
+      torrent_id: string
+    }
+    RetryRequestInBody: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://example.com/schemas/RetryRequestInBody.json
+       */
+      readonly $schema?: string
+      /** @description Fresh UUIDv4 persisted before POST; reuse only for this immutable retry intent */
+      key: string
+      revision: string
+    }
+    RetryReview: {
+      /**
+       * Format: uri
+       * @description A URL to the JSON Schema for this object.
+       * @example https://example.com/schemas/RetryReview.json
+       */
+      readonly $schema?: string
+      allowed: boolean
+      kind: string
+      resource_id: string
+      revision: string
+      torrent_id: string
+      wait_for_selection: boolean
     }
     SelectFilesInBody: {
       /**
@@ -1705,6 +1846,111 @@ export interface operations {
       }
     }
   }
+  'request-download-retry': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: string
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['RetryRequestInBody']
+      }
+    }
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          'Cache-Control'?: string
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['RetryAcceptance']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'get-download-retry-request': {
+    parameters: {
+      query: {
+        /** @description Original review revision bound to this request key */
+        revision: string
+      }
+      header?: never
+      path: {
+        id: string
+        key: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          'Cache-Control'?: string
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['RetryAcceptance']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'review-download-retry': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        /** @description Exact resource id returned by the API (not a prefix/hash alias) */
+        id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          'Cache-Control'?: string
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['RetryReview']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
   events: {
     parameters: {
       query?: never
@@ -2353,6 +2599,111 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['Torrent']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'request-torrent-retry': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        id: string
+      }
+      cookie?: never
+    }
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['RetryRequestInBody']
+      }
+    }
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          'Cache-Control'?: string
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['RetryAcceptance']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'get-torrent-retry-request': {
+    parameters: {
+      query: {
+        /** @description Original review revision bound to this request key */
+        revision: string
+      }
+      header?: never
+      path: {
+        id: string
+        key: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          'Cache-Control'?: string
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['RetryAcceptance']
+        }
+      }
+      /** @description Error */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/problem+json': components['schemas']['ErrorModel']
+        }
+      }
+    }
+  }
+  'review-torrent-retry': {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        /** @description Exact resource id returned by the API (not a prefix/hash alias) */
+        id: string
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description OK */
+      200: {
+        headers: {
+          'Cache-Control'?: string
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['RetryReview']
         }
       }
       /** @description Error */

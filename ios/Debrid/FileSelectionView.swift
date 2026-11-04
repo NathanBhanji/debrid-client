@@ -4,6 +4,7 @@ import SwiftUI
 /// This sheet owns navigation and the lease; pushing folders never closes the review.
 struct FileSelectionSheet:View {
     let model:FileSelectionModel
+    var connectionID:UUID? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     var body:some View {
@@ -11,7 +12,8 @@ struct FileSelectionSheet:View {
             SelectionFolderView(model:model,folder:Data())
                 .toolbar {ToolbarItem(placement:.confirmationAction) {Button("Done") {dismiss()}}}
         }.tint(DebridStyle.tint)
-            .task(id:scenePhase) {if scenePhase == .active {await model.open()} else {model.stop()}}
+            .task(id:scenePhase) {guard model.isPreview || connectionID==model.connectionID else {model.stop();dismiss();return};if scenePhase == .active {await model.open()} else {model.stop()}}
+            .onChange(of:connectionID) {if !model.isPreview,connectionID != model.connectionID {model.stop();dismiss()}}
             .onDisappear {model.stop()}
     }
 }

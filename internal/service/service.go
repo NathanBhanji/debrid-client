@@ -31,11 +31,18 @@ type Engine interface {
 	Wake()
 	// CancelTorrent stops any in-flight downloads/unpacks for the torrent.
 	CancelTorrent(ctx context.Context, torrentID string) error
+	WithTorrentOperation(ctx context.Context, torrentID string, run func() error) error
 }
 
 // NoopEngine satisfies Engine when no engine is running (tests, CLI tools).
 type NoopEngine struct{}
 
+func (NoopEngine) WithTorrentOperation(ctx context.Context, _ string, run func() error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return run()
+}
 func (NoopEngine) Wake()                                       {}
 func (NoopEngine) CancelTorrent(context.Context, string) error { return nil }
 

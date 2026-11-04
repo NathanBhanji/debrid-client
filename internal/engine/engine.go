@@ -69,9 +69,10 @@ type Engine struct {
 
 	wake chan struct{}
 
-	mu       sync.Mutex
-	jobs     map[string]*job // by download id (or "add:"+torrent id)
-	lastList map[string]listSnapshot
+	mu         sync.Mutex
+	operations map[string]*operationSlot
+	jobs       map[string]*job // by download id (or "add:"+torrent id)
+	lastList   map[string]listSnapshot
 	// nextAttempt throttles jobs that finished without making progress
 	// (links not ready, metadata not ready, transient provider errors): a job
 	// key may not be relaunched before its time. Without this the scheduler

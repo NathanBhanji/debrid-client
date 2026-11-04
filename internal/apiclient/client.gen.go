@@ -658,6 +658,45 @@ type OrganizeSettings struct {
 	TvTemplate *string `json:"tv_template,omitempty"`
 }
 
+// RetryAcceptance defines model for RetryAcceptance.
+type RetryAcceptance struct {
+	// Schema A URL to the JSON Schema for this object.
+	//
+	// Example: https://example.com/schemas/RetryAcceptance.json
+	Schema        *string   `json:"$schema,omitempty"`
+	AcceptedAt    time.Time `json:"accepted_at"`
+	Kind          string    `json:"kind"`
+	ResourceId    string    `json:"resource_id"`
+	TorrentExists bool      `json:"torrent_exists"`
+	TorrentId     string    `json:"torrent_id"`
+}
+
+// RetryRequestInBody defines model for RetryRequestInBody.
+type RetryRequestInBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	//
+	// Example: https://example.com/schemas/RetryRequestInBody.json
+	Schema *string `json:"$schema,omitempty"`
+
+	// Key Fresh UUIDv4 persisted before POST; reuse only for this immutable retry intent
+	Key      string `json:"key"`
+	Revision string `json:"revision"`
+}
+
+// RetryReview defines model for RetryReview.
+type RetryReview struct {
+	// Schema A URL to the JSON Schema for this object.
+	//
+	// Example: https://example.com/schemas/RetryReview.json
+	Schema           *string `json:"$schema,omitempty"`
+	Allowed          bool    `json:"allowed"`
+	Kind             string  `json:"kind"`
+	ResourceId       string  `json:"resource_id"`
+	Revision         string  `json:"revision"`
+	TorrentId        string  `json:"torrent_id"`
+	WaitForSelection bool    `json:"wait_for_selection"`
+}
+
 // SelectFilesInBody defines model for SelectFilesInBody.
 type SelectFilesInBody struct {
 	// Schema A URL to the JSON Schema for this object.
@@ -904,6 +943,12 @@ type AuthOidcCallbackParams struct {
 	ErrorDescription *string `form:"error_description,omitempty" json:"error_description,omitempty"`
 }
 
+// GetDownloadRetryRequestParams defines parameters for GetDownloadRetryRequest.
+type GetDownloadRetryRequestParams struct {
+	// Revision Original review revision bound to this request key
+	Revision string `form:"revision" json:"revision"`
+}
+
 // ListTorrentsParams defines parameters for ListTorrents.
 type ListTorrentsParams struct {
 	Status *ListTorrentsParamsStatus `form:"status,omitempty" json:"status,omitempty"`
@@ -947,6 +992,12 @@ type DeleteTorrentParams struct {
 	Provider *bool `form:"provider,omitempty" json:"provider,omitempty"`
 }
 
+// GetTorrentRetryRequestParams defines parameters for GetTorrentRetryRequest.
+type GetTorrentRetryRequestParams struct {
+	// Revision Original review revision bound to this request key
+	Revision string `form:"revision" json:"revision"`
+}
+
 // AddAccountJSONRequestBody defines body for AddAccount for application/json ContentType.
 type AddAccountJSONRequestBody = AddAccountInBody
 
@@ -971,6 +1022,9 @@ type AuthSetupOidcJSONRequestBody = SetupOIDCInBody
 // AuthSetupPasswordJSONRequestBody defines body for AuthSetupPassword for application/json ContentType.
 type AuthSetupPasswordJSONRequestBody = SetupPasswordInBody
 
+// RequestDownloadRetryJSONRequestBody defines body for RequestDownloadRetry for application/json ContentType.
+type RequestDownloadRetryJSONRequestBody = RetryRequestInBody
+
 // OrganizePreviewJSONRequestBody defines body for OrganizePreview for application/json ContentType.
 type OrganizePreviewJSONRequestBody = OrganizePreviewInBody
 
@@ -991,6 +1045,9 @@ type ConfirmFileSelectionJSONRequestBody = ConfirmFileSelectionInBody
 
 // SelectFilesJSONRequestBody defines body for SelectFiles for application/json ContentType.
 type SelectFilesJSONRequestBody = SelectFilesInBody
+
+// RequestTorrentRetryJSONRequestBody defines body for RequestTorrentRetry for application/json ContentType.
+type RequestTorrentRetryJSONRequestBody = RetryRequestInBody
 
 // RequestEditorFn is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -1232,6 +1289,30 @@ type ClientInterface interface {
 	// Corresponds with POST /api/v1/downloads/{id}/retry (the `RetryDownload` operationId).
 	RetryDownload(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// RequestDownloadRetryWithBody Accept one revision-checked durable retry request
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/downloads/{id}/retry-requests (the `RequestDownloadRetry` operationId).
+	RequestDownloadRetryWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RequestDownloadRetry Accept one revision-checked durable retry request
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/downloads/{id}/retry-requests (the `RequestDownloadRetry` operationId).
+	RequestDownloadRetry(ctx context.Context, id string, body RequestDownloadRetryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetDownloadRetryRequest Check a saved retry without repeating the mutation
+	//
+	// Corresponds with GET /api/v1/downloads/{id}/retry-requests/{key} (the `GetDownloadRetryRequest` operationId).
+	GetDownloadRetryRequest(ctx context.Context, id string, key string, params *GetDownloadRetryRequestParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReviewDownloadRetry Review retry eligibility and immutable revision
+	//
+	// Corresponds with GET /api/v1/downloads/{id}/retry-review (the `ReviewDownloadRetry` operationId).
+	ReviewDownloadRetry(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// Events Stream change events (Server-Sent Events)
 	//
 	// Event names: torrent.added, torrent.updated, torrent.deleted, download.updated, account.changed, settings.changed, heartbeat (every 15s). Payloads are small notifications; re-fetch the resource. Slow consumers may miss events — re-sync on reconnect. Authenticate with the Bearer header or ?api_key= (EventSource cannot set headers).
@@ -1382,6 +1463,30 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /api/v1/torrents/{id}/retry (the `RetryTorrent` operationId).
 	RetryTorrent(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RequestTorrentRetryWithBody Accept one revision-checked durable retry request
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /api/v1/torrents/{id}/retry-requests (the `RequestTorrentRetry` operationId).
+	RequestTorrentRetryWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RequestTorrentRetry Accept one revision-checked durable retry request
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /api/v1/torrents/{id}/retry-requests (the `RequestTorrentRetry` operationId).
+	RequestTorrentRetry(ctx context.Context, id string, body RequestTorrentRetryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetTorrentRetryRequest Check a saved retry without repeating the mutation
+	//
+	// Corresponds with GET /api/v1/torrents/{id}/retry-requests/{key} (the `GetTorrentRetryRequest` operationId).
+	GetTorrentRetryRequest(ctx context.Context, id string, key string, params *GetTorrentRetryRequestParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReviewTorrentRetry Review retry eligibility and immutable revision
+	//
+	// Corresponds with GET /api/v1/torrents/{id}/retry-review (the `ReviewTorrentRetry` operationId).
+	ReviewTorrentRetry(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 // ListAccounts List provider accounts
@@ -1810,6 +1915,70 @@ func (c *Client) RetryDownload(ctx context.Context, id string, reqEditors ...Req
 	return c.Client.Do(req)
 }
 
+// RequestDownloadRetryWithBody Accept one revision-checked durable retry request
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/downloads/{id}/retry-requests (the `RequestDownloadRetry` operationId).
+func (c *Client) RequestDownloadRetryWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRequestDownloadRetryRequestWithBody(c.Server, id, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RequestDownloadRetry Accept one revision-checked durable retry request
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/downloads/{id}/retry-requests (the `RequestDownloadRetry` operationId).
+func (c *Client) RequestDownloadRetry(ctx context.Context, id string, body RequestDownloadRetryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRequestDownloadRetryRequest(c.Server, id, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetDownloadRetryRequest Check a saved retry without repeating the mutation
+//
+// Corresponds with GET /api/v1/downloads/{id}/retry-requests/{key} (the `GetDownloadRetryRequest` operationId).
+func (c *Client) GetDownloadRetryRequest(ctx context.Context, id string, key string, params *GetDownloadRetryRequestParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetDownloadRetryRequestRequest(c.Server, id, key, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ReviewDownloadRetry Review retry eligibility and immutable revision
+//
+// Corresponds with GET /api/v1/downloads/{id}/retry-review (the `ReviewDownloadRetry` operationId).
+func (c *Client) ReviewDownloadRetry(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReviewDownloadRetryRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // Events Stream change events (Server-Sent Events)
 //
 // Event names: torrent.added, torrent.updated, torrent.deleted, download.updated, account.changed, settings.changed, heartbeat (every 15s). Payloads are small notifications; re-fetch the resource. Slow consumers may miss events — re-sync on reconnect. Authenticate with the Bearer header or ?api_key= (EventSource cannot set headers).
@@ -2181,6 +2350,70 @@ func (c *Client) SelectFiles(ctx context.Context, id string, body SelectFilesJSO
 // Corresponds with POST /api/v1/torrents/{id}/retry (the `RetryTorrent` operationId).
 func (c *Client) RetryTorrent(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewRetryTorrentRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RequestTorrentRetryWithBody Accept one revision-checked durable retry request
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /api/v1/torrents/{id}/retry-requests (the `RequestTorrentRetry` operationId).
+func (c *Client) RequestTorrentRetryWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRequestTorrentRetryRequestWithBody(c.Server, id, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RequestTorrentRetry Accept one revision-checked durable retry request
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /api/v1/torrents/{id}/retry-requests (the `RequestTorrentRetry` operationId).
+func (c *Client) RequestTorrentRetry(ctx context.Context, id string, body RequestTorrentRetryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRequestTorrentRetryRequest(c.Server, id, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetTorrentRetryRequest Check a saved retry without repeating the mutation
+//
+// Corresponds with GET /api/v1/torrents/{id}/retry-requests/{key} (the `GetTorrentRetryRequest` operationId).
+func (c *Client) GetTorrentRetryRequest(ctx context.Context, id string, key string, params *GetTorrentRetryRequestParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetTorrentRetryRequestRequest(c.Server, id, key, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ReviewTorrentRetry Review retry eligibility and immutable revision
+//
+// Corresponds with GET /api/v1/torrents/{id}/retry-review (the `ReviewTorrentRetry` operationId).
+func (c *Client) ReviewTorrentRetry(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReviewTorrentRetryRequest(c.Server, id)
 	if err != nil {
 		return nil, err
 	}
@@ -2906,6 +3139,151 @@ func NewRetryDownloadRequest(server string, id string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewRequestDownloadRetryRequest calls the generic RequestDownloadRetry builder with application/json body
+func NewRequestDownloadRetryRequest(server string, id string, body RequestDownloadRetryJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRequestDownloadRetryRequestWithBody(server, id, "application/json", bodyReader)
+}
+
+// NewRequestDownloadRetryRequestWithBody constructs an http.Request for the RequestDownloadRetry method, with any body, and a specified content type
+func NewRequestDownloadRetryRequestWithBody(server string, id string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/downloads/%s/retry-requests", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetDownloadRetryRequestRequest constructs an http.Request for the GetDownloadRetryRequest method
+func NewGetDownloadRetryRequestRequest(server string, id string, key string, params *GetDownloadRetryRequestParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "key", key, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/downloads/%s/retry-requests/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", false, "revision", params.Revision, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewReviewDownloadRetryRequest constructs an http.Request for the ReviewDownloadRetry method
+func NewReviewDownloadRetryRequest(server string, id string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/downloads/%s/retry-review", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewEventsRequest constructs an http.Request for the Events method
 func NewEventsRequest(server string) (*http.Request, error) {
 	var err error
@@ -3621,6 +3999,151 @@ func NewRetryTorrentRequest(server string, id string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewRequestTorrentRetryRequest calls the generic RequestTorrentRetry builder with application/json body
+func NewRequestTorrentRetryRequest(server string, id string, body RequestTorrentRetryJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRequestTorrentRetryRequestWithBody(server, id, "application/json", bodyReader)
+}
+
+// NewRequestTorrentRetryRequestWithBody constructs an http.Request for the RequestTorrentRetry method, with any body, and a specified content type
+func NewRequestTorrentRetryRequestWithBody(server string, id string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/torrents/%s/retry-requests", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetTorrentRetryRequestRequest constructs an http.Request for the GetTorrentRetryRequest method
+func NewGetTorrentRetryRequestRequest(server string, id string, key string, params *GetTorrentRetryRequestParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "key", key, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/torrents/%s/retry-requests/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", false, "revision", params.Revision, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewReviewTorrentRetryRequest constructs an http.Request for the ReviewTorrentRetry method
+func NewReviewTorrentRetryRequest(server string, id string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/torrents/%s/retry-review", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -3851,6 +4374,34 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /api/v1/downloads/{id}/retry (the `RetryDownload` operationId).
 	RetryDownloadWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*RetryDownloadResponse, error)
 
+	// RequestDownloadRetryWithBodyWithResponse Accept one revision-checked durable retry request
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/downloads/{id}/retry-requests (the `RequestDownloadRetry` operationId).
+	RequestDownloadRetryWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RequestDownloadRetryResponse, error)
+
+	// RequestDownloadRetryWithResponse Accept one revision-checked durable retry request
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/downloads/{id}/retry-requests (the `RequestDownloadRetry` operationId).
+	RequestDownloadRetryWithResponse(ctx context.Context, id string, body RequestDownloadRetryJSONRequestBody, reqEditors ...RequestEditorFn) (*RequestDownloadRetryResponse, error)
+
+	// GetDownloadRetryRequestWithResponse Check a saved retry without repeating the mutation
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/downloads/{id}/retry-requests/{key} (the `GetDownloadRetryRequest` operationId).
+	GetDownloadRetryRequestWithResponse(ctx context.Context, id string, key string, params *GetDownloadRetryRequestParams, reqEditors ...RequestEditorFn) (*GetDownloadRetryRequestResponse, error)
+
+	// ReviewDownloadRetryWithResponse Review retry eligibility and immutable revision
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/downloads/{id}/retry-review (the `ReviewDownloadRetry` operationId).
+	ReviewDownloadRetryWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ReviewDownloadRetryResponse, error)
+
 	// EventsWithResponse Stream change events (Server-Sent Events)
 	//
 	// Event names: torrent.added, torrent.updated, torrent.deleted, download.updated, account.changed, settings.changed, heartbeat (every 15s). Payloads are small notifications; re-fetch the resource. Slow consumers may miss events — re-sync on reconnect. Authenticate with the Bearer header or ?api_key= (EventSource cannot set headers).
@@ -4021,6 +4572,34 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /api/v1/torrents/{id}/retry (the `RetryTorrent` operationId).
 	RetryTorrentWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*RetryTorrentResponse, error)
+
+	// RequestTorrentRetryWithBodyWithResponse Accept one revision-checked durable retry request
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/torrents/{id}/retry-requests (the `RequestTorrentRetry` operationId).
+	RequestTorrentRetryWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RequestTorrentRetryResponse, error)
+
+	// RequestTorrentRetryWithResponse Accept one revision-checked durable retry request
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /api/v1/torrents/{id}/retry-requests (the `RequestTorrentRetry` operationId).
+	RequestTorrentRetryWithResponse(ctx context.Context, id string, body RequestTorrentRetryJSONRequestBody, reqEditors ...RequestEditorFn) (*RequestTorrentRetryResponse, error)
+
+	// GetTorrentRetryRequestWithResponse Check a saved retry without repeating the mutation
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/torrents/{id}/retry-requests/{key} (the `GetTorrentRetryRequest` operationId).
+	GetTorrentRetryRequestWithResponse(ctx context.Context, id string, key string, params *GetTorrentRetryRequestParams, reqEditors ...RequestEditorFn) (*GetTorrentRetryRequestResponse, error)
+
+	// ReviewTorrentRetryWithResponse Review retry eligibility and immutable revision
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/torrents/{id}/retry-review (the `ReviewTorrentRetry` operationId).
+	ReviewTorrentRetryWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ReviewTorrentRetryResponse, error)
 }
 
 type ListAccountsResponse struct {
@@ -4904,6 +5483,171 @@ func (r RetryDownloadResponse) ContentType() string {
 	return ""
 }
 
+// RequestDownloadRetryResponse200Headers the declared response headers of an HTTP 200 response for RequestDownloadRetry
+type RequestDownloadRetryResponse200Headers struct {
+	CacheControl *string
+}
+
+type RequestDownloadRetryResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *RetryAcceptance
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *RequestDownloadRetryResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RequestDownloadRetryResponse) GetJSON200() *RetryAcceptance {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r RequestDownloadRetryResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r RequestDownloadRetryResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RequestDownloadRetryResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RequestDownloadRetryResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RequestDownloadRetryResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// GetDownloadRetryRequestResponse200Headers the declared response headers of an HTTP 200 response for GetDownloadRetryRequest
+type GetDownloadRetryRequestResponse200Headers struct {
+	CacheControl *string
+}
+
+type GetDownloadRetryRequestResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *RetryAcceptance
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *GetDownloadRetryRequestResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetDownloadRetryRequestResponse) GetJSON200() *RetryAcceptance {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r GetDownloadRetryRequestResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetDownloadRetryRequestResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetDownloadRetryRequestResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetDownloadRetryRequestResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetDownloadRetryRequestResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ReviewDownloadRetryResponse200Headers the declared response headers of an HTTP 200 response for ReviewDownloadRetry
+type ReviewDownloadRetryResponse200Headers struct {
+	CacheControl *string
+}
+
+type ReviewDownloadRetryResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *RetryReview
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ReviewDownloadRetryResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ReviewDownloadRetryResponse) GetJSON200() *RetryReview {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r ReviewDownloadRetryResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ReviewDownloadRetryResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ReviewDownloadRetryResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReviewDownloadRetryResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ReviewDownloadRetryResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type EventsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -5741,6 +6485,171 @@ func (r RetryTorrentResponse) ContentType() string {
 	return ""
 }
 
+// RequestTorrentRetryResponse200Headers the declared response headers of an HTTP 200 response for RequestTorrentRetry
+type RequestTorrentRetryResponse200Headers struct {
+	CacheControl *string
+}
+
+type RequestTorrentRetryResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *RetryAcceptance
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *RequestTorrentRetryResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RequestTorrentRetryResponse) GetJSON200() *RetryAcceptance {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r RequestTorrentRetryResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r RequestTorrentRetryResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RequestTorrentRetryResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RequestTorrentRetryResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RequestTorrentRetryResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// GetTorrentRetryRequestResponse200Headers the declared response headers of an HTTP 200 response for GetTorrentRetryRequest
+type GetTorrentRetryRequestResponse200Headers struct {
+	CacheControl *string
+}
+
+type GetTorrentRetryRequestResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *RetryAcceptance
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *GetTorrentRetryRequestResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetTorrentRetryRequestResponse) GetJSON200() *RetryAcceptance {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r GetTorrentRetryRequestResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetTorrentRetryRequestResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetTorrentRetryRequestResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetTorrentRetryRequestResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetTorrentRetryRequestResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ReviewTorrentRetryResponse200Headers the declared response headers of an HTTP 200 response for ReviewTorrentRetry
+type ReviewTorrentRetryResponse200Headers struct {
+	CacheControl *string
+}
+
+type ReviewTorrentRetryResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *RetryReview
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ReviewTorrentRetryResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ReviewTorrentRetryResponse) GetJSON200() *RetryReview {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r ReviewTorrentRetryResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ReviewTorrentRetryResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ReviewTorrentRetryResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReviewTorrentRetryResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ReviewTorrentRetryResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // ListAccountsWithResponse List provider accounts
 //
 // Returns a wrapper object for the known response body format(s).
@@ -6083,6 +6992,58 @@ func (c *ClientWithResponses) RetryDownloadWithResponse(ctx context.Context, id 
 	return ParseRetryDownloadResponse(rsp)
 }
 
+// RequestDownloadRetryWithBodyWithResponse Accept one revision-checked durable retry request
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/downloads/{id}/retry-requests (the `RequestDownloadRetry` operationId).
+func (c *ClientWithResponses) RequestDownloadRetryWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RequestDownloadRetryResponse, error) {
+	rsp, err := c.RequestDownloadRetryWithBody(ctx, id, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRequestDownloadRetryResponse(rsp)
+}
+
+// RequestDownloadRetryWithResponse Accept one revision-checked durable retry request
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/downloads/{id}/retry-requests (the `RequestDownloadRetry` operationId).
+func (c *ClientWithResponses) RequestDownloadRetryWithResponse(ctx context.Context, id string, body RequestDownloadRetryJSONRequestBody, reqEditors ...RequestEditorFn) (*RequestDownloadRetryResponse, error) {
+	rsp, err := c.RequestDownloadRetry(ctx, id, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRequestDownloadRetryResponse(rsp)
+}
+
+// GetDownloadRetryRequestWithResponse Check a saved retry without repeating the mutation
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/downloads/{id}/retry-requests/{key} (the `GetDownloadRetryRequest` operationId).
+func (c *ClientWithResponses) GetDownloadRetryRequestWithResponse(ctx context.Context, id string, key string, params *GetDownloadRetryRequestParams, reqEditors ...RequestEditorFn) (*GetDownloadRetryRequestResponse, error) {
+	rsp, err := c.GetDownloadRetryRequest(ctx, id, key, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetDownloadRetryRequestResponse(rsp)
+}
+
+// ReviewDownloadRetryWithResponse Review retry eligibility and immutable revision
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/downloads/{id}/retry-review (the `ReviewDownloadRetry` operationId).
+func (c *ClientWithResponses) ReviewDownloadRetryWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ReviewDownloadRetryResponse, error) {
+	rsp, err := c.ReviewDownloadRetry(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReviewDownloadRetryResponse(rsp)
+}
+
 // EventsWithResponse Stream change events (Server-Sent Events)
 //
 // Event names: torrent.added, torrent.updated, torrent.deleted, download.updated, account.changed, settings.changed, heartbeat (every 15s). Payloads are small notifications; re-fetch the resource. Slow consumers may miss events — re-sync on reconnect. Authenticate with the Bearer header or ?api_key= (EventSource cannot set headers).
@@ -6390,6 +7351,58 @@ func (c *ClientWithResponses) RetryTorrentWithResponse(ctx context.Context, id s
 		return nil, err
 	}
 	return ParseRetryTorrentResponse(rsp)
+}
+
+// RequestTorrentRetryWithBodyWithResponse Accept one revision-checked durable retry request
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/torrents/{id}/retry-requests (the `RequestTorrentRetry` operationId).
+func (c *ClientWithResponses) RequestTorrentRetryWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RequestTorrentRetryResponse, error) {
+	rsp, err := c.RequestTorrentRetryWithBody(ctx, id, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRequestTorrentRetryResponse(rsp)
+}
+
+// RequestTorrentRetryWithResponse Accept one revision-checked durable retry request
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /api/v1/torrents/{id}/retry-requests (the `RequestTorrentRetry` operationId).
+func (c *ClientWithResponses) RequestTorrentRetryWithResponse(ctx context.Context, id string, body RequestTorrentRetryJSONRequestBody, reqEditors ...RequestEditorFn) (*RequestTorrentRetryResponse, error) {
+	rsp, err := c.RequestTorrentRetry(ctx, id, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRequestTorrentRetryResponse(rsp)
+}
+
+// GetTorrentRetryRequestWithResponse Check a saved retry without repeating the mutation
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/torrents/{id}/retry-requests/{key} (the `GetTorrentRetryRequest` operationId).
+func (c *ClientWithResponses) GetTorrentRetryRequestWithResponse(ctx context.Context, id string, key string, params *GetTorrentRetryRequestParams, reqEditors ...RequestEditorFn) (*GetTorrentRetryRequestResponse, error) {
+	rsp, err := c.GetTorrentRetryRequest(ctx, id, key, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetTorrentRetryRequestResponse(rsp)
+}
+
+// ReviewTorrentRetryWithResponse Review retry eligibility and immutable revision
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/torrents/{id}/retry-review (the `ReviewTorrentRetry` operationId).
+func (c *ClientWithResponses) ReviewTorrentRetryWithResponse(ctx context.Context, id string, reqEditors ...RequestEditorFn) (*ReviewTorrentRetryResponse, error) {
+	rsp, err := c.ReviewTorrentRetry(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReviewTorrentRetryResponse(rsp)
 }
 
 // ParseListAccountsResponse parses an HTTP response from a ListAccountsWithResponse call
@@ -7078,6 +8091,144 @@ func ParseRetryDownloadResponse(rsp *http.Response) (*RetryDownloadResponse, err
 	return response, nil
 }
 
+// ParseRequestDownloadRetryResponse parses an HTTP response from a RequestDownloadRetryWithResponse call
+func ParseRequestDownloadRetryResponse(rsp *http.Response) (*RequestDownloadRetryResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RequestDownloadRetryResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RetryAcceptance
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers RequestDownloadRetryResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseGetDownloadRetryRequestResponse parses an HTTP response from a GetDownloadRetryRequestWithResponse call
+func ParseGetDownloadRetryRequestResponse(rsp *http.Response) (*GetDownloadRetryRequestResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetDownloadRetryRequestResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RetryAcceptance
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers GetDownloadRetryRequestResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseReviewDownloadRetryResponse parses an HTTP response from a ReviewDownloadRetryWithResponse call
+func ParseReviewDownloadRetryResponse(rsp *http.Response) (*ReviewDownloadRetryResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReviewDownloadRetryResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RetryReview
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ReviewDownloadRetryResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
 // ParseEventsResponse parses an HTTP response from a EventsWithResponse call
 func ParseEventsResponse(rsp *http.Response) (*EventsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -7688,6 +8839,144 @@ func ParseRetryTorrentResponse(rsp *http.Response) (*RetryTorrentResponse, error
 		}
 		response.ApplicationproblemJSONDefault = &dest
 
+	}
+
+	return response, nil
+}
+
+// ParseRequestTorrentRetryResponse parses an HTTP response from a RequestTorrentRetryWithResponse call
+func ParseRequestTorrentRetryResponse(rsp *http.Response) (*RequestTorrentRetryResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RequestTorrentRetryResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RetryAcceptance
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers RequestTorrentRetryResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseGetTorrentRetryRequestResponse parses an HTTP response from a GetTorrentRetryRequestWithResponse call
+func ParseGetTorrentRetryRequestResponse(rsp *http.Response) (*GetTorrentRetryRequestResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetTorrentRetryRequestResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RetryAcceptance
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers GetTorrentRetryRequestResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseReviewTorrentRetryResponse parses an HTTP response from a ReviewTorrentRetryWithResponse call
+func ParseReviewTorrentRetryResponse(rsp *http.Response) (*ReviewTorrentRetryResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReviewTorrentRetryResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RetryReview
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ReviewTorrentRetryResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		response.Headers200 = &headers
 	}
 
 	return response, nil

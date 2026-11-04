@@ -85,7 +85,7 @@ struct SubmissionReviewSections:View {
     private func provider(_ kind:String) -> String { ["torbox":"TorBox","realdebrid":"Real-Debrid","alldebrid":"AllDebrid","premiumize":"Premiumize","debridlink":"Debrid-Link"][kind] ?? "Provider" }
     @ViewBuilder private func rules(_ settings:TorrentSettingsDTO) -> some View {
         Section("Reviewed file rules") {
-            if settings.waitForSelection == true { Label("NAS downloads wait for your confirmation",systemImage:"hand.raised").foregroundStyle(Color("LampInk")) }
+            if settings.waitForSelection == true { Label("NAS downloads wait for your confirmation",systemImage:"hand.raised").foregroundStyle(Color("StageAmber")) }
             if (settings.minFileSize ?? 0)>0 { LabeledContent("Minimum size",value:ByteCountFormatter.string(fromByteCount:settings.minFileSize ?? 0,countStyle:.file)) }
             if let include=settings.includeRegex,!include.isEmpty { Text("Include: "+String(include.prefix(1024))).font(.footnote.monospaced()) }
             if let exclude=settings.excludeRegex,!exclude.isEmpty { Text("Exclude: "+String(exclude.prefix(1024))).font(.footnote.monospaced()) }

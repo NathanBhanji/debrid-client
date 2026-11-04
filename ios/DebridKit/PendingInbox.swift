@@ -312,13 +312,100 @@ public struct PendingInbox: Sendable {
             state.fileSelections[index].intent=intent.replacingPhase(.blocked);state.fileSelections[index].freshToken=nil;return ((),true)
         }
     }
+    public func savedRetries() async throws -> [SavedRetry] {
+        try await transaction {state,_ in
+            let items=state.retries.compactMap {row -> SavedRetry? in
+                guard let intent=row.intent,intent.phase == .prepared || intent.phase == .blocked else {return nil}
+                return SavedRetry(id:row.id,serverURL:row.serverURL,kind:row.kind,resourceID:row.resourceID,torrentID:row.torrentID,name:row.name)
+            }
+            return (items,false)
+        }
+    }
+    public func claimRetry(server:URL,kind:RetryResourceKind,resourceID:String,torrentID:String,name:String) async throws -> RetryClaim {
+        guard SubmissionIdentity.validID(resourceID),SubmissionIdentity.validID(torrentID),kind != .torrent || resourceID==torrentID,server.absoluteString.utf8.count<=2048,(try? ServerAddress(server.absoluteString))?.url==server else {throw RetryIntentError.invalid}
+        let title=String(name.unicodeScalars.prefix(256).map {($0.properties.generalCategory == .control || $0.properties.generalCategory == .format) ? " " : String($0)}.joined())
+        return try await transaction {state,now in
+            state.retries.removeAll {row in row.lease?.live(at:now) != true && (row.intent==nil || row.intent?.phase == .accepted || row.intent?.phase == .rejected)}
+            let offset:Int
+            if let existing=state.retries.firstIndex(where:{$0.serverURL==server && $0.kind==kind && $0.resourceID==resourceID}) {
+                guard state.retries[existing].torrentID==torrentID else {throw RetryIntentError.parentChanged}
+                guard state.retries[existing].lease?.live(at:now) != true else {throw PendingInboxError.busy};offset=existing
+            } else {
+                guard state.retries.count<Self.itemLimit else {throw PendingInboxError.full}
+                state.retries.append(RetryRow(id:UUID(),serverURL:server,kind:kind,resourceID:resourceID,torrentID:torrentID,name:title,lease:nil,intent:nil,freshToken:nil));offset=state.retries.count-1
+            }
+            state.retries[offset].freshToken=nil
+            state.retries[offset].lease=Lease(token:UUID(),issuedAt:now,expiresAt:now.addingTimeInterval(Self.reviewLifetime))
+            return (try state.retries[offset].claim(),true)
+        }
+    }
+    private static func retryOffset(_ id:UUID,token:UUID,state:Envelope,now:Date) throws -> Int {
+        guard let index=state.retries.firstIndex(where:{$0.id==id}),let lease=state.retries[index].lease,lease.token==token,lease.live(at:now) else {throw PendingInboxError.lostClaim};return index
+    }
+    public func retryClaim(_ id:UUID,token:UUID) async throws -> RetryClaim {
+        try await transaction {state,now in let index=try Self.retryOffset(id,token:token,state:state,now:now);return (try state.retries[index].claim(),false)}
+    }
+    public func renewRetry(_ id:UUID,token:UUID) async throws {
+        try await transaction {state,now in let index=try Self.retryOffset(id,token:token,state:state,now:now);state.retries[index].lease=Lease(token:token,issuedAt:now,expiresAt:now.addingTimeInterval(Self.reviewLifetime));return ((),true)}
+    }
+    public func releaseRetry(_ id:UUID,token:UUID) async throws {
+        try await transaction {state,_ in
+            guard let index=state.retries.firstIndex(where:{$0.id==id}),state.retries[index].lease?.token==token else {throw PendingInboxError.lostClaim}
+            let phase=state.retries[index].intent?.phase
+            if phase==nil || phase == .accepted || phase == .rejected {state.retries.remove(at:index)} else {state.retries[index].lease=nil;state.retries[index].freshToken=nil}
+            return ((),true)
+        }
+    }
+    public func prepareRetry(_ id:UUID,token:UUID,review:RetryReviewDTO) async throws -> PreparedRetry {
+        try await transaction {state,now in
+            let index=try Self.retryOffset(id,token:token,state:state,now:now),row=state.retries[index]
+            guard review.kind==row.kind.rawValue,review.resourceId==row.resourceID,review.torrentId==row.torrentID,review.allowed,FileSelectionIdentity.revisionIsValid(review.revision) else {throw RetryIntentError.parentChanged}
+            if let intent=row.intent,intent.phase != .rejected {
+                guard intent.phase == .prepared,intent.revision==review.revision else {throw RetryIntentError.unresolved}
+                return (PreparedRetry(intent:intent,rejectionToken:nil),false)
+            }
+            let intent=RetryIntent(serverURL:row.serverURL,kind:row.kind,resourceID:row.resourceID,torrentID:row.torrentID,revision:review.revision,waitForSelection:review.waitForSelection,createdAt:now)
+            try intent.validate()
+            let nonce=UUID();state.retries[index].intent=intent;state.retries[index].freshToken=nonce
+            return (PreparedRetry(intent:intent,rejectionToken:nonce),true)
+        }
+    }
+    public func acceptRetry(_ id:UUID,token:UUID,key:UUID,receipt:RetryAcceptanceDTO) async throws {
+        try await transaction {state,now in
+            let index=try Self.retryOffset(id,token:token,state:state,now:now)
+            guard let intent=state.retries[index].intent,intent.key==key,receipt.kind==intent.kind.rawValue,receipt.resourceId==intent.resourceID,receipt.torrentId==intent.torrentID else {throw RetryIntentError.parentChanged}
+            let accepted=intent.replacingPhase(.accepted,receipt:receipt);try accepted.validate()
+            state.retries[index].intent=accepted;state.retries[index].freshToken=nil;return ((),true)
+        }
+    }
+    public func rejectRetry(_ id:UUID,token:UUID,key:UUID,freshToken:UUID) async throws {
+        try await transaction {state,now in
+            let index=try Self.retryOffset(id,token:token,state:state,now:now)
+            guard let intent=state.retries[index].intent,intent.key==key,intent.phase == .prepared,state.retries[index].freshToken==freshToken else {throw RetryIntentError.unresolved}
+            state.retries[index].intent=intent.replacingPhase(.rejected);state.retries[index].freshToken=nil;return ((),true)
+        }
+    }
+    public func blockRetry(_ id:UUID,token:UUID,key:UUID) async throws {
+        try await transaction {state,now in
+            let index=try Self.retryOffset(id,token:token,state:state,now:now)
+            guard let intent=state.retries[index].intent,intent.key==key,intent.phase == .prepared else {throw RetryIntentError.unresolved}
+            state.retries[index].intent=intent.replacingPhase(.blocked);state.retries[index].freshToken=nil;return ((),true)
+        }
+    }
+    private struct RetryRow:Codable,Sendable {
+        let id:UUID;let serverURL:URL;let kind:RetryResourceKind;let resourceID:String;let torrentID:String;let name:String
+        var lease:Lease?;var intent:RetryIntent?;var freshToken:UUID?
+        func claim() throws -> RetryClaim {guard let lease else {throw PendingInboxError.lostClaim};return RetryClaim(id:id,token:lease.token,serverURL:serverURL,kind:kind,resourceID:resourceID,torrentID:torrentID,name:name,intent:intent)}
+    }
     private struct Envelope: Codable, Sendable {
-        var version=4;var items:[Row]=[];var fileSelections:[SelectionRow]=[]
-        enum CodingKeys:String,CodingKey {case version,items,fileSelections}
+        var version=5;var items:[Row]=[];var fileSelections:[SelectionRow]=[];var retries:[RetryRow]=[]
+        enum CodingKeys:String,CodingKey {case version,items,fileSelections,retries}
         init() {}
         init(from decoder:any Decoder) throws {
             let values=try decoder.container(keyedBy:CodingKeys.self)
             version=try values.decode(Int.self,forKey:.version);items=try values.decode([Row].self,forKey:.items)
+            if version>=5 {retries=try values.decode([RetryRow].self,forKey:.retries)}
+            else {retries=try values.decodeIfPresent([RetryRow].self,forKey:.retries) ?? []}
             if version>=4 {fileSelections=try values.decode([SelectionRow].self,forKey:.fileSelections)}
             else {fileSelections=try values.decodeIfPresent([SelectionRow].self,forKey:.fileSelections) ?? []}
         }
@@ -371,19 +458,21 @@ public struct PendingInbox: Sendable {
             try Task.checkCancellation()
             // No suspension point while holding the cross-process lock.
             var state = try load()
-            let migrating=state.version<4
-            if migrating { state.fileSelections=[] }
+            let migrating=state.version<5
+            if state.version<4 {state.fileSelections=[]}
+            if migrating {state.retries=[]}
             try cleanup(state)
             let now = clock()
             guard now.timeIntervalSince1970.isFinite else { throw PendingInboxError.unavailable }
             let (value,changed) = try operation(&state,now)
-            if changed || migrating { state.version = 4; try save(state) }
+            if changed || migrating { state.version = 5; try save(state) }
             // After a committed removal, orphan cleanup is best effort: never turn success into an ambiguous failure.
             try? cleanup(state)
             return value
         } catch is CancellationError { throw CancellationError() }
         catch let error as PendingInboxError { throw error }
         catch let error as FileSelectionError { throw error }
+        catch let error as RetryIntentError {throw error}
         catch { throw PendingInboxError.unavailable }
     }
     private func prepare() throws {
@@ -424,12 +513,23 @@ public struct PendingInbox: Sendable {
         catch ReadFailure.missing { return Envelope() }
         let decoder = JSONDecoder(); decoder.dateDecodingStrategy = .millisecondsSince1970
         guard let header = try? decoder.decode(Header.self,from:data) else { throw PendingInboxError.corrupt }
-        guard (1...4).contains(header.version) else { throw PendingInboxError.unsupportedVersion }
+        guard (1...5).contains(header.version) else { throw PendingInboxError.unsupportedVersion }
         guard let state = try? decoder.decode(Envelope.self,from:data), state.items.count <= Self.itemLimit, Set(state.items.map(\.id)).count == state.items.count,
               state.items.reduce(0,{ $0+($1.rawURI?.utf8.count ?? 0) }) <= Self.uriByteLimit,
               state.items.allSatisfy({ ($0.torrent?.byteCount ?? 0) >= 0 && ($0.torrent?.byteCount ?? 0) <= TorrentFile.byteLimit }),
               state.items.reduce(0,{ $0+($1.torrent?.byteCount ?? 0) }) <= Self.payloadByteLimit else { throw PendingInboxError.corrupt }
         if header.version<4, !state.fileSelections.isEmpty {throw PendingInboxError.corrupt}
+        if header.version<5,!state.retries.isEmpty {throw PendingInboxError.corrupt}
+        guard state.retries.count<=Self.itemLimit,Set(state.retries.map(\.id)).count==state.retries.count else {throw PendingInboxError.corrupt}
+        var retryIdentities=Set<String>()
+        for row in state.retries {
+            guard SubmissionIdentity.validKey(row.id),SubmissionIdentity.validID(row.resourceID),SubmissionIdentity.validID(row.torrentID),row.kind != .torrent || row.resourceID==row.torrentID,row.name.utf8.count<=1024,row.serverURL.absoluteString.utf8.count<=2048,(try? ServerAddress(row.serverURL.absoluteString))?.url==row.serverURL,retryIdentities.insert(row.serverURL.absoluteString+"\n"+row.kind.rawValue+"\n"+row.resourceID).inserted else {throw PendingInboxError.corrupt}
+            if let lease=row.lease {guard SubmissionIdentity.validKey(lease.token),lease.issuedAt.timeIntervalSince1970.isFinite,lease.expiresAt.timeIntervalSince1970.isFinite,abs(lease.expiresAt.timeIntervalSince(lease.issuedAt)-Self.reviewLifetime)<1 else {throw PendingInboxError.corrupt}}
+            if let intent=row.intent {
+                guard (try? intent.validate()) != nil,intent.serverURL==row.serverURL,intent.kind==row.kind,intent.resourceID==row.resourceID,intent.torrentID==row.torrentID,intent.phase == .prepared || row.freshToken==nil else {throw PendingInboxError.corrupt}
+            } else if row.freshToken != nil {throw PendingInboxError.corrupt}
+            if let nonce=row.freshToken {guard SubmissionIdentity.validKey(nonce) else {throw PendingInboxError.corrupt}}
+        }
         let selections=state.fileSelections
         guard selections.count<=Self.itemLimit,Set(selections.map(\.id)).count==selections.count else {throw PendingInboxError.corrupt}
         var identities=Set<String>(),selectionBytes=0

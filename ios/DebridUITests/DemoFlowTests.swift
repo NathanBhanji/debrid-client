@@ -445,3 +445,53 @@ final class NativeSubmissionFlowTests:XCTestCase {
         XCTAssertTrue(app.buttons["share-fixture"].waitForExistence(timeout:8))
     }
 }
+
+@MainActor final class NativeRetryFlowTests:XCTestCase {
+    private func launch(_ mode:String,large:Bool = false)->XCUIApplication {
+        let app=XCUIApplication();app.launchArguments=["-DebridInboxTestNamespace",UUID().uuidString,"-DebridInboxCaptureMode",mode]
+        if large {app.launchArguments += ["-UIPreferredContentSizeCategoryName","UICTContentSizeCategoryAccessibilityXXXL"]}
+        app.launch();return app
+    }
+    private func reach(_ element:XCUIElement,in app:XCUIApplication) {
+        for _ in 0..<18 where !element.isHittable {app.swipeUp()}
+        XCTAssertTrue(element.isHittable)
+    }
+    private func capture(_ app:XCUIApplication,_ name:String) {
+        Thread.sleep(forTimeInterval:1)
+        let shot=XCTAttachment(screenshot:app.screenshot());shot.name=name;shot.lifetime = .keepAlways;add(shot)
+    }
+    func testWholeRetryRequiresExplicitConfirmationAndExplainsFreshFileReview() {
+        let app=launch("retry")
+        XCTAssertTrue(app.navigationBars["Retry transfer"].waitForExistence(timeout:12))
+        let confirm=app.buttons["confirm-retry"];XCTAssertTrue(confirm.waitForExistence(timeout:8))
+        XCTAssertTrue(app.staticTexts["Choose files again before NAS downloads start."].exists)
+        XCTAssertFalse(app.descendants(matching:.any).matching(identifier:"retry-accepted").firstMatch.exists)
+        reach(confirm,in:app);capture(app,"retry-transfer-review");confirm.tap()
+        XCTAssertTrue(app.descendants(matching:.any).matching(identifier:"retry-accepted").firstMatch.waitForExistence(timeout:8))
+        XCTAssertFalse(confirm.exists);capture(app,"retry-transfer-accepted")
+    }
+    func testLightAppearanceKeepsRetryWarningAndPrimaryActionReadable() {
+        let app=launch("retry-light")
+        let confirm=app.buttons["confirm-retry"];XCTAssertTrue(confirm.waitForExistence(timeout:12));reach(confirm,in:app)
+        XCTAssertTrue(app.staticTexts["Choose files again before NAS downloads start."].exists)
+        capture(app,"retry-transfer-light");confirm.tap()
+        XCTAssertTrue(app.descendants(matching:.any).matching(identifier:"retry-accepted").firstMatch.waitForExistence(timeout:8))
+    }
+    func testLostResponseOffersCheckAndKeepsFreshConfirmUnavailable() {
+        let app=launch("retry-uncertain")
+        let confirm=app.buttons["confirm-retry"];XCTAssertTrue(confirm.waitForExistence(timeout:12));reach(confirm,in:app);confirm.tap()
+        let check=app.buttons["check-retry-result"];XCTAssertTrue(check.waitForExistence(timeout:8))
+        let same=app.buttons["retry-same-request"];reach(same,in:app);XCTAssertTrue(same.isEnabled);XCTAssertFalse(confirm.exists)
+        app.swipeDown()
+        reach(check,in:app);capture(app,"retry-result-unknown");check.tap()
+        XCTAssertTrue(app.descendants(matching:.any).matching(identifier:"retry-accepted").firstMatch.waitForExistence(timeout:8))
+    }
+    func testLargestTextCanConfirmOneFailedFile() {
+        let app=launch("retry-file",large:true)
+        XCTAssertTrue(app.navigationBars["Retry file"].waitForExistence(timeout:12))
+        let confirm=app.buttons["confirm-retry"];reach(confirm,in:app)
+        XCTAssertFalse(app.staticTexts["Choose files again before NAS downloads start."].exists)
+        capture(app,"retry-file-large-text");confirm.tap()
+        XCTAssertTrue(app.descendants(matching:.any).matching(identifier:"retry-accepted").firstMatch.waitForExistence(timeout:8))
+    }
+}

@@ -696,6 +696,85 @@ components:
           description: TV path template; empty = '{title} ({year})/Season {season:02}'
           type: string
       type: object
+    RetryAcceptance:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/RetryAcceptance.json
+          format: uri
+          readOnly: true
+          type: string
+        accepted_at:
+          format: date-time
+          type: string
+        kind:
+          type: string
+        resource_id:
+          type: string
+        torrent_exists:
+          type: boolean
+        torrent_id:
+          type: string
+      required:
+        - kind
+        - resource_id
+        - torrent_id
+        - accepted_at
+        - torrent_exists
+      type: object
+    RetryRequestInBody:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/RetryRequestInBody.json
+          format: uri
+          readOnly: true
+          type: string
+        key:
+          description: Fresh UUIDv4 persisted before POST; reuse only for this immutable retry intent
+          maxLength: 38
+          minLength: 36
+          type: string
+        revision:
+          maxLength: 64
+          minLength: 64
+          pattern: ^[a-f0-9]{64}$
+          type: string
+      required:
+        - key
+        - revision
+      type: object
+    RetryReview:
+      additionalProperties: false
+      properties:
+        $schema:
+          description: A URL to the JSON Schema for this object.
+          example: https://example.com/schemas/RetryReview.json
+          format: uri
+          readOnly: true
+          type: string
+        allowed:
+          type: boolean
+        kind:
+          type: string
+        resource_id:
+          type: string
+        revision:
+          type: string
+        torrent_id:
+          type: string
+        wait_for_selection:
+          type: boolean
+      required:
+        - kind
+        - resource_id
+        - torrent_id
+        - revision
+        - allowed
+        - wait_for_selection
+      type: object
     SelectFilesInBody:
       additionalProperties: false
       properties:
@@ -1573,6 +1652,121 @@ paths:
       summary: Retry a failed download
       tags:
         - torrents
+  /api/v1/downloads/{id}/retry-requests:
+    post:
+      operationId: request-download-retry
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            maxLength: 256
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetryRequestInBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RetryAcceptance"
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Accept one revision-checked durable retry request
+      tags:
+        - torrents
+  /api/v1/downloads/{id}/retry-requests/{key}:
+    get:
+      operationId: get-download-retry-request
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            maxLength: 256
+            type: string
+        - in: path
+          name: key
+          required: true
+          schema:
+            maxLength: 38
+            type: string
+        - description: Original review revision bound to this request key
+          explode: false
+          in: query
+          name: revision
+          required: true
+          schema:
+            description: Original review revision bound to this request key
+            maxLength: 64
+            minLength: 64
+            pattern: ^[a-f0-9]{64}$
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RetryAcceptance"
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Check a saved retry without repeating the mutation
+      tags:
+        - torrents
+  /api/v1/downloads/{id}/retry-review:
+    get:
+      operationId: review-download-retry
+      parameters:
+        - description: Exact resource id returned by the API (not a prefix/hash alias)
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Exact resource id returned by the API (not a prefix/hash alias)
+            maxLength: 256
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RetryReview"
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Review retry eligibility and immutable revision
+      tags:
+        - torrents
   /api/v1/events:
     get:
       description: "Event names: torrent.added, torrent.updated, torrent.deleted, download.updated, account.changed, settings.changed, heartbeat (every 15s). Payloads are small notifications; re-fetch the resource. Slow consumers may miss events — re-sync on reconnect. Authenticate with the Bearer header or ?api_key= (EventSource cannot set headers)."
@@ -2225,6 +2419,121 @@ paths:
                 $ref: "#/components/schemas/ErrorModel"
           description: Error
       summary: Retry an errored or completed torrent from scratch
+      tags:
+        - torrents
+  /api/v1/torrents/{id}/retry-requests:
+    post:
+      operationId: request-torrent-retry
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            maxLength: 256
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetryRequestInBody"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RetryAcceptance"
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Accept one revision-checked durable retry request
+      tags:
+        - torrents
+  /api/v1/torrents/{id}/retry-requests/{key}:
+    get:
+      operationId: get-torrent-retry-request
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            maxLength: 256
+            type: string
+        - in: path
+          name: key
+          required: true
+          schema:
+            maxLength: 38
+            type: string
+        - description: Original review revision bound to this request key
+          explode: false
+          in: query
+          name: revision
+          required: true
+          schema:
+            description: Original review revision bound to this request key
+            maxLength: 64
+            minLength: 64
+            pattern: ^[a-f0-9]{64}$
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RetryAcceptance"
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Check a saved retry without repeating the mutation
+      tags:
+        - torrents
+  /api/v1/torrents/{id}/retry-review:
+    get:
+      operationId: review-torrent-retry
+      parameters:
+        - description: Exact resource id returned by the API (not a prefix/hash alias)
+          in: path
+          name: id
+          required: true
+          schema:
+            description: Exact resource id returned by the API (not a prefix/hash alias)
+            maxLength: 256
+            type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RetryReview"
+          description: OK
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+        default:
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ErrorModel"
+          description: Error
+      summary: Review retry eligibility and immutable revision
       tags:
         - torrents
 security:

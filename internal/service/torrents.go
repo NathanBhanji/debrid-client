@@ -315,7 +315,7 @@ func (s *Service) DeleteTorrent(ctx context.Context, idOrHash string, opts Delet
 		return err
 	}
 	if err := s.engine.CancelTorrent(ctx, t.ID); err != nil {
-		s.log.Warn("cancel torrent", "id", t.ID, "err", err)
+		return fmt.Errorf("stop torrent work before deletion: %w", err)
 	}
 	if opts.DeleteFromProvider && t.ProviderID != "" {
 		prov, _, err := s.providers.For(ctx, t.AccountID)
@@ -467,10 +467,33 @@ func (s *Service) RetryTorrent(ctx context.Context, idOrHash string) (TorrentDet
 	if err != nil {
 		return TorrentDetail{}, err
 	}
-	_ = s.engine.CancelTorrent(ctx, cur.ID)
+	var result TorrentDetail
+	err = s.engine.WithTorrentOperation(ctx, cur.ID, func() error {
+		current, err := s.loadTorrent(ctx, cur.ID)
+		if err != nil {
+			return err
+		}
+		if !current.Status.IsTerminal() {
+			return fmt.Errorf("%w: torrent is %s; only errored or completed torrents can be retried", ErrConflict, current.Status)
+		}
+		if err := s.engine.CancelTorrent(ctx, cur.ID); err != nil {
+			return err
+		}
+		result, err = s.retryTorrentStopped(ctx, cur.ID, nil)
+		return err
+	})
+	return result, err
+}
+
+func (s *Service) retryTorrentStopped(ctx context.Context, id string, attempt *retryAttempt) (TorrentDetail, error) {
 	var t domain.Torrent
-	err = s.store.WithTx(ctx, func(q *sqlcgen.Queries) error {
-		row, err := q.GetTorrent(ctx, cur.ID)
+	err := s.store.WithTx(ctx, func(q *sqlcgen.Queries) error {
+		if attempt != nil {
+			if err := attempt.validate(ctx, q); err != nil {
+				return err
+			}
+		}
+		row, err := q.GetTorrent(ctx, id)
 		if err != nil {
 			return err
 		}
@@ -534,7 +557,13 @@ func (s *Service) RetryTorrent(ctx context.Context, idOrHash string) (TorrentDet
 		if err := q.DeleteDownloadsForTorrent(ctx, t.ID); err != nil {
 			return err
 		}
-		return q.UpdateTorrent(ctx, params)
+		if err := q.UpdateTorrent(ctx, params); err != nil {
+			return err
+		}
+		if attempt != nil {
+			return attempt.record(ctx, q, t.ID, s.now())
+		}
+		return nil
 	})
 	if err != nil {
 		return TorrentDetail{}, err
@@ -546,9 +575,27 @@ func (s *Service) RetryTorrent(ctx context.Context, idOrHash string) (TorrentDet
 
 // RetryDownload re-queues a single errored download.
 func (s *Service) RetryDownload(ctx context.Context, downloadID string) (domain.Download, error) {
+	row, err := s.store.GetDownload(ctx, downloadID)
+	if store.IsNotFound(err) {
+		return domain.Download{}, fmt.Errorf("%w: download %q", ErrNotFound, downloadID)
+	}
+	if err != nil {
+		return domain.Download{}, err
+	}
+	var result domain.Download
+	err = s.engine.WithTorrentOperation(ctx, row.TorrentID, func() error { var err error; result, err = s.retryDownload(ctx, downloadID, nil); return err })
+	return result, err
+}
+
+func (s *Service) retryDownload(ctx context.Context, downloadID string, attempt *retryAttempt) (domain.Download, error) {
 	var d domain.Download
 	parentChanged := false
 	err := s.store.WithTx(ctx, func(q *sqlcgen.Queries) error {
+		if attempt != nil {
+			if err := attempt.validate(ctx, q); err != nil {
+				return err
+			}
+		}
 		row, err := q.GetDownload(ctx, downloadID)
 		if err != nil {
 			return err
@@ -597,7 +644,13 @@ func (s *Service) RetryDownload(ctx context.Context, downloadID string) (domain.
 		d.FinishedAt = nil
 		d.CompletedAt = nil
 		d.UpdatedAt = s.now()
-		return q.UpdateDownload(ctx, store.DownloadUpdateParams(d))
+		if err := q.UpdateDownload(ctx, store.DownloadUpdateParams(d)); err != nil {
+			return err
+		}
+		if attempt != nil {
+			return attempt.record(ctx, q, d.TorrentID, s.now())
+		}
+		return recordLegacyRetryFence(ctx, q, d.TorrentID, d.ID, s.now())
 	})
 	if err != nil {
 		if store.IsNotFound(err) {

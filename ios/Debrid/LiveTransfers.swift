@@ -11,6 +11,7 @@ struct LiveTransfers: View {
     private struct IntakeNavigationContext:Hashable { let request:UUID?;let ready:Bool;let active:Bool }
     @State private var model: TransferListModel?
     @State private var selectionModel:FileSelectionModel?
+    @State private var retryModel:RetryModel?
     @State private var selectionMessage:String?
     @State private var setupFailed = false
     @State private var showingServer = false
@@ -48,16 +49,19 @@ struct LiveTransfers: View {
                 .navigationDestination(for:TransferRoute.self) { route in
                     if let model {
                         switch route {
-                        case .detail(let id): LiveTransferDetail(transferID:id,model:model,preview:auth == nil,chooseFiles:openSelection)
+                        case .detail(let id): LiveTransferDetail(transferID:id,model:model,preview:auth == nil,chooseFiles:openSelection,retryTransfer:openRetry)
                         case .files(let id): TransferFilesRoot(model:model,transferID:id,preview:auth == nil)
                         }
                     }
                 }
         }.tint(DebridStyle.tint)
                 .sheet(isPresented:Binding(get:{selectionModel != nil},set:{if !$0 {selectionModel=nil}}),onDismiss:{Task {await intake?.refresh()}}) {
-                    if let selectionModel {FileSelectionSheet(model:selectionModel).onChange(of:selectionModel.requiresSignIn) {if selectionModel.requiresSignIn {Task {await intake?.rejectConnection(selectionModel.connectionID)}}}}
+                    if let selectionModel {FileSelectionSheet(model:selectionModel,connectionID:intake?.connection?.connectionID).onChange(of:selectionModel.requiresSignIn) {if selectionModel.requiresSignIn {Task {await intake?.rejectConnection(selectionModel.connectionID)}}}}
                 }
-                .alert("File review unavailable",isPresented:Binding(get:{selectionMessage != nil},set:{if !$0 {selectionMessage=nil}})) {Button("OK",role:.cancel) {selectionMessage=nil}} message: {Text(selectionMessage ?? "")}
+                .sheet(isPresented:Binding(get:{retryModel != nil},set:{if !$0 {retryModel=nil}}),onDismiss:{Task {await intake?.refresh();if let model {await model.refreshWhileActive()}}}) {
+                    if let retryModel {RetrySheet(model:retryModel,connectionID:intake?.connection?.connectionID).onChange(of:retryModel.requiresSignIn) {if retryModel.requiresSignIn {Task {await intake?.rejectConnection(retryModel.connectionID)}}}}
+                }
+                .alert("Review unavailable",isPresented:Binding(get:{selectionMessage != nil},set:{if !$0 {selectionMessage=nil}})) {Button("OK",role:.cancel) {selectionMessage=nil}} message: {Text(selectionMessage ?? "")}
                 .task(id:IntakeNavigationContext(request:intake?.navigationRequest?.id,ready:model != nil,active:scenePhase == .active)) {
                     guard scenePhase == .active,let request=intake?.navigationRequest,request.serverURL==server.profile.serverURL,let model else { return }
                     await model.refreshWhileActive()
@@ -141,6 +145,9 @@ struct LiveTransfers: View {
     }
     private func openSelection(_ id:String,_ name:String) {
         do {selectionModel=try intake?.fileSelectionModel(transferID:id,name:name)} catch {selectionMessage="File review could not be opened. Check protected storage and try again."}
+    }
+    private func openRetry(_ id:String,_ name:String) {
+        do {retryModel=try intake?.retryModel(kind:.torrent,resourceID:id,torrentID:id,name:name)} catch {selectionMessage="Retry review could not be opened. Check protected storage and try again."}
     }
     private func reload(_ model: TransferListModel) async {
         await model.refreshWhileActive()

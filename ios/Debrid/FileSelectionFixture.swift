@@ -42,7 +42,7 @@ struct SelectionFixtureRoot:View {
                 let profile=try ServerProfile(server:ServerAddress("https://debrid.example.test"))
                 let server=AuthenticatedServer(profile:profile,username:"Sample User",credential:try .session("fixture_unused"))
                 // The same Debug namespace factory as magnet/torrent UI tests.
-                guard let store=try openPendingInboxForSelectionFixture() else {failed=true;return}
+                guard let store=try openPendingInboxForNativeFixture() as? any FileSelectionIntentStoring else {failed=true;return}
                 model=try FileSelectionModel(server:server,transferID:"sample-selection",name:"The Open Ocean · Season 1",api:FileSelectionFixtureAPI(serverURL:profile.serverURL,uncertain:uncertain),store:store)
             } catch {failed=true}
         }

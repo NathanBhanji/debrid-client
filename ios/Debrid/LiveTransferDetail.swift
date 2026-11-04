@@ -7,6 +7,7 @@ struct LiveTransferDetail: View {
     let model: TransferListModel
     let preview: Bool
     var chooseFiles:((String,String)->Void)? = nil
+    var retryTransfer:((String,String)->Void)? = nil
     @Environment(\.dismiss) private var dismiss
     var body: some View {
         List {
@@ -46,6 +47,9 @@ struct LiveTransferDetail: View {
                 } header: { Text("On your NAS") } footer: { Text("Downloading, unpacking and finalizing are separate stages. Completion is confirmed by the server.") }
                 if item.transfer.settings.waitForSelection == true,let chooseFiles {Section {
                     Button(item.transfer.fileSelectionState == "accepted" ? "View confirmed selection" : "Choose files",systemImage:"checklist") {chooseFiles(transferID,item.name)}.accessibilityIdentifier("choose-transfer-files")
+                }}
+                if !preview,item.transfer.status=="error",let retryTransfer {Section {
+                    Button("Retry failed transfer",systemImage:"arrow.trianglehead.2.clockwise") {retryTransfer(transferID,item.name)}.buttonStyle(.borderless).foregroundStyle(DebridStyle.tint).accessibilityIdentifier("retry-transfer")
                 }}
                 Section { NavigationLink(value:TransferRoute.files(transferID)) { Label("Files",systemImage:"folder") }.accessibilityIdentifier("transfer-files") }
                 Section {
