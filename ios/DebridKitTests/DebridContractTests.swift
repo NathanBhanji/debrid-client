@@ -10,6 +10,7 @@ private struct WireContract: Decodable {
     let torrent: TorrentDTO
     let account: AccountDTO
     let settings: SettingsDTO
+    let settingsReview: SettingsReviewDTO
     let systemStatus: SystemStatusDTO
     let removalReview:RemovalReviewDTO
     let missingRemovalReview:RemovalReviewDTO
@@ -27,6 +28,8 @@ struct DebridContractTests {
     @Test func decodesGoProducedWireShapes() throws {
         let contract = try DebridAPIClient.decoder().decode(WireContract.self, from:fixture())
         #expect(contract.health.ok)
+        #expect(contract.settingsReview.revision.count == 64 && contract.settingsReview.settings.categories == [])
+        #expect(contract.health.capabilities?.contains("native_settings_revision_v1") == true)
         #expect(contract.removalReview.exists && contract.removalReview.torrentId==contract.torrent.id && contract.removalReview.providerCopyKnown)
         #expect(!contract.missingRemovalReview.exists && contract.missingRemovalReview.revision==nil && !contract.missingRemovalReview.providerCopyKnown)
         #expect(contract.cancellationReview.torrentId==contract.torrent.id && contract.cancellationReview.providerMayContinue && contract.cancellationReview.allowed)

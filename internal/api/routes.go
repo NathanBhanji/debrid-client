@@ -146,7 +146,7 @@ func (h *Handler) registerRoutes(p string) {
 			out := &healthOut{}
 			out.Body.OK = true
 			out.Body.Version = buildinfo.Version
-			out.Body.Capabilities = []string{"torrent_submissions_v1", "multipart_torrent_settings_v1", "manual_file_selection_v1", "native_retry_v1", "native_cancellation_v1", "native_removal_precondition_v1", "native_account_removal_drain_v1"}
+			out.Body.Capabilities = []string{"torrent_submissions_v1", "multipart_torrent_settings_v1", "manual_file_selection_v1", "native_retry_v1", "native_cancellation_v1", "native_removal_precondition_v1", "native_account_removal_drain_v1", "native_settings_revision_v1"}
 			return out, nil
 		})
 	huma.Register(api, huma.Operation{OperationID: "get-status", Method: http.MethodGet, Path: p + "/system/status", Summary: "System status", Tags: []string{"system"}},
@@ -365,6 +365,7 @@ func (h *Handler) registerRoutes(p string) {
 	h.registerRetryRoutes(p)
 	h.registerCancellationRoutes(p)
 	h.registerRemovalReviewRoute(p)
+	h.registerSettingsReview(p)
 
 	// Settings
 	huma.Register(api, huma.Operation{OperationID: "get-settings", Method: http.MethodGet, Path: p + "/settings", Summary: "Get runtime settings", Tags: []string{"settings"}},

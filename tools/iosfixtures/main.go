@@ -35,9 +35,9 @@ func generate() error {
 		return err
 	}
 	defer func() { _ = st.Close() }()
-	handler := api.New(nil, api.Options{APIKey: "fixture-only", Auth: auth.New(st)})
+	handler := api.New(service.New(st, nil, nil, nil, service.Config{}, nil), api.Options{APIKey: "fixture-only", Auth: auth.New(st)})
 	fixtures := make(map[string]any)
-	for name, path := range map[string]string{"health": "health", "auth_status": "auth/status", "identity": "auth/me"} {
+	for name, path := range map[string]string{"health": "health", "auth_status": "auth/status", "identity": "auth/me", "settings_review": "settings/review"} {
 		req := httptest.NewRequest("GET", "/api/v1/"+path, nil)
 		req.Header.Set("Authorization", "Bearer fixture-only")
 		response := httptest.NewRecorder()

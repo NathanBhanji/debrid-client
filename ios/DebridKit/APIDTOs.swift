@@ -49,12 +49,12 @@ public struct TorrentSettingsDTO: Codable, Equatable, Sendable {
         self.minFileSize=minFileSize;self.includeRegex=includeRegex;self.excludeRegex=excludeRegex;self.manualFiles=manualFiles;self.finishedAction=finishedAction;self.finishedDelay=finishedDelay;self.downloadRetries=downloadRetries;self.torrentRetries=torrentRetries;self.deleteOnError=deleteOnError;self.lifetime=lifetime;self.unpack=unpack;self.organize=organize;self.waitForSelection=waitForSelection
     }
 }
-public struct OrganizeSettingsDTO: Decodable, Sendable {
+public struct OrganizeSettingsDTO: Codable, Sendable {
     public let enabled: Bool
     public let movieTemplate: String?
     public let tvTemplate: String?
 }
-public struct SettingsDTO: Decodable, Sendable {
+public struct SettingsDTO: Codable, Sendable {
     public let torrentDefaults: TorrentSettingsDTO
     public let categories: [String]?
     public let unpackMaxDepth: Int

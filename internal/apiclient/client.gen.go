@@ -771,6 +771,16 @@ type Settings struct {
 	UnpackMaxDepth  *int64            `json:"unpack_max_depth,omitempty"`
 }
 
+// SettingsReviewBody defines model for SettingsReviewBody.
+type SettingsReviewBody struct {
+	// Schema A URL to the JSON Schema for this object.
+	//
+	// Example: https://example.com/schemas/SettingsReviewBody.json
+	Schema   *string  `json:"$schema,omitempty"`
+	Revision string   `json:"revision"`
+	Settings Settings `json:"settings"`
+}
+
 // SetupOIDCInBody defines model for SetupOIDCInBody.
 type SetupOIDCInBody struct {
 	// Schema A URL to the JSON Schema for this object.
@@ -999,6 +1009,11 @@ type GetDownloadRetryRequestParams struct {
 	Revision string `form:"revision" json:"revision"`
 }
 
+// UpdateReviewedSettingsParams defines parameters for UpdateReviewedSettings.
+type UpdateReviewedSettingsParams struct {
+	IfMatch string `json:"If-Match"`
+}
+
 // ListTorrentsParams defines parameters for ListTorrents.
 type ListTorrentsParams struct {
 	Status *ListTorrentsParamsStatus `form:"status,omitempty" json:"status,omitempty"`
@@ -1096,6 +1111,9 @@ type OrganizePreviewJSONRequestBody = OrganizePreviewInBody
 
 // UpdateSettingsJSONRequestBody defines body for UpdateSettings for application/json ContentType.
 type UpdateSettingsJSONRequestBody = Settings
+
+// UpdateReviewedSettingsJSONRequestBody defines body for UpdateReviewedSettings for application/json ContentType.
+type UpdateReviewedSettingsJSONRequestBody = Settings
 
 // AddTorrentJSONRequestBody defines body for AddTorrent for application/json ContentType.
 type AddTorrentJSONRequestBody = AddTorrentInBody
@@ -1431,6 +1449,29 @@ type ClientInterface interface {
 	//
 	// Corresponds with PUT /api/v1/settings (the `UpdateSettings` operationId).
 	UpdateSettings(ctx context.Context, body UpdateSettingsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReviewSettings Read runtime settings with an opaque write revision
+	//
+	// Corresponds with GET /api/v1/settings/review (the `ReviewSettings` operationId).
+	ReviewSettings(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateReviewedSettingsWithBody Replace runtime settings only if the reviewed revision is current
+	//
+	// Requires exactly one strong quoted If-Match.412 refuses stale state atomically, including changes through legacy clients and ABA changes. Missing/empty/weak/list/duplicate headers are rejected; no unconditional fallback. A lost response is not an acceptance receipt: read current settings and require fresh review, never automatically replay.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /api/v1/settings/review (the `UpdateReviewedSettings` operationId).
+	UpdateReviewedSettingsWithBody(ctx context.Context, params *UpdateReviewedSettingsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateReviewedSettings Replace runtime settings only if the reviewed revision is current
+	//
+	// Requires exactly one strong quoted If-Match.412 refuses stale state atomically, including changes through legacy clients and ABA changes. Missing/empty/weak/list/duplicate headers are rejected; no unconditional fallback. A lost response is not an acceptance receipt: read current settings and require fresh review, never automatically replay.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /api/v1/settings/review (the `UpdateReviewedSettings` operationId).
+	UpdateReviewedSettings(ctx context.Context, params *UpdateReviewedSettingsParams, body UpdateReviewedSettingsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetStatus System status
 	//
@@ -2219,6 +2260,59 @@ func (c *Client) UpdateSettingsWithBody(ctx context.Context, contentType string,
 // Corresponds with PUT /api/v1/settings (the `UpdateSettings` operationId).
 func (c *Client) UpdateSettings(ctx context.Context, body UpdateSettingsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUpdateSettingsRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ReviewSettings Read runtime settings with an opaque write revision
+//
+// Corresponds with GET /api/v1/settings/review (the `ReviewSettings` operationId).
+func (c *Client) ReviewSettings(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReviewSettingsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateReviewedSettingsWithBody Replace runtime settings only if the reviewed revision is current
+//
+// Requires exactly one strong quoted If-Match.412 refuses stale state atomically, including changes through legacy clients and ABA changes. Missing/empty/weak/list/duplicate headers are rejected; no unconditional fallback. A lost response is not an acceptance receipt: read current settings and require fresh review, never automatically replay.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /api/v1/settings/review (the `UpdateReviewedSettings` operationId).
+func (c *Client) UpdateReviewedSettingsWithBody(ctx context.Context, params *UpdateReviewedSettingsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateReviewedSettingsRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateReviewedSettings Replace runtime settings only if the reviewed revision is current
+//
+// Requires exactly one strong quoted If-Match.412 refuses stale state atomically, including changes through legacy clients and ABA changes. Missing/empty/weak/list/duplicate headers are rejected; no unconditional fallback. A lost response is not an acceptance receipt: read current settings and require fresh review, never automatically replay.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /api/v1/settings/review (the `UpdateReviewedSettings` operationId).
+func (c *Client) UpdateReviewedSettings(ctx context.Context, params *UpdateReviewedSettingsParams, body UpdateReviewedSettingsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateReviewedSettingsRequest(c.Server, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -3747,6 +3841,86 @@ func NewUpdateSettingsRequestWithBody(server string, contentType string, body io
 	return req, nil
 }
 
+// NewReviewSettingsRequest constructs an http.Request for the ReviewSettings method
+func NewReviewSettingsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/settings/review")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewUpdateReviewedSettingsRequest calls the generic UpdateReviewedSettings builder with application/json body
+func NewUpdateReviewedSettingsRequest(server string, params *UpdateReviewedSettingsParams, body UpdateReviewedSettingsJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdateReviewedSettingsRequestWithBody(server, params, "application/json", bodyReader)
+}
+
+// NewUpdateReviewedSettingsRequestWithBody constructs an http.Request for the UpdateReviewedSettings method, with any body, and a specified content type
+func NewUpdateReviewedSettingsRequestWithBody(server string, params *UpdateReviewedSettingsParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/settings/review")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "If-Match", params.IfMatch, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("If-Match", headerParam0)
+
+	}
+
+	return req, nil
+}
+
 // NewGetStatusRequest constructs an http.Request for the GetStatus method
 func NewGetStatusRequest(server string) (*http.Request, error) {
 	var err error
@@ -5041,6 +5215,31 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with PUT /api/v1/settings (the `UpdateSettings` operationId).
 	UpdateSettingsWithResponse(ctx context.Context, body UpdateSettingsJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateSettingsResponse, error)
+
+	// ReviewSettingsWithResponse Read runtime settings with an opaque write revision
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /api/v1/settings/review (the `ReviewSettings` operationId).
+	ReviewSettingsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ReviewSettingsResponse, error)
+
+	// UpdateReviewedSettingsWithBodyWithResponse Replace runtime settings only if the reviewed revision is current
+	//
+	// Requires exactly one strong quoted If-Match.412 refuses stale state atomically, including changes through legacy clients and ABA changes. Missing/empty/weak/list/duplicate headers are rejected; no unconditional fallback. A lost response is not an acceptance receipt: read current settings and require fresh review, never automatically replay.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /api/v1/settings/review (the `UpdateReviewedSettings` operationId).
+	UpdateReviewedSettingsWithBodyWithResponse(ctx context.Context, params *UpdateReviewedSettingsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateReviewedSettingsResponse, error)
+
+	// UpdateReviewedSettingsWithResponse Replace runtime settings only if the reviewed revision is current
+	//
+	// Requires exactly one strong quoted If-Match.412 refuses stale state atomically, including changes through legacy clients and ABA changes. Missing/empty/weak/list/duplicate headers are rejected; no unconditional fallback. A lost response is not an acceptance receipt: read current settings and require fresh review, never automatically replay.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /api/v1/settings/review (the `UpdateReviewedSettings` operationId).
+	UpdateReviewedSettingsWithResponse(ctx context.Context, params *UpdateReviewedSettingsParams, body UpdateReviewedSettingsJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateReviewedSettingsResponse, error)
 
 	// GetStatusWithResponse System status
 	//
@@ -6559,6 +6758,118 @@ func (r UpdateSettingsResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r UpdateSettingsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ReviewSettingsResponse200Headers the declared response headers of an HTTP 200 response for ReviewSettings
+type ReviewSettingsResponse200Headers struct {
+	CacheControl *string
+	ETag         *string
+}
+
+type ReviewSettingsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SettingsReviewBody
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ReviewSettingsResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ReviewSettingsResponse) GetJSON200() *SettingsReviewBody {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r ReviewSettingsResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ReviewSettingsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ReviewSettingsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReviewSettingsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ReviewSettingsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// UpdateReviewedSettingsResponse200Headers the declared response headers of an HTTP 200 response for UpdateReviewedSettings
+type UpdateReviewedSettingsResponse200Headers struct {
+	CacheControl *string
+	ETag         *string
+}
+
+type UpdateReviewedSettingsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SettingsReviewBody
+	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationproblemJSONDefault *ErrorModel
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *UpdateReviewedSettingsResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r UpdateReviewedSettingsResponse) GetJSON200() *SettingsReviewBody {
+	return r.JSON200
+}
+
+// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r UpdateReviewedSettingsResponse) GetApplicationproblemJSONDefault() *ErrorModel {
+	return r.ApplicationproblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r UpdateReviewedSettingsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r UpdateReviewedSettingsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UpdateReviewedSettingsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UpdateReviewedSettingsResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -8095,6 +8406,49 @@ func (c *ClientWithResponses) UpdateSettingsWithResponse(ctx context.Context, bo
 	return ParseUpdateSettingsResponse(rsp)
 }
 
+// ReviewSettingsWithResponse Read runtime settings with an opaque write revision
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /api/v1/settings/review (the `ReviewSettings` operationId).
+func (c *ClientWithResponses) ReviewSettingsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ReviewSettingsResponse, error) {
+	rsp, err := c.ReviewSettings(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReviewSettingsResponse(rsp)
+}
+
+// UpdateReviewedSettingsWithBodyWithResponse Replace runtime settings only if the reviewed revision is current
+//
+// Requires exactly one strong quoted If-Match.412 refuses stale state atomically, including changes through legacy clients and ABA changes. Missing/empty/weak/list/duplicate headers are rejected; no unconditional fallback. A lost response is not an acceptance receipt: read current settings and require fresh review, never automatically replay.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /api/v1/settings/review (the `UpdateReviewedSettings` operationId).
+func (c *ClientWithResponses) UpdateReviewedSettingsWithBodyWithResponse(ctx context.Context, params *UpdateReviewedSettingsParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateReviewedSettingsResponse, error) {
+	rsp, err := c.UpdateReviewedSettingsWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateReviewedSettingsResponse(rsp)
+}
+
+// UpdateReviewedSettingsWithResponse Replace runtime settings only if the reviewed revision is current
+//
+// Requires exactly one strong quoted If-Match.412 refuses stale state atomically, including changes through legacy clients and ABA changes. Missing/empty/weak/list/duplicate headers are rejected; no unconditional fallback. A lost response is not an acceptance receipt: read current settings and require fresh review, never automatically replay.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /api/v1/settings/review (the `UpdateReviewedSettings` operationId).
+func (c *ClientWithResponses) UpdateReviewedSettingsWithResponse(ctx context.Context, params *UpdateReviewedSettingsParams, body UpdateReviewedSettingsJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateReviewedSettingsResponse, error) {
+	rsp, err := c.UpdateReviewedSettings(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateReviewedSettingsResponse(rsp)
+}
+
 // GetStatusWithResponse System status
 //
 // Returns a wrapper object for the known response body format(s).
@@ -9459,6 +9813,112 @@ func ParseUpdateSettingsResponse(rsp *http.Response) (*UpdateSettingsResponse, e
 		}
 		response.ApplicationproblemJSONDefault = &dest
 
+	}
+
+	return response, nil
+}
+
+// ParseReviewSettingsResponse parses an HTTP response from a ReviewSettingsWithResponse call
+func ParseReviewSettingsResponse(rsp *http.Response) (*ReviewSettingsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReviewSettingsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SettingsReviewBody
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ReviewSettingsResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		if values := rsp.Header.Values("ETag"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "ETag", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.ETag = &value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseUpdateReviewedSettingsResponse parses an HTTP response from a UpdateReviewedSettingsWithResponse call
+func ParseUpdateReviewedSettingsResponse(rsp *http.Response) (*UpdateReviewedSettingsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UpdateReviewedSettingsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SettingsReviewBody
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest ErrorModel
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationproblemJSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers UpdateReviewedSettingsResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		if values := rsp.Header.Values("ETag"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "ETag", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.ETag = &value
+		}
+		response.Headers200 = &headers
 	}
 
 	return response, nil
