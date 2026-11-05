@@ -98,7 +98,14 @@ class AppStore:
     def verify_audience(self, build_id, expected_tester):
         if self.verify_group() != expected_tester:
             raise ValueError("Tester changed from the verified handoff")
-        groups = self.call("GET", "/v1/builds/" + build_id + "/betaGroups")["data"]
+        # Apple exposes build→groups as write-only. Read the collection through
+        # its build filter; the live API allows only one relationship filter.
+        result = self.call("GET", "/v1/betaGroups", params={"filter[builds]": build_id, "include": "app", "limit": "200"})
+        if result.get("links", {}).get("next"):
+            raise ValueError("Audience listing exceeds one complete page")
+        groups = result["data"]
+        if any(group.get("relationships", {}).get("app", {}).get("data", {}).get("id") != ASC_APP for group in groups):
+            raise ValueError("Build group belongs to an unexpected app")
         identifiers = {group["id"] for group in groups}
         if identifiers - {TEST_GROUP}:
             raise ValueError("Build already belongs to an unexpected testing group")

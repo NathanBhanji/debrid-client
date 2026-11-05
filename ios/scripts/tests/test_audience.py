@@ -27,7 +27,9 @@ class AudienceOrderingTests(unittest.TestCase):
                 return [{"id": "fixture-build", "attributes": {"processingState": "PROCESSING" if self.polls == 1 else "VALID", "expired": False}}]
             def call(self, method, path, *args, **kwargs):
                 if method != "GET": self.writes.append((method, path)); raise AssertionError("Audience gate allowed a write")
-                if path.endswith("/betaGroups"): return {"data": [{"id": "unexpected-group"}] if other_group else []}
+                if path == "/v1/betaGroups":
+                    self.assert_query = kwargs.get("params")
+                    return {"data": [{"id": "unexpected-group", "relationships": {"app": {"data": {"id": ASC_APP}}}}] if other_group else []}
                 if path.endswith("/betaBuildLocalizations"): return {"data": []}
                 raise AssertionError("Unexpected fixture request")
         api = FakeAPI()
@@ -47,6 +49,26 @@ class AudienceOrderingTests(unittest.TestCase):
 
     def test_changed_member_after_processing_cannot_receive_any_write(self): self.exercise(changed_member=True)
     def test_existing_other_build_group_blocks_before_any_write(self): self.exercise(other_group=True)
+
+
+class AudienceReadbackTests(unittest.TestCase):
+    def exercise(self, result):
+        api = object.__new__(AppStore)
+        with patch.object(api, "verify_group", return_value="expected-tester"), patch.object(api, "call", return_value=result) as call:
+            groups = api.verify_audience("fixture-build", "expected-tester")
+            call.assert_called_once_with("GET", "/v1/betaGroups", params={"filter[builds]": "fixture-build", "include": "app", "limit": "200"})
+            return groups
+
+    def test_supported_single_relationship_filter_and_exact_app(self):
+        group = {"id": TEST_GROUP, "relationships": {"app": {"data": {"id": ASC_APP}}}}
+        self.assertEqual(self.exercise({"data": [group], "links": {"next": None}}), {TEST_GROUP})
+        self.assertEqual(self.exercise({"data": []}), set())
+
+    def test_partial_or_other_app_audience_refuses(self):
+        for result in ({"data": [], "links": {"next": "https://example.invalid/next"}},
+                       {"data": [{"id": TEST_GROUP, "relationships": {"app": {"data": {"id": "other-app"}}}}]},
+                       {"data": [{"id": TEST_GROUP}]}):
+            with self.assertRaises(ValueError): self.exercise(result)
 
 
 if __name__ == "__main__": unittest.main()
