@@ -580,22 +580,26 @@ func TestRelinkWhenProviderIDChanges(t *testing.T) {
 
 func TestDirNameFrozenAndServiceEditsSurvive(t *testing.T) {
 	h := newHarness(t, nil)
-	h.fetch.delay = 300 * time.Millisecond
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var unblock sync.Once
+	// Hold this download across the edit. A timed delay can finish before the
+	// assertion observes it, or expire before provider polling starts it.
+	h.fetch.beforeProgress = func() { close(started) }
+	h.fetch.blockAfter = release
+	t.Cleanup(func() { unblock.Do(func() { close(release) }) })
 	tor := h.add(nil)
 	pid := h.waitProviderID(tor.ID)
 	h.finishAtProvider(pid, map[string][]byte{"a.mkv": []byte("a")})
-	// Wait until the download is running, then change settings via the service.
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		d, _ := h.svc.GetTorrent(context.Background(), tor.ID)
-		if len(d.Downloads) > 0 && d.Downloads[0].State == domain.DownloadDownloading {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("download did not start before settings edit")
 	}
 	if _, err := h.svc.UpdateTorrent(context.Background(), tor.ID, service.UpdateTorrentInput{Settings: &domain.TorrentSettings{MinFileSize: 42, DownloadRetries: 1, FinishedAction: domain.FinishedKeep, Unpack: true}}); err != nil {
 		t.Fatal(err)
 	}
+	unblock.Do(func() { close(release) })
 	got := h.waitStatus(tor.ID, domain.TorrentCompleted)
 	if got.Settings.MinFileSize != 42 {
 		t.Fatalf("engine write clobbered a concurrent service edit: %+v", got.Settings)
